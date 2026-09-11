@@ -1,0 +1,122 @@
+Name,Message,Message type,VI SDK Server,VI SDK UUID
+PRD-APP-003,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SQL-004,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-006,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-009,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SVC-011,VM has an active snapshot! CHG0041337 rollback created on 08/29/2026 09:14:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-CTX-015,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-019,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-FS-020,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-025,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-FS-029,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-033,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SVC-037,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-038,VM has an active snapshot! Snapshot 1 created on 08/30/2026 08:50:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-041,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-FS-048,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-RDS-052,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-054,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-057,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-CTX-063,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-066,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-RDS-085,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SQL-094,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-095,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-104,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-107,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SQL-113,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SVC-115,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-117,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-119,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SVC-122,VM has an active snapshot! CHG0041337 rollback created on 05/04/2026 09:11:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-FS-123,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-126,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-129,VM has an active snapshot! CHG0041337 rollback created on 07/28/2025 09:19:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-129,VM has an active snapshot! pre-upgrade created on 07/25/2025 09:06:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-129,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-130,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-CTX-137,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-144,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-CTX-145,VM has an active snapshot! pre-upgrade created on 07/29/2026 09:17:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SVC-147,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-RDS-149,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-157,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-161,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-166,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-177,VM has an active snapshot! Snapshot 1 created on 08/31/2026 03:55:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-FS-178,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-179,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-180,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-RDS-184,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-192,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SQL-194,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SQL-198,VM has an active snapshot! CHG0041337 rollback created on 08/11/2026 09:01:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SQL-198,VM has an active snapshot! CHG0041337 rollback created on 08/08/2026 09:22:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SVC-199,VM has an active snapshot! test created on 07/01/2026 09:07:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SVC-199,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-200,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SVC-209,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SVC-210,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-RDS-213,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SQL-214,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-RDS-217,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-219,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-SVC-220,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-FS-003,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-FS-006,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-APP-007,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-APP-009,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-SQL-010,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-SVC-011,VM has an active snapshot! CHG0041337 rollback created on 06/05/2026 09:07:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-SVC-011,VM has an active snapshot! CHG0041337 rollback created on 06/02/2026 09:21:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-FS-012,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-WEB-018,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-WEB-022,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-WEB-024,VM has an active snapshot! pre-upgrade created on 08/23/2026 09:05:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-CTX-027,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-APP-028,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-RDS-032,VM has an active snapshot! pre-upgrade created on 04/04/2026 09:17:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-SVC-033,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-APP-035,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-WEB-050,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-APP-051,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-WEB-055,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-CTX-060,VM has an active snapshot! VEEAM BACKUP TEMPORARY SNAPSHOT created on 08/31/2026 18:10:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-CTX-060,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-APP-062,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-CTX-069,VM has an active snapshot! VEEAM BACKUP TEMPORARY SNAPSHOT created on 09/01/2026 01:38:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-CTX-069,VM has an active snapshot! VEEAM BACKUP TEMPORARY SNAPSHOT created on 08/29/2026 01:21:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-FS-071,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-APP-073,VM has an active snapshot! Snapshot 1 created on 08/20/2026 09:17:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-APP-074,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-APP-075,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-RDS-077,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-FS-078,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-RDS-079,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-APP-086,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DEV-SQL-089,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+nsx-mgr-03,VM has an active snapshot! pre-upgrade created on 02/03/2026 08:48:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+ad-dc02,VM has an active snapshot! pre-upgrade created on 07/18/2026 08:35:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+ad-dc02,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+jump-01,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+syslog-01,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+dns-01,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+sccm-01,VM has an active snapshot! CHG0041337 rollback created on 08/16/2026 09:01:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+sccm-db01,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+monitor-01,VM has an active snapshot! Before patching created on 08/27/2026 09:03:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+monitor-01,VM has an active snapshot! CHG0041337 rollback created on 08/24/2026 09:04:00,Snapshot,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+monitor-01,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+kms-01,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+DMZ-WEB-01,"VMware tools are out of date, not running or not installed!",VM Tools,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+[prod-vmfs-02] OLD-FS-07/OLD-FS-07.vmdk,Possibly a Zombie vmdk file! Please check.,Zombie,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+[prod-vmfs-04] PRD-APP-DECOM3/PRD-APP-DECOM3_1.vmdk,Possibly a Zombie vmdk file! Please check.,Zombie,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+[dev-nfs-01] test-clone/test-clone-flat.vmdk,Possibly a Zombie vmdk file! Please check.,Zombie,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-061,Inconsistent Foldername! VMname = PRD-WEB-061  Foldername = PRD-WEB-061_old,Foldername,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-062,Inconsistent Foldername! VMname = PRD-WEB-062  Foldername = PRD-WEB-062_old,Foldername,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-CTX-063,Inconsistent Foldername! VMname = PRD-CTX-063  Foldername = PRD-CTX-063_old,Foldername,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-WEB-081,In-Memory VM performance improvement possible! Please check documentation,Performance tip,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-APP-082,In-Memory VM performance improvement possible! Please check documentation,Performance tip,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-RDS-083,In-Memory VM performance improvement possible! Please check documentation,Performance tip,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-CTX-084,In-Memory VM performance improvement possible! Please check documentation,Performance tip,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PRD-RDS-085,In-Memory VM performance improvement possible! Please check documentation,Performance tip,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dmz01.corp.example,NTP Server value is null!,Host config,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31

@@ -1,0 +1,4 @@
+Name,Key,Labels,Cost Unit,Total,Used,Expiration Date,Features,VI SDK Server,VI SDK UUID
+VMware vCenter Server 8 Standard,0A0AA-BBBBB-CCCCC-DDDDD-11111,,Server,1,1,Never,vCenter,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+VMware vSphere 8 Enterprise Plus,1B1BB-CCCCC-DDDDD-EEEEE-22222,,CPU (1-32 cores),20,24,Never,"DRS, HA, vMotion",vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+VMware vSAN Advanced,2C2CC-DDDDD-EEEEE-FFFFF-33333,,CPU (1-32 cores),4,4,2026/10/16 09:30:00,vSAN,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31

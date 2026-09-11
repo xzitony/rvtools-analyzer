@@ -1,0 +1,2 @@
+Name,OS type,API type,API version,Version,Patch level,Build,Fullname,Product name,Product version,Product line,Vendor,VI SDK Server,VI SDK UUID
+VMware vCenter Server,linux-x64,VirtualCenter,8.0.2.0,8.0.2,00300,24321653,VMware vCenter Server 8.0.2 build-24321653,VMware VirtualCenter Server,8.0,vpx,"VMware, Inc.",vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31

@@ -1,0 +1,17 @@
+Host,Datacenter,Cluster,Port Group,Switch,VLAN,Promiscuous Mode,Mac Changes,Forged Transmits,Traffic Shaping,Width,Peak,Burst,Policy,Reverse Policy,Notify Switch,Rolling Order,Offload,TSO,Zero Copy Xmit,VI SDK Server,VI SDK UUID
+esx-prod01.corp.example,DC-East,Prod-Cluster,Management Network,vSwitch0,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod02.corp.example,DC-East,Prod-Cluster,Management Network,vSwitch0,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod03.corp.example,DC-East,Prod-Cluster,Management Network,vSwitch0,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod04.corp.example,DC-East,Prod-Cluster,Management Network,vSwitch0,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod05.corp.example,DC-East,Prod-Cluster,Management Network,vSwitch0,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod06.corp.example,DC-East,Prod-Cluster,Management Network,vSwitch0,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev01.corp.example,DC-East,Dev-Cluster,Management Network,vSwitch0,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev02.corp.example,DC-East,Dev-Cluster,Management Network,vSwitch0,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev03.corp.example,DC-East,Dev-Cluster,Management Network,vSwitch0,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-mgmt01.corp.example,DC-West,Mgmt-Cluster,Management Network,vSwitch0,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-mgmt01.corp.example,DC-West,Mgmt-Cluster,VM Network,vSwitch0,0,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-mgmt02.corp.example,DC-West,Mgmt-Cluster,Management Network,vSwitch0,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-mgmt02.corp.example,DC-West,Mgmt-Cluster,VM Network,vSwitch0,0,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dmz01.corp.example,DC-West,,Management Network,vSwitch1,10,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dmz01.corp.example,DC-West,,DMZ-Net,vSwitch1,300,False,True,True,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dmz01.corp.example,DC-West,,VM Network,vSwitch1,0,False,False,False,False,,,,loadbalance_srcid,True,True,False,True,True,True,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31

@@ -1,0 +1,24 @@
+Host,Datacenter,Cluster,Port Group,Device,Mac Address,DHCP,IP Address,IP 6 Address,Subnet mask,Gateway,IP 6 Gateway,MTU,VI SDK Server,VI SDK UUID
+esx-prod01.corp.example,DC-East,Prod-Cluster,Management Network,vmk0,00:50:56:60:00:01,False,10.0.10.11,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod01.corp.example,DC-East,Prod-Cluster,PG-vMotion-20,vmk1,00:50:56:61:00:01,False,10.0.20.11,,255.255.255.0,10.0.10.1,,9000,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod02.corp.example,DC-East,Prod-Cluster,Management Network,vmk0,00:50:56:60:01:01,False,10.0.10.12,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod02.corp.example,DC-East,Prod-Cluster,PG-vMotion-20,vmk1,00:50:56:61:01:01,False,10.0.20.12,,255.255.255.0,10.0.10.1,,9000,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod03.corp.example,DC-East,Prod-Cluster,Management Network,vmk0,00:50:56:60:02:01,False,10.0.10.13,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod03.corp.example,DC-East,Prod-Cluster,PG-vMotion-20,vmk1,00:50:56:61:02:01,False,10.0.20.13,,255.255.255.0,10.0.10.1,,9000,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod04.corp.example,DC-East,Prod-Cluster,Management Network,vmk0,00:50:56:60:03:01,False,10.0.10.14,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod04.corp.example,DC-East,Prod-Cluster,PG-vMotion-20,vmk1,00:50:56:61:03:01,False,10.0.20.14,,255.255.255.0,10.0.10.1,,9000,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod05.corp.example,DC-East,Prod-Cluster,Management Network,vmk0,00:50:56:60:04:01,False,10.0.10.15,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod05.corp.example,DC-East,Prod-Cluster,PG-vMotion-20,vmk1,00:50:56:61:04:01,False,10.0.20.15,,255.255.255.0,10.0.10.1,,9000,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod06.corp.example,DC-East,Prod-Cluster,Management Network,vmk0,00:50:56:60:05:01,False,10.0.10.16,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod06.corp.example,DC-East,Prod-Cluster,PG-vMotion-20,vmk1,00:50:56:61:05:01,False,10.0.20.16,,255.255.255.0,10.0.10.1,,9000,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev01.corp.example,DC-East,Dev-Cluster,Management Network,vmk0,00:50:56:60:06:01,False,10.0.10.17,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev01.corp.example,DC-East,Dev-Cluster,PG-vMotion-20,vmk1,00:50:56:61:06:01,False,10.0.20.17,,255.255.255.0,10.0.10.1,,9000,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev02.corp.example,DC-East,Dev-Cluster,Management Network,vmk0,00:50:56:60:07:01,False,10.0.10.18,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev02.corp.example,DC-East,Dev-Cluster,PG-vMotion-20,vmk1,00:50:56:61:07:01,False,10.0.20.18,,255.255.255.0,10.0.10.1,,9000,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev03.corp.example,DC-East,Dev-Cluster,Management Network,vmk0,00:50:56:60:08:01,False,10.0.10.19,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev03.corp.example,DC-East,Dev-Cluster,PG-vMotion-20,vmk1,00:50:56:61:08:01,False,10.0.20.19,,255.255.255.0,10.0.10.1,,9000,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-mgmt01.corp.example,DC-West,Mgmt-Cluster,Management Network,vmk0,00:50:56:60:09:01,False,10.0.10.20,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-mgmt01.corp.example,DC-West,Mgmt-Cluster,PG-vMotion-20,vmk1,00:50:56:61:09:01,False,10.0.20.20,,255.255.255.0,10.0.10.1,,9000,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-mgmt02.corp.example,DC-West,Mgmt-Cluster,Management Network,vmk0,00:50:56:60:0a:01,False,10.0.10.21,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-mgmt02.corp.example,DC-West,Mgmt-Cluster,PG-vMotion-20,vmk1,00:50:56:61:0a:01,False,10.0.20.21,,255.255.255.0,10.0.10.1,,9000,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dmz01.corp.example,DC-West,,Management Network,vmk0,00:50:56:60:0b:01,False,10.0.10.22,,255.255.255.0,10.0.10.1,,1500,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31

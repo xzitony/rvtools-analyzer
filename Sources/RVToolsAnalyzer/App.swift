@@ -1,0 +1,61 @@
+import AppKit
+import RVToolsCore
+import SwiftUI
+
+@main
+struct RVToolsAnalyzerApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @State private var model = AppModel.shared
+
+    var body: some Scene {
+        Window("RVTools Analyzer", id: "main") {
+            ContentView()
+                .environment(model)
+                .frame(minWidth: 1100, minHeight: 720)
+        }
+        .defaultSize(width: 1440, height: 900)
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("Open RVTools Export…") { model.presentOpenPanel() }.keyboardShortcut("o")
+                Button("Close Export") { model.close() }.keyboardShortcut("w", modifiers: [.command, .shift]).disabled(model.report == nil)
+            }
+            CommandMenu("Export") {
+                ForEach(ExportKind.allCases) { kind in
+                    Button("\(kind.rawValue) as CSV…") { model.export(kind) }.disabled(model.report == nil)
+                }
+                Divider()
+                Button("All CSV Files to Folder…") { model.exportAll() }.keyboardShortcut("e", modifiers: [.command, .shift]).disabled(model.report == nil)
+            }
+            CommandMenu("Go") {
+                ForEach(Array(SidebarItem.allCases.enumerated()), id: \.element) { i, item in
+                    Button(item.rawValue) { model.sidebar = item }
+                        .keyboardShortcut(KeyEquivalent(Character("\((i + 1) % 10)")), modifiers: .command)
+                        .disabled(model.report == nil)
+                }
+            }
+        }
+
+        Settings {
+            SettingsView().environment(model)
+        }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        // Allow `RVToolsAnalyzer <file-or-folder>...` from the command line.
+        let paths = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-") && FileManager.default.fileExists(atPath: $0) }
+        if !paths.isEmpty {
+            let urls = paths.map { URL(fileURLWithPath: $0) }
+            Task { @MainActor in AppModel.shared.open(urls) }
+        }
+    }
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        Task { @MainActor in AppModel.shared.open(urls) }
+    }
+
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+}

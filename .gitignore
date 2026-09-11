@@ -1,0 +1,8 @@
+.build/
+build/
+.swiftpm/
+*.xcodeproj/
+.DS_Store
+# Never commit real customer exports — use scripts/generate_sample.py for shareable data.
+RVTools_export_all_*
+!samples/RVTools_export_all_*

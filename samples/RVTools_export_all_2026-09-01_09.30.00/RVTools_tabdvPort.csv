@@ -1,0 +1,11 @@
+Port,Switch,Type,# Ports,VLAN,Speed,Full Duplex,Blocked,Allow Promiscuous,Mac Changes,Active Uplink,Standby Uplink,Policy,Forged Transmits,In Traffic Shaping,Out Traffic Shaping,Reverse Policy,Notify Switch,Rolling Order,Check Beacon,Object ID,VI SDK Server,VI SDK UUID
+PG-App-100,dvs-prod,earlyBinding,128,100,,,False,False,False,"uplink1, uplink2",,loadbalance_srcid,False,,,True,True,False,False,dvportgroup-300,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PG-DB-110,dvs-prod,earlyBinding,128,110,,,False,False,False,"uplink1, uplink2",,loadbalance_srcid,False,,,True,True,False,False,dvportgroup-301,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PG-Web-120,dvs-prod,earlyBinding,128,120,,,False,False,False,"uplink1, uplink2",,loadbalance_srcid,False,,,True,True,False,False,dvportgroup-302,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PG-Dev-200,dvs-prod,earlyBinding,128,200,,,False,False,False,"uplink1, uplink2",,loadbalance_srcid,False,,,True,True,False,False,dvportgroup-303,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PG-Nested-Lab-250,dvs-prod,earlyBinding,128,250,,,False,True,True,"uplink1, uplink2",,loadbalance_srcid,True,,,True,True,False,False,dvportgroup-304,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PG-vMotion-20,dvs-prod,earlyBinding,128,20,,,False,False,False,"uplink1, uplink2",,loadbalance_srcid,False,,,True,True,False,False,dvportgroup-305,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PG-Legacy-199,dvs-prod,earlyBinding,128,199,,,False,False,False,"uplink1, uplink2",,loadbalance_srcid,False,,,True,True,False,False,dvportgroup-306,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+dvs-prod-DVUplinks-11,dvs-prod,earlyBinding,128,0-4094,,,False,False,False,"uplink1, uplink2",,loadbalance_srcid,False,,,True,True,False,False,dvportgroup-307,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+PG-Mgmt-VMs-15,dvs-mgmt,earlyBinding,128,15,,,False,False,False,"uplink1, uplink2",,loadbalance_srcid,False,,,True,True,False,False,dvportgroup-308,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+dvs-mgmt-DVUplinks-31,dvs-mgmt,earlyBinding,128,0-4094,,,False,False,False,"uplink1, uplink2",,loadbalance_srcid,False,,,True,True,False,False,dvportgroup-309,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31

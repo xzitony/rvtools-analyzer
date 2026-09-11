@@ -1,0 +1,19 @@
+Host,Datacenter,Cluster,Device,Type,Status,Bus,Pci,Driver,Model,WWN,VI SDK Server,VI SDK UUID
+esx-prod01.corp.example,DC-East,Prod-Cluster,vmhba1,Fibre Channel,online,59,0000:5e:00.0,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:00:00:00,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod01.corp.example,DC-East,Prod-Cluster,vmhba2,Fibre Channel,online,59,0000:5e:00.1,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:00:00:01,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod02.corp.example,DC-East,Prod-Cluster,vmhba1,Fibre Channel,online,59,0000:5e:00.0,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:01:00:00,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod02.corp.example,DC-East,Prod-Cluster,vmhba2,Fibre Channel,online,59,0000:5e:00.1,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:01:00:01,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod03.corp.example,DC-East,Prod-Cluster,vmhba1,Fibre Channel,online,59,0000:5e:00.0,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:02:00:00,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod03.corp.example,DC-East,Prod-Cluster,vmhba2,Fibre Channel,online,59,0000:5e:00.1,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:02:00:01,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod04.corp.example,DC-East,Prod-Cluster,vmhba1,Fibre Channel,online,59,0000:5e:00.0,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:03:00:00,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod04.corp.example,DC-East,Prod-Cluster,vmhba2,Fibre Channel,online,59,0000:5e:00.1,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:03:00:01,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod05.corp.example,DC-East,Prod-Cluster,vmhba1,Fibre Channel,online,59,0000:5e:00.0,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:04:00:00,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod05.corp.example,DC-East,Prod-Cluster,vmhba2,Fibre Channel,online,59,0000:5e:00.1,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:04:00:01,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod06.corp.example,DC-East,Prod-Cluster,vmhba1,Fibre Channel,online,59,0000:5e:00.0,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:05:00:00,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-prod06.corp.example,DC-East,Prod-Cluster,vmhba2,Fibre Channel,online,59,0000:5e:00.1,qlnativefc,QLogic QLE2772 32Gb FC,20:00:00:24:ff:05:00:01,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev01.corp.example,DC-East,Dev-Cluster,vmhba1,Block SCSI,unknown,59,0000:5e:00.0,lsi_mr3,Avago MegaRAID SAS,,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev02.corp.example,DC-East,Dev-Cluster,vmhba1,Block SCSI,unknown,59,0000:5e:00.0,lsi_mr3,Avago MegaRAID SAS,,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dev03.corp.example,DC-East,Dev-Cluster,vmhba1,Block SCSI,unknown,59,0000:5e:00.0,lsi_mr3,Avago MegaRAID SAS,,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-mgmt01.corp.example,DC-West,Mgmt-Cluster,vmhba1,Block SCSI,unknown,59,0000:5e:00.0,lsi_mr3,Avago MegaRAID SAS,,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-mgmt02.corp.example,DC-West,Mgmt-Cluster,vmhba1,Block SCSI,unknown,59,0000:5e:00.0,lsi_mr3,Avago MegaRAID SAS,,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
+esx-dmz01.corp.example,DC-West,,vmhba1,Block SCSI,unknown,59,0000:5e:00.0,lsi_mr3,Avago MegaRAID SAS,,vcsa01.corp.example,5f3c9a8e-1b2d-4c7e-9a10-2f6b8d4e7c31
