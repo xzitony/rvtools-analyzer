@@ -4,6 +4,11 @@ import RVToolsCore
 import SwiftUI
 import UniformTypeIdentifiers
 
+extension UTType {
+    /// Saved project package (`.rvaproj`); declared in the app's Info.plist.
+    static let rvaProject = UTType(exportedAs: "local.rvtools-analyzer.project", conformingTo: .package)
+}
+
 /// A sidebar destination: one of the fixed pages, or a solution from `SolutionCatalog` (added dynamically).
 struct SidebarItem: Hashable, Identifiable {
     let id: String
@@ -99,7 +104,7 @@ final class AppModel {
     var report: Report?
     var lookup = Lookup()
     var scopes: [ScopeOption] = []
-    var scopeID = "all" { didSet { if oldValue != scopeID { recompute() } } }
+    var scopeID = "all" { didSet { if oldValue != scopeID { recompute(); noteChange() } } }
     var sidebar: SidebarItem? = .overview
     var isLoading = false
     var loadingMessage = ""
@@ -117,9 +122,12 @@ final class AppModel {
     var focusRule: String?
 
     // Solutions: per-solution VM selection (reset per export), assumptions (persisted) and active tab.
-    var solutionSelections: [String: Set<String>] = [:]
+    var solutionSelections: [String: Set<String>] = [:] { didSet { noteChange() } }
     var solutionParams: [String: ParamValues] = AppModel.loadSolutionParams() {
-        didSet { if let data = try? JSONEncoder().encode(solutionParams) { UserDefaults.standard.set(data, forKey: "solutionParams") } }
+        didSet {
+            if let data = try? JSONEncoder().encode(solutionParams) { UserDefaults.standard.set(data, forKey: "solutionParams") }
+            noteChange()
+        }
     }
     var solutionTab: [String: Int] = [:]
     private(set) var reportVersion = 0
@@ -129,11 +137,24 @@ final class AppModel {
     var priceError: String?
     @ObservationIgnored private var solutionCache: [String: SolutionResult] = [:]
 
+    // Projects: saved sessions (.rvaproj). Once saved, changes autosave.
+    var projectURL: URL?
+    var projectName = "" { didSet { if oldValue != projectName { noteChange() } } }
+    var projectNotes = "" { didSet { if oldValue != projectNotes { noteChange() } } }
+    var isDirty = false
+    var lastSaved: Date?
+    var showProjectInfo = false
+    var recentProjects: [URL] = AppModel.loadRecents()
+    @ObservationIgnored private var currentProject: ProjectFile?
+    @ObservationIgnored private var restoring = false
+    @ObservationIgnored private var autosaveTask: Task<Void, Never>?
+
     var thresholds: Thresholds = AppModel.loadThresholds() {
         didSet {
             guard thresholds != oldValue else { return }
             if let data = try? JSONEncoder().encode(thresholds) { UserDefaults.standard.set(data, forKey: "thresholds") }
             recompute()
+            noteChange()
         }
     }
 
@@ -157,24 +178,38 @@ final class AppModel {
 
     func presentOpenPanel() {
         let panel = NSOpenPanel()
-        panel.title = "Open RVTools export"
-        panel.message = "Choose an RVTools .xlsx export, a folder of RVTools_tab*.csv files, or several exports to merge."
+        panel.title = "Open"
+        panel.message = "Choose a saved project, an RVTools .xlsx export, a folder of RVTools_tab*.csv files, or several exports to merge."
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
-        panel.allowedContentTypes = [UTType(filenameExtension: "xlsx"), UTType(filenameExtension: "xlsm"), .commaSeparatedText, .folder].compactMap { $0 }
+        panel.allowedContentTypes = [.rvaProject, UTType(filenameExtension: "xlsx"), UTType(filenameExtension: "xlsm"), .commaSeparatedText, .folder].compactMap { $0 }
         if panel.runModal() == .OK { open(panel.urls) }
     }
 
     var sampleURL: URL? { Bundle.main.url(forResource: "RVTools_sample", withExtension: "xlsx") }
 
+    /// Opens exports or a saved project (.rvaproj), offering to save a customized session first.
     func open(_ urls: [URL]) {
-        guard !urls.isEmpty else { return }
+        guard !urls.isEmpty, confirmDiscardChanges() else { return }
+        if let url = urls.first(where: ProjectFile.isProject) {
+            do {
+                let opened = try ProjectFile.read(url)
+                load(opened.sources, project: (opened.project, url, opened.prices))
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+        load(urls, project: nil)
+    }
+
+    private func load(_ urls: [URL], project: (file: ProjectFile, url: URL, prices: [RegionPrices])?) {
         let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
         isLoading = true
         errorMessage = nil
-        loadingMessage = "Reading \(urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) items")…"
-        let t = thresholds
+        loadingMessage = project.map { "Opening \($0.file.name)…" } ?? "Reading \(urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) items")…"
+        let t = project?.file.thresholds ?? thresholds
         Task.detached(priority: .userInitiated) {
             do {
                 let ds = try Dataset.load(urls)
@@ -184,6 +219,8 @@ final class AppModel {
                 await MainActor.run {
                     scoped.forEach { $0.stopAccessingSecurityScopedResource() }
                     self.apply(ds, inv, report)
+                    if let project { self.restore(project.file, url: project.url, prices: project.prices) }
+                    DebugSnapshot.runIfRequested(self)
                 }
             } catch {
                 await MainActor.run {
@@ -196,6 +233,7 @@ final class AppModel {
     }
 
     private func apply(_ ds: Dataset, _ inv: Inventory, _ r: Report) {
+        restoring = true
         dataset = ds
         fullInventory = inv
         sources = ds.sources
@@ -212,17 +250,193 @@ final class AppModel {
         selectedPortGroupID = nil
         sidebar = .overview
         isLoading = false
-        for url in ds.sources.prefix(1) { NSDocumentController.shared.noteNewRecentDocumentURL(url) }
-        DebugSnapshot.runIfRequested(self)
+        // A freshly opened export is a new, unsaved session.
+        projectURL = nil
+        currentProject = nil
+        projectName = ""
+        projectNotes = ""
+        lastSaved = nil
+        isDirty = false
+        restoring = false
+    }
+
+    /// Re-applies a saved project's settings on top of its freshly analysed export.
+    private func restore(_ p: ProjectFile, url: URL, prices: [RegionPrices]) {
+        restoring = true
+        defer {
+            restoring = false
+            isDirty = false
+        }
+        currentProject = p
+        projectURL = url
+        projectName = p.name
+        projectNotes = p.notes
+        lastSaved = p.modified
+        if !prices.isEmpty {
+            PriceStore.shared.importSnapshots(prices)
+            priceVersion += 1
+        }
+        thresholds = p.thresholds
+        let valid = Set(fullInventory?.vms.map(\.id) ?? [])
+        for (id, ids) in p.solutionSelections { solutionSelections[id] = Set(ids).intersection(valid) }
+        for (id, values) in p.solutionParams { solutionParams[id] = values }
+        solutionTab = p.solutionTabs
+        if scopes.contains(where: { $0.id == p.scopeID }) { scopeID = p.scopeID }
+        let pages = SidebarItem.allCases + SolutionCatalog.all.map { SidebarItem.solution($0) }
+        if let page = p.page, let item = pages.first(where: { $0.id == page }) { sidebar = item }
+        addRecent(url)
     }
 
     func close() {
+        guard confirmDiscardChanges() else { return }
         dataset = nil
         fullInventory = nil
         report = nil
         lookup = Lookup()
         sources = []
         scopes = []
+        restoring = true
+        projectURL = nil
+        currentProject = nil
+        projectName = ""
+        projectNotes = ""
+        isDirty = false
+        restoring = false
+    }
+
+    // MARK: Projects
+
+    var projectTitle: String { projectURL == nil ? "Unsaved session" : projectName }
+
+    private var defaultProjectName: String {
+        guard let first = sources.first else { return "RVTools Project" }
+        return first.pathExtension.lowercased() == "csv" ? first.deletingLastPathComponent().lastPathComponent : first.deletingPathExtension().lastPathComponent
+    }
+
+    /// Records a user customization; saved projects autosave shortly afterwards.
+    private func noteChange() {
+        guard !restoring, report != nil else { return }
+        isDirty = true
+        if projectURL != nil { scheduleAutosave() }
+    }
+
+    private func scheduleAutosave() {
+        autosaveTask?.cancel()
+        autosaveTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled, let self, self.isDirty, self.projectURL != nil else { return }
+            self.writeProject()
+        }
+    }
+
+    private func snapshot() -> ProjectFile {
+        var p = currentProject ?? ProjectFile(name: projectName.isEmpty ? defaultProjectName : projectName)
+        if !projectName.isEmpty { p.name = projectName }
+        p.notes = projectNotes
+        p.scopeID = scopeID
+        p.thresholds = thresholds
+        p.solutionSelections = solutionSelections.mapValues { $0.sorted() }
+        p.solutionParams = solutionParams
+        p.solutionTabs = solutionTab
+        p.page = sidebar?.id
+        return p
+    }
+
+    /// Price snapshots behind the cloud estimates, stored with the project so they can be reproduced.
+    private func projectPrices() -> [RegionPrices] {
+        SolutionCatalog.all.compactMap { $0 as? any PricedSolution }.flatMap { s in
+            s.regions(Params(s.parameters, solutionParams[s.id] ?? ParamValues())).compactMap { PriceStore.shared.prices(s.provider, $0) }
+        }
+    }
+
+    func saveProject() {
+        if projectURL == nil { saveProjectAs() } else { writeProject() }
+    }
+
+    func saveProjectAs() {
+        guard let ds = dataset, report != nil else { return }
+        let panel = NSSavePanel()
+        panel.title = "Save Project"
+        panel.message = "Saves a copy of the export with all your settings. Save to iCloud Drive or a OneDrive folder to use it on other Macs."
+        panel.allowedContentTypes = [.rvaProject]
+        panel.canCreateDirectories = true
+        panel.nameFieldStringValue = (projectName.isEmpty ? defaultProjectName : projectName) + "." + ProjectFile.fileExtension
+        guard panel.runModal() == .OK, var url = panel.url else { return }
+        if !ProjectFile.isProject(url) { url.appendPathExtension(ProjectFile.fileExtension) }
+        var p = snapshot()
+        p.name = url.deletingPathExtension().lastPathComponent
+        do {
+            finishSave(try ProjectFile.write(p, to: url, copySources: ds.sources, prices: projectPrices()), url)
+            addRecent(url)
+        } catch {
+            errorMessage = "Couldn't save the project: \(error.localizedDescription)"
+        }
+    }
+
+    /// Rewrites the settings of the open project (its sources are already inside the package).
+    func writeProject() {
+        guard let url = projectURL else { return }
+        do {
+            finishSave(try ProjectFile.write(snapshot(), to: url, copySources: nil, prices: projectPrices()), url)
+        } catch {
+            errorMessage = "Couldn't save the project: \(error.localizedDescription)"
+        }
+    }
+
+    private func finishSave(_ saved: ProjectFile, _ url: URL) {
+        restoring = true
+        currentProject = saved
+        projectURL = url
+        projectName = saved.name
+        restoring = false
+        lastSaved = saved.modified
+        isDirty = false
+    }
+
+    /// Before a customized session is replaced or the app quits: saved projects are written silently, unsaved
+    /// sessions offer to save. Returns false if the user cancels.
+    func confirmDiscardChanges() -> Bool {
+        guard isDirty, report != nil else { return true }
+        if projectURL != nil {
+            writeProject()
+            return true
+        }
+        let alert = NSAlert()
+        alert.messageText = "Save this session as a project?"
+        alert.informativeText = "You've changed VM selections, assumptions or settings. Save them as a project to come back to them later."
+        alert.addButton(withTitle: "Save…")
+        alert.addButton(withTitle: "Don't Save")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            saveProjectAs()
+            return !isDirty
+        case .alertSecondButtonReturn:
+            return true
+        default:
+            return false
+        }
+    }
+
+    private static func loadRecents() -> [URL] {
+        let bookmarks = UserDefaults.standard.array(forKey: "recentProjects") as? [Data] ?? []
+        return bookmarks.compactMap { data in
+            var stale = false
+            return try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale)
+        }
+        .filter { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private func addRecent(_ url: URL) {
+        var list = recentProjects.filter { $0.standardizedFileURL.path != url.standardizedFileURL.path }
+        list.insert(url, at: 0)
+        recentProjects = Array(list.prefix(10))
+        UserDefaults.standard.set(recentProjects.compactMap { try? $0.bookmarkData() }, forKey: "recentProjects")
+    }
+
+    func clearRecentProjects() {
+        recentProjects = []
+        UserDefaults.standard.removeObject(forKey: "recentProjects")
     }
 
     func recompute() {
@@ -348,6 +562,7 @@ final class AppModel {
             await MainActor.run {
                 self.priceLoading = false
                 self.priceVersion += 1
+                self.noteChange()   // new price snapshots belong in the project
                 self.priceError = errors.isEmpty ? nil
                     : "Failed: " + errors.sorted { $0.key < $1.key }.map { "\($0.key) (\($0.value))" }.joined(separator: ", ")
             }

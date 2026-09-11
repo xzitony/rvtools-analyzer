@@ -29,6 +29,18 @@ To open an export you can:
 
 **Try Sample Data** on the welcome screen loads a synthetic environment.
 
+### Projects
+
+**Save Project** (⌘S) turns the current session into a `Name.rvaproj` project. Finder shows it as one file, but it's a folder that contains:
+- a copy of the export(s)
+- your settings: thresholds, scope, each solution's VM selection and assumptions, and the open page
+- project notes
+- the cloud price lists behind any estimates, so they can be reproduced later
+
+After the first save, changes save automatically. If you've customized an unsaved session, the app offers to save it before you quit or open something else. Open projects like exports (⌘O, drag and drop, or double-click in Finder). Recent projects are on the start screen and under File › Open Recent Project.
+
+Projects are ordinary files, so they can sit next to the customer's exports in OneDrive or SharePoint, or in iCloud Drive to sync across your Macs. The app doesn't use iCloud directly: that would need an Apple Developer membership and a provisioned, signed build, and it would move customer data out of company storage. `rvtools-cli Customer.rvaproj --solution azure` runs a solution with the project's saved selection and assumptions, and `--save-project <path>` creates a project from the CLI.
+
 Ages are measured from the export timestamp in `vMetaData` or the file name, not from today. That applies to snapshot age, host uptime, certificate expiry and end-of-support status, so an old export shows what was true when it was taken.
 
 ## Dashboards

@@ -55,7 +55,7 @@ struct WelcomeView: View {
             }
             VStack(spacing: 10) {
                 Image(systemName: "arrow.down.doc").font(.system(size: 28)).foregroundStyle(.secondary)
-                Text("Drop an RVTools .xlsx export or a folder of RVTools_tab*.csv files here").font(.callout)
+                Text("Drop an RVTools .xlsx export, a folder of RVTools_tab*.csv files, or a saved project here").font(.callout)
                 Text("Drop several exports at once to merge multiple vCenters.").font(.caption).foregroundStyle(.secondary)
             }
             .frame(width: 520, height: 150)
@@ -65,7 +65,7 @@ struct WelcomeView: View {
                 Button {
                     model.presentOpenPanel()
                 } label: {
-                    Label("Open Export…", systemImage: "folder").padding(.horizontal, 6)
+                    Label("Open…", systemImage: "folder").padding(.horizontal, 6)
                 }
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
@@ -74,10 +74,77 @@ struct WelcomeView: View {
                     Button("Try Sample Data") { model.open([sample]) }.controlSize(.large)
                 }
             }
+            RecentProjectsList()
             Text("Your RVTools data stays on this Mac — cloud solutions only download public price lists.").font(.caption).foregroundStyle(.secondary)
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+/// Recently saved or opened projects on the start screen.
+struct RecentProjectsList: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        if !model.recentProjects.isEmpty {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Recent projects").font(.headline)
+                ForEach(model.recentProjects.prefix(6), id: \.self) { url in
+                    Button { model.open([url]) } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "doc.text").foregroundStyle(Palette.primary)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(url.deletingPathExtension().lastPathComponent).font(.callout.weight(.medium))
+                                Text(url.deletingLastPathComponent().path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                            }
+                            Spacer()
+                        }
+                        .padding(.vertical, 5).padding(.horizontal, 10)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .background(RoundedRectangle(cornerRadius: 8).fill(Palette.card))
+                }
+            }
+            .frame(width: 520)
+        }
+    }
+}
+
+/// Name and free-form notes stored with the project.
+struct ProjectInfoSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        @Bindable var model = model
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Project").font(.title3.weight(.semibold))
+            if model.projectURL == nil {
+                Text("This session hasn't been saved yet — use Save Project (⌘S) to keep your selections, assumptions and these notes.")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(model.projectURL!.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                    .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+            TextField("Project name", text: $model.projectName).textFieldStyle(.roundedBorder)
+            Text("Notes").font(.subheadline.weight(.semibold))
+            TextEditor(text: $model.projectNotes)
+                .font(.body)
+                .frame(minHeight: 180)
+                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.secondary.opacity(0.3)))
+            HStack {
+                if model.projectURL == nil {
+                    Button("Save Project…") { dismiss(); model.saveProjectAs() }
+                }
+                Spacer()
+                Button("Done") { dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 520)
     }
 }
 
@@ -116,6 +183,15 @@ struct MainView: View {
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
             .safeAreaInset(edge: .bottom) {
                 VStack(alignment: .leading, spacing: 2) {
+                    Button { model.showProjectInfo = true } label: {
+                        Label(model.projectTitle, systemImage: model.projectURL == nil ? "doc.badge.plus" : "doc.text")
+                            .font(.caption.weight(.semibold)).lineLimit(1)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Project notes")
+                    if let saved = model.lastSaved, model.projectURL != nil {
+                        Text(model.isDirty ? "Saving…" : "Saved \(Fmt.dateTime(saved))").font(.caption2).foregroundStyle(.secondary)
+                    }
                     Text(model.sourceSummary).font(.caption).lineLimit(2).truncationMode(.middle)
                     Text("Exported \(Fmt.dateTime(report.inventory.reportDate))" + ((model.dataset?.rvtoolsVersion ?? "").isEmpty ? "" : " · RVTools \(model.dataset!.rvtoolsVersion)"))
                         .font(.caption2).foregroundStyle(.secondary)
@@ -126,7 +202,10 @@ struct MainView: View {
         } detail: {
             detail
                 .navigationTitle(model.sidebar?.rawValue ?? "Overview")
-                .navigationSubtitle(model.scopeLabel)
+                .navigationSubtitle(model.projectTitle + (model.projectURL != nil && model.isDirty ? " — Edited" : "") + " · " + model.scopeLabel)
+        }
+        .sheet(isPresented: $model.showProjectInfo) {
+            ProjectInfoSheet().environment(model)
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
@@ -139,6 +218,14 @@ struct MainView: View {
                 .pickerStyle(.menu)
                 .frame(minWidth: 200)
                 .help("Limit every dashboard to a vCenter, datacenter or cluster")
+
+                Button {
+                    model.saveProject()
+                } label: {
+                    Label(model.projectURL == nil ? "Save Project" : "Save", systemImage: "square.and.arrow.down")
+                }
+                .help(model.projectURL == nil ? "Save this session as a project (⌘S)"
+                                               : (model.isDirty ? "Saving changes to \(model.projectName)…" : "\(model.projectName) — all changes saved"))
 
                 Menu {
                     ForEach(ExportKind.allCases) { kind in

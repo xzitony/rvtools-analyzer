@@ -45,8 +45,24 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
   <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
   <key>NSHighResolutionCapable</key><true/>
   <key>NSHumanReadableCopyright</key><string>Local RVTools analysis — data never leaves this Mac.</string>
+  <key>UTExportedTypeDeclarations</key>
+  <array>
+    <dict>
+      <key>UTTypeIdentifier</key><string>local.rvtools-analyzer.project</string>
+      <key>UTTypeDescription</key><string>RVTools Analyzer Project</string>
+      <key>UTTypeConformsTo</key><array><string>com.apple.package</string><string>public.composite-content</string></array>
+      <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>rvaproj</string></array></dict>
+    </dict>
+  </array>
   <key>CFBundleDocumentTypes</key>
   <array>
+    <dict>
+      <key>CFBundleTypeName</key><string>RVTools Analyzer Project</string>
+      <key>CFBundleTypeRole</key><string>Editor</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>LSTypeIsPackage</key><true/>
+      <key>LSItemContentTypes</key><array><string>local.rvtools-analyzer.project</string></array>
+    </dict>
     <dict>
       <key>CFBundleTypeName</key><string>RVTools Excel export</string>
       <key>CFBundleTypeRole</key><string>Viewer</string>

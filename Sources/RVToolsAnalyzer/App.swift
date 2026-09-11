@@ -16,8 +16,25 @@ struct RVToolsAnalyzerApp: App {
         .defaultSize(width: 1440, height: 900)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("Open RVTools Export…") { model.presentOpenPanel() }.keyboardShortcut("o")
-                Button("Close Export") { model.close() }.keyboardShortcut("w", modifiers: [.command, .shift]).disabled(model.report == nil)
+                Button("Open…") { model.presentOpenPanel() }.keyboardShortcut("o")
+                Menu("Open Recent Project") {
+                    ForEach(model.recentProjects, id: \.self) { url in
+                        Button(url.deletingPathExtension().lastPathComponent) { model.open([url]) }
+                    }
+                    if !model.recentProjects.isEmpty {
+                        Divider()
+                        Button("Clear Menu") { model.clearRecentProjects() }
+                    }
+                }
+                .disabled(model.recentProjects.isEmpty)
+                Divider()
+                Button("Close") { model.close() }.keyboardShortcut("w", modifiers: [.command, .shift]).disabled(model.report == nil)
+            }
+            CommandGroup(replacing: .saveItem) {
+                Button("Save Project") { model.saveProject() }.keyboardShortcut("s").disabled(model.report == nil)
+                Button("Save Project As…") { model.saveProjectAs() }.keyboardShortcut("s", modifiers: [.command, .shift]).disabled(model.report == nil)
+                Divider()
+                Button("Project Notes…") { model.showProjectInfo = true }.disabled(model.report == nil)
             }
             CommandMenu("Export") {
                 ForEach(ExportKind.allCases) { kind in
@@ -58,4 +75,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+
+    /// Offers to save a customized, unsaved session (saved projects are written silently).
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        MainActor.assumeIsolated { AppModel.shared.confirmDiscardChanges() } ? .terminateNow : .terminateCancel
+    }
 }

@@ -130,6 +130,11 @@ public final class PriceStore: @unchecked Sendable {
         return errors
     }
 
+    /// Makes saved price snapshots current (e.g. from a project) without touching the disk cache.
+    public func importSnapshots(_ list: [RegionPrices]) {
+        for rp in list { store(rp) }
+    }
+
     private func store(_ rp: RegionPrices) {
         lock.lock()
         regions[PriceStore.key(rp.provider, rp.region)] = rp

@@ -15,6 +15,15 @@ if let i = args.firstIndex(of: "--solution"), i + 1 < args.count {
     solutionID = args[i + 1]
     args.removeSubrange(i...(i + 1))
 }
+// --save-project <path>: save the loaded export (plus any --solution/--set assumptions) as a .rvaproj project.
+var saveProjectPath: String?
+if let i = args.firstIndex(of: "--save-project"), i + 1 < args.count {
+    saveProjectPath = args[i + 1]
+    args.removeSubrange(i...(i + 1))
+}
+/// Set when the input is a .rvaproj project: its thresholds, selections and assumptions are used.
+var project: ProjectFile?
+
 // --set name=value (repeatable): override a solution assumption. Choices take an index; multi-selects take "0,2,5".
 var overrides: [String: String] = [:]
 while let i = args.firstIndex(of: "--set"), i + 1 < args.count {
@@ -24,7 +33,7 @@ while let i = args.firstIndex(of: "--set"), i + 1 < args.count {
 }
 
 func paramValues(_ s: any Solution) -> ParamValues {
-    var v = ParamValues()
+    var v = project?.solutionParams[s.id] ?? ParamValues()
     for (name, raw) in overrides {
         guard let spec = s.parameters.first(where: { $0.id == name }) else {
             FileHandle.standardError.write("unknown parameter '\(name)' — available: \(s.parameters.map(\.id).joined(separator: ", "))\n".data(using: .utf8)!)
@@ -67,12 +76,31 @@ func ms(_ a: Date, _ b: Date) -> String { String(format: "%.0f ms", b.timeInterv
 
 do {
     let t0 = Date()
-    let ds = try Dataset.load(args.map { URL(fileURLWithPath: $0) })
+    var inputs = args.map { URL(fileURLWithPath: $0) }
+    if inputs.count == 1, ProjectFile.isProject(inputs[0]) {
+        let opened = try ProjectFile.read(inputs[0])
+        project = opened.project
+        inputs = opened.sources
+        PriceStore.shared.importSnapshots(opened.prices)
+        print("Project:      \(opened.project.name) (saved \(Fmt.dateTime(opened.project.modified)))")
+    }
+    let ds = try Dataset.load(inputs)
     let t1 = Date()
     let inv = InventoryBuilder.build(ds)
     let t2 = Date()
-    let r = Analyzer.run(inv)
+    let r = Analyzer.run(inv, thresholds: project?.thresholds ?? Thresholds())
     let t3 = Date()
+
+    if let out = saveProjectPath {
+        var url = URL(fileURLWithPath: out)
+        if !ProjectFile.isProject(url) { url.appendPathExtension(ProjectFile.fileExtension) }
+        var p = project ?? ProjectFile(name: url.deletingPathExtension().lastPathComponent)
+        p.name = url.deletingPathExtension().lastPathComponent
+        for s in SolutionCatalog.all where p.solutionSelections[s.id] == nil { p.solutionSelections[s.id] = s.defaultSelection(r.inventory).sorted() }
+        if let sid = solutionID, let s = SolutionCatalog.solution(id: sid) { p.solutionParams[sid] = paramValues(s) }
+        _ = try ProjectFile.write(p, to: url, copySources: ds.sources, prices: [])
+        print("Saved project \(url.path)")
+    }
 
     if let sid = solutionID {
         guard let s = SolutionCatalog.solution(id: sid) else {
@@ -89,7 +117,7 @@ do {
                 }
             }
         }
-        let selected = s.defaultSelection(r.inventory)
+        let selected = project?.solutionSelections[s.id].map { Set($0) } ?? s.defaultSelection(r.inventory)
         let result = s.run(vms: r.inventory.vms.filter { selected.contains($0.id) }, inventory: r.inventory, values: paramValues(s))
         print(result.markdown(title: s.title, subtitle: "\(ds.sources.map(\.lastPathComponent).joined(separator: ", ")) · exported \(Fmt.dateTime(ds.reportDate))"))
         exit(0)
