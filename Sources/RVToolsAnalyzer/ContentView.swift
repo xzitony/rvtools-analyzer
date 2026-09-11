@@ -91,13 +91,13 @@ struct MainView: View {
             List(selection: $model.sidebar) {
                 Section("Dashboard") {
                     row(.overview)
-                    row(.issues).badge(report.totals.critical + report.totals.warning)
+                    row(.issues, badge: report.totals.critical + report.totals.warning)
                 }
                 Section("Inventory") {
-                    row(.compute).badge(report.totals.hosts)
-                    row(.vms).badge(report.totals.vms + report.totals.templates)
-                    row(.storage).badge(report.totals.datastores)
-                    row(.network).badge(report.totals.portGroups)
+                    row(.compute, badge: report.totals.hosts)
+                    row(.vms, badge: report.totals.vms + report.totals.templates)
+                    row(.storage, badge: report.totals.datastores)
+                    row(.network, badge: report.totals.portGroups)
                 }
                 Section("Analysis") {
                     row(.configuration)
@@ -105,7 +105,7 @@ struct MainView: View {
                     row(.correlations)
                 }
                 Section("Source") {
-                    row(.rawData).badge(model.dataset?.tableNames.count ?? 0)
+                    row(.rawData, badge: model.dataset?.tableNames.count ?? 0)
                 }
             }
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
@@ -156,8 +156,12 @@ struct MainView: View {
         }
     }
 
-    private func row(_ item: SidebarItem) -> some View {
-        Label(item.rawValue, systemImage: item.symbol).tag(item)
+    /// The badge must be applied before `.tag` — a modifier added after the tag hides it from the
+    /// List's selection, which made badged rows unclickable.
+    private func row(_ item: SidebarItem, badge: Int = 0) -> some View {
+        Label(item.rawValue, systemImage: item.symbol)
+            .badge(badge)
+            .tag(item)
     }
 
     @ViewBuilder private var detail: some View {

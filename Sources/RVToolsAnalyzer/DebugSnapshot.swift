@@ -30,6 +30,12 @@ enum DebugSnapshot {
                 w.makeKeyAndOrderFront(nil)
                 NSApp.activate(ignoringOtherApps: true)
             }
+            if env["RVTA_CLICKTEST"] == "1" {
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
+                await clickSidebarRows(model, log: log)
+                if env["RVTA_SNAPSHOT_QUIT"] == "1" { NSApp.terminate(nil) }
+                return
+            }
             let inv = model.report?.inventory
             let worstVM = inv?.vms.max { $0.issueCount < $1.issueCount }?.id
             let busiestHost = inv?.hosts.max { $0.issueCount < $1.issueCount }?.id
@@ -56,6 +62,34 @@ enum DebugSnapshot {
                 log("\(name): " + capture(to: base.appendingPathComponent(name + ".png")))
             }
             if env["RVTA_SNAPSHOT_QUIT"] == "1" { NSApp.terminate(nil) }
+        }
+    }
+
+    /// Clicks every row of the sidebar with synthetic mouse events and logs which page the app selects.
+    private static func clickSidebarRows(_ model: AppModel, log: (String) -> Void) async {
+        guard let window = mainWindow(), let root = window.contentView?.superview ?? window.contentView else { log("no window"); return }
+        func tables(in view: NSView) -> [NSTableView] {
+            (view as? NSTableView).map { [$0] } ?? view.subviews.flatMap { tables(in: $0) }
+        }
+        let all = tables(in: root)
+        log("tables: " + all.map { "\($0.className) rows=\($0.numberOfRows) x=\(Int($0.convert($0.bounds, to: nil).minX)) w=\(Int($0.bounds.width))" }.joined(separator: "; "))
+        guard let sidebar = all.filter({ $0.numberOfRows > 5 }).min(by: { $0.convert($0.bounds, to: nil).minX < $1.convert($1.bounds, to: nil).minX }) else {
+            log("no sidebar table"); return
+        }
+        for row in 0..<sidebar.numberOfRows {
+            let rect = sidebar.rect(ofRow: row)
+            let p = sidebar.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+            let before = model.sidebar?.rawValue ?? "nil"
+            let t = ProcessInfo.processInfo.systemUptime
+            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+                if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: t, windowNumber: window.windowNumber,
+                                              context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0) {
+                    NSApp.postEvent(e, atStart: false)
+                }
+            }
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            let hit = sidebar.hitTest(sidebar.convert(p, from: nil)).map { String(describing: type(of: $0)) } ?? "nil"
+            log("row \(row) h=\(Int(rect.height)) winY=\(Int(p.y)) hit=\(hit) | \(before) -> \(model.sidebar?.rawValue ?? "nil") selectedRow=\(sidebar.selectedRow)")
         }
     }
 
