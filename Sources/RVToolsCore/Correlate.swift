@@ -348,7 +348,9 @@ private final class Builder {
     func attachVMChildren() {
         joinVMTab("vCPU") { t in
             let cS = t.col("Sockets"), cC = t.col("Cores p/s"), cRes = t.col("Reservation"), cLim = t.col("Limit"), cHot = t.col("Hot Add")
+            let cOverall = t.col("Overall")
             return { i, r in
+                self.inv.vms[i].cpuUsageMHz = r.d0(cOverall)
                 self.inv.vms[i].sockets = r.i0(cS)
                 self.inv.vms[i].coresPerSocket = r.i0(cC)
                 self.inv.vms[i].cpuReservationMHz = r.d0(cRes)

@@ -74,7 +74,7 @@ struct WelcomeView: View {
                     Button("Try Sample Data") { model.open([sample]) }.controlSize(.large)
                 }
             }
-            Text("Everything runs locally — nothing leaves this Mac.").font(.caption).foregroundStyle(.secondary)
+            Text("Your RVTools data stays on this Mac — cloud solutions only download public price lists.").font(.caption).foregroundStyle(.secondary)
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)

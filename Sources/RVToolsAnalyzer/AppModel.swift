@@ -123,6 +123,10 @@ final class AppModel {
     }
     var solutionTab: [String: Int] = [:]
     private(set) var reportVersion = 0
+    var priceVersion = 0
+    var priceLoading = false
+    var priceStatus = ""
+    var priceError: String?
     @ObservationIgnored private var solutionCache: [String: SolutionResult] = [:]
 
     var thresholds: Thresholds = AppModel.loadThresholds() {
@@ -314,12 +318,40 @@ final class AppModel {
         guard let r = report else { return nil }
         let selection = solutionSelections[s.id] ?? []
         let values = solutionParams[s.id] ?? ParamValues()
-        let key = "\(s.id)|\(reportVersion)|\(selection.hashValue)|\(values.hashValue)"
+        let key = "\(s.id)|\(reportVersion)|\(PriceStore.shared.version)|\(selection.hashValue)|\(values.hashValue)"
         if let cached = solutionCache[key] { return cached }
         let result = s.run(vms: r.inventory.vms.filter { selection.contains($0.id) }, inventory: r.inventory, values: values)
         if solutionCache.count > 16 { solutionCache.removeAll() }
         solutionCache[key] = result
         return result
+    }
+
+    /// Loads cached price files for the solution's regions (no network).
+    func loadCachedPrices(_ s: any PricedSolution) {
+        let regions = s.regions(Params(s.parameters, solutionParams[s.id] ?? ParamValues()))
+        let before = PriceStore.shared.version
+        PriceStore.shared.loadFromDisk(s.provider, regions: regions)
+        if PriceStore.shared.version != before { priceVersion += 1 }
+    }
+
+    /// Downloads public list prices for the solution's regions (only when the user asks).
+    func downloadPrices(_ s: any PricedSolution, force: Bool) {
+        let provider = s.provider
+        let regions = s.regions(Params(s.parameters, solutionParams[s.id] ?? ParamValues()))
+        let needed = force ? regions : regions.filter { PriceStore.shared.prices(provider, $0) == nil }
+        guard !needed.isEmpty else { return }
+        priceLoading = true
+        priceError = nil
+        priceStatus = "Downloading \(provider.name) prices for \(needed.count) region\(needed.count == 1 ? "" : "s")…"
+        Task.detached {
+            let errors = await PriceStore.shared.download(provider, regions: needed)
+            await MainActor.run {
+                self.priceLoading = false
+                self.priceVersion += 1
+                self.priceError = errors.isEmpty ? nil
+                    : "Failed: " + errors.sorted { $0.key < $1.key }.map { "\($0.key) (\($0.value))" }.joined(separator: ", ")
+            }
+        }
     }
 
     func exportSolution(_ s: any Solution) {

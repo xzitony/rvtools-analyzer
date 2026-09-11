@@ -26,7 +26,7 @@ public extension Solution {
 }
 
 public enum SolutionCatalog {
-    public static let all: [any Solution] = [BackupSizing(), DisasterRecoverySizing(), VCF9Readiness()]
+    public static let all: [any Solution] = [BackupSizing(), DisasterRecoverySizing(), VCF9Readiness(), CloudMigration(.azure), CloudMigration(.aws)]
     public static func solution(id: String) -> (any Solution)? { all.first { $0.id == id } }
 }
 
@@ -36,6 +36,7 @@ public enum ParamValue: Codable, Hashable, Sendable {
     case number(Double)
     case choice(Int)
     case flag(Bool)
+    case selection([Int])
 }
 
 public struct SolutionParameter: Identifiable, Sendable {
@@ -43,6 +44,7 @@ public struct SolutionParameter: Identifiable, Sendable {
         case number(min: Double, max: Double, step: Double, unit: String)
         case choice([String])
         case toggle
+        case multi([String])
     }
 
     public let id: String
@@ -65,8 +67,15 @@ public struct SolutionParameter: Identifiable, Sendable {
         SolutionParameter(id: id, group: group, label: label, help: help, kind: .toggle, defaultValue: .flag(on))
     }
 
+    public static func multi(_ id: String, _ group: String, _ label: String, _ options: [String], selected: [Int], help: String = "") -> SolutionParameter {
+        SolutionParameter(id: id, group: group, label: label, help: help, kind: .multi(options), defaultValue: .selection(selected))
+    }
+
     public func display(_ value: ParamValue) -> String {
         switch (kind, value) {
+        case (.multi(let options), .selection(let chosen)):
+            let names = chosen.filter { options.indices.contains($0) }.map { options[$0] }
+            return names.isEmpty ? "None" : names.joined(separator: "; ")
         case (.number(_, _, _, let unit), .number(let x)): return SFmt.num(x) + (unit.isEmpty ? "" : " " + unit)
         case (.choice(let options), .choice(let i)): return options.indices.contains(i) ? options[i] : "—"
         case (.toggle, .flag(let on)): return on ? "Yes" : "No"
@@ -95,6 +104,7 @@ public struct Params {
     public func num(_ id: String) -> Double { if case .number(let x)? = value(id) { return x }; return 0 }
     public func choice(_ id: String) -> Int { if case .choice(let i)? = value(id) { return i }; return 0 }
     public func flag(_ id: String) -> Bool { if case .flag(let b)? = value(id) { return b }; return false }
+    public func multi(_ id: String) -> [Int] { if case .selection(let s)? = value(id) { return s }; return [] }
 }
 
 // MARK: - Results
@@ -140,6 +150,7 @@ public struct SolutionMetric: Sendable {
 public enum ValueFormat: Sendable {
     case count
     case capacityMiB
+    case currency
     case number(String)
 }
 
@@ -236,6 +247,12 @@ enum SFmt {
         return String(format: "%.1f Mb/s", v)
     }
 
+    static func usd(_ v: Double) -> String {
+        guard v.isFinite else { return "—" }
+        if abs(v) >= 10_000_000 { return String(format: "$%.2fM", v / 1_000_000) }
+        return (v < 0 ? "−$" : "$") + Fmt.int(Int(abs(v).rounded()))
+    }
+
     static func duration(hours: Double) -> String {
         guard hours.isFinite else { return "—" }
         if hours < 1 { return String(format: "%.0f minutes", hours * 60) }
@@ -313,6 +330,7 @@ public extension SolutionResult {
                     switch format {
                     case .count: return Fmt.int(Int($0.rounded()))
                     case .capacityMiB: return Fmt.capacity(mib: $0)
+                    case .currency: return SFmt.usd($0)
                     case .number(let unit): return SFmt.num($0) + " " + unit
                     }
                 }

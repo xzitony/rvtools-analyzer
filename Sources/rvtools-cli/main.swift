@@ -15,6 +15,47 @@ if let i = args.firstIndex(of: "--solution"), i + 1 < args.count {
     solutionID = args[i + 1]
     args.removeSubrange(i...(i + 1))
 }
+// --set name=value (repeatable): override a solution assumption. Choices take an index; multi-selects take "0,2,5".
+var overrides: [String: String] = [:]
+while let i = args.firstIndex(of: "--set"), i + 1 < args.count {
+    let kv = args[i + 1].split(separator: "=", maxSplits: 1).map(String.init)
+    if kv.count == 2 { overrides[kv[0]] = kv[1] }
+    args.removeSubrange(i...(i + 1))
+}
+
+func paramValues(_ s: any Solution) -> ParamValues {
+    var v = ParamValues()
+    for (name, raw) in overrides {
+        guard let spec = s.parameters.first(where: { $0.id == name }) else {
+            FileHandle.standardError.write("unknown parameter '\(name)' — available: \(s.parameters.map(\.id).joined(separator: ", "))\n".data(using: .utf8)!)
+            continue
+        }
+        switch spec.kind {
+        case .number: if let x = Double(raw) { v.values[name] = .number(x) }
+        case .choice: if let x = Int(raw) { v.values[name] = .choice(x) }
+        case .toggle: v.values[name] = .flag(["1", "true", "yes", "on"].contains(raw.lowercased()))
+        case .multi: v.values[name] = .selection(raw.split(separator: ",").compactMap { Int($0) })
+        }
+    }
+    return v
+}
+
+// --prices azure|aws: download every region's public price list and report what was found.
+if let i = args.firstIndex(of: "--prices"), i + 1 < args.count {
+    guard let provider = CloudProvider(rawValue: args[i + 1]) else { print("usage: --prices azure|aws"); exit(1) }
+    for region in CloudRegions.list(provider) {
+        let errors = await PriceStore.shared.download(provider, regions: [region.code])
+        if let e = errors[region.code] {
+            print("  \(region.code.padding(toLength: 20, withPad: " ", startingAt: 0)) FAILED: \(e)")
+        } else if let rp = PriceStore.shared.prices(provider, region.code) {
+            let priced = rp.instances.filter { $0.linuxHourly != nil }
+            print("  \(region.code.padding(toLength: 20, withPad: " ", startingAt: 0)) \(priced.count) instances · \(rp.instances.filter { $0.windowsHourly != nil }.count) Windows · "
+                + "\(rp.instances.filter { $0.reserved1yHourly != nil }.count) reserved · storage \(rp.storage.keys.sorted().joined(separator: " "))")
+        }
+    }
+    exit(0)
+}
+
 guard !args.isEmpty else {
     print("usage: rvtools-cli <RVTools export .xlsx | folder of RVTools_tab*.csv> [...] [--export <dir>]")
     exit(1)
@@ -38,8 +79,18 @@ do {
             print("unknown solution '\(sid)'; available: " + SolutionCatalog.all.map(\.id).joined(separator: ", "))
             exit(1)
         }
+        if let priced = s as? any PricedSolution {
+            let regions = priced.regions(Params(priced.parameters, paramValues(priced)))
+            let missing = PriceStore.shared.loadFromDisk(priced.provider, regions: regions)
+            if !missing.isEmpty {
+                FileHandle.standardError.write("Downloading \(priced.provider.name) prices for \(missing.joined(separator: ", "))…\n".data(using: .utf8)!)
+                for (region, error) in await PriceStore.shared.download(priced.provider, regions: missing) {
+                    FileHandle.standardError.write("  \(region): \(error)\n".data(using: .utf8)!)
+                }
+            }
+        }
         let selected = s.defaultSelection(r.inventory)
-        let result = s.run(vms: r.inventory.vms.filter { selected.contains($0.id) }, inventory: r.inventory, values: ParamValues())
+        let result = s.run(vms: r.inventory.vms.filter { selected.contains($0.id) }, inventory: r.inventory, values: paramValues(s))
         print(result.markdown(title: s.title, subtitle: "\(ds.sources.map(\.lastPathComponent).joined(separator: ", ")) · exported \(Fmt.dateTime(ds.reportDate))"))
         exit(0)
     }

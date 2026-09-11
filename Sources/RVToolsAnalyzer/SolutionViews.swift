@@ -17,6 +17,7 @@ extension ValueFormat {
         switch self {
         case .count: return Fmt.int(Int(v.rounded()))
         case .capacityMiB: return Fmt.capacity(mib: v)
+        case .currency: return "$" + Fmt.int(Int(v.rounded()))
         case .number(let unit): return Fmt.num(v, 1) + (unit.isEmpty ? "" : " " + unit)
         }
     }
@@ -74,6 +75,9 @@ struct SolutionView: View {
                     .disabled(inScope == 0)
             }
             .padding(.horizontal, 20).padding(.vertical, 12)
+            if let priced = solution as? any PricedSolution {
+                PriceBar(solution: priced)
+            }
             Picker("Step", selection: tab) {
                 Text("1 · Select VMs").tag(0)
                 Text("2 · Assumptions").tag(1)
@@ -87,11 +91,48 @@ struct SolutionView: View {
             case 1:
                 AssumptionsForm(parameters: solution.parameters, values: values)
             default:
+                let _ = model.priceVersion
                 if let result = model.result(for: solution) {
                     SolutionResultView(result: result)
                 }
             }
         }
+    }
+}
+
+/// Price-list status and download control for solutions that need cloud prices.
+private struct PriceBar: View {
+    @Environment(AppModel.self) private var model
+    let solution: any PricedSolution
+
+    var body: some View {
+        let regions = solution.regions(Params(solution.parameters, model.solutionParams[solution.id] ?? ParamValues()))
+        let _ = model.priceVersion
+        let loaded = regions.compactMap { PriceStore.shared.prices(solution.provider, $0) }
+        let oldest = loaded.map(\.fetched).min()
+        HStack(spacing: 10) {
+            Image(systemName: "dollarsign.circle").foregroundStyle(Palette.primary)
+            if model.priceLoading {
+                ProgressView().controlSize(.small)
+                Text(model.priceStatus)
+            } else {
+                Text("\(solution.provider.name) list prices: \(loaded.count) of \(regions.count) regions" + (oldest.map { " · downloaded \(Fmt.dateTime($0))" } ?? ""))
+                if let error = model.priceError {
+                    Text(error).foregroundStyle(Palette.critical).lineLimit(1).help(error)
+                }
+            }
+            Spacer()
+            Text("Only public price lists are downloaded — no inventory data is sent.").font(.caption).foregroundStyle(.secondary)
+            Button(loaded.count < regions.count ? "Download Prices" : "Refresh Prices") {
+                model.downloadPrices(solution, force: loaded.count == regions.count)
+            }
+            .disabled(model.priceLoading || regions.isEmpty)
+        }
+        .font(.callout)
+        .padding(.horizontal, 20).padding(.vertical, 7)
+        .background(Palette.track.opacity(0.5))
+        .onAppear { model.loadCachedPrices(solution) }
+        .onChange(of: regions) { model.loadCachedPrices(solution) }
     }
 }
 
@@ -282,6 +323,21 @@ private struct ParameterRow: View {
                 Toggle(parameter.label, isOn: Binding<Bool>(
                     get: { if case .flag(let b) = current { return b }; return false },
                     set: { values.values[parameter.id] = .flag($0) }))
+            case .multi(let options):
+                let chosen: Set<Int> = { if case .selection(let s) = current { return Set(s) }; return [] }()
+                Text(parameter.label)
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 240), alignment: .leading)], alignment: .leading, spacing: 4) {
+                    ForEach(options.indices, id: \.self) { i in
+                        Toggle(options[i], isOn: Binding<Bool>(
+                            get: { chosen.contains(i) },
+                            set: { on in
+                                var s = chosen
+                                if on { s.insert(i) } else { s.remove(i) }
+                                values.values[parameter.id] = .selection(s.sorted())
+                            }))
+                        .toggleStyle(.checkbox)
+                    }
+                }
             }
             if !parameter.help.isEmpty {
                 Text(parameter.help).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

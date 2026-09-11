@@ -138,6 +138,8 @@ public struct VM: Identifiable, Sendable {
     public var cpuReadinessPct: Double?
 
     // vCPU / vMemory
+    /// vCPU "Overall": CPU in use at export time (MHz).
+    public var cpuUsageMHz = 0.0
     public var cpuHotAdd = false
     public var memHotAdd = false
     public var cpuReservationMHz = 0.0
