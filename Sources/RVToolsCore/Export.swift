@@ -38,6 +38,14 @@ public enum CSVExport {
               })
     }
 
+    /// The VMs chosen for a solution, so the selection can be reviewed or reused.
+    public static func selection(_ vms: [VM]) -> String {
+        build(["VM", "vCenter", "Cluster", "Host", "Power", "Guest OS", "vCPU", "Memory GB", "Provisioned GB", "In use GB"],
+              vms.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }.map { v in
+                  [v.name, v.vcenter, v.cluster, v.host, v.powerLabel, v.os.name, "\(v.cpus)", gb(v.memoryMiB), gb(v.provisionedMiB), gb(v.inUseMiB)]
+              })
+    }
+
     public static func hosts(_ r: Report) -> String {
         build(["Host", "vCenter", "Datacenter", "Cluster", "Vendor", "Model", "CPU model", "Sockets", "Cores", "Threads", "Memory GB",
                "CPU usage %", "Memory usage %", "VMs", "VMs on", "vCPU (on)", "vCPU:core", "vRAM on GB", "ESXi", "Build", "Maintenance",

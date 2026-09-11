@@ -4,33 +4,31 @@ import RVToolsCore
 import SwiftUI
 import UniformTypeIdentifiers
 
-enum SidebarItem: String, CaseIterable, Identifiable, Hashable {
-    case overview = "Overview"
-    case issues = "Issues"
-    case compute = "Compute"
-    case vms = "Virtual Machines"
-    case storage = "Storage"
-    case network = "Network"
-    case configuration = "Configuration"
-    case lifecycle = "Lifecycle"
-    case correlations = "Correlations"
-    case rawData = "Raw Tabs"
+/// A sidebar destination: one of the fixed pages, or a solution from `SolutionCatalog` (added dynamically).
+struct SidebarItem: Hashable, Identifiable {
+    let id: String
+    let title: String
+    let symbol: String
 
-    var id: String { rawValue }
+    var rawValue: String { title }
+    var solutionID: String? { id.hasPrefix("solution:") ? String(id.dropFirst("solution:".count)) : nil }
 
-    var symbol: String {
-        switch self {
-        case .overview: return "gauge.with.dots.needle.67percent"
-        case .issues: return "exclamationmark.triangle"
-        case .compute: return "cpu"
-        case .vms: return "desktopcomputer"
-        case .storage: return "externaldrive"
-        case .network: return "network"
-        case .configuration: return "slider.horizontal.3"
-        case .lifecycle: return "calendar.badge.clock"
-        case .correlations: return "point.3.connected.trianglepath.dotted"
-        case .rawData: return "tablecells"
-        }
+    static let overview = SidebarItem(id: "overview", title: "Overview", symbol: "gauge.with.dots.needle.67percent")
+    static let issues = SidebarItem(id: "issues", title: "Issues", symbol: "exclamationmark.triangle")
+    static let compute = SidebarItem(id: "compute", title: "Compute", symbol: "cpu")
+    static let vms = SidebarItem(id: "vms", title: "Virtual Machines", symbol: "desktopcomputer")
+    static let storage = SidebarItem(id: "storage", title: "Storage", symbol: "externaldrive")
+    static let network = SidebarItem(id: "network", title: "Network", symbol: "network")
+    static let configuration = SidebarItem(id: "configuration", title: "Configuration", symbol: "slider.horizontal.3")
+    static let lifecycle = SidebarItem(id: "lifecycle", title: "Lifecycle", symbol: "calendar.badge.clock")
+    static let correlations = SidebarItem(id: "correlations", title: "Correlations", symbol: "point.3.connected.trianglepath.dotted")
+    static let rawData = SidebarItem(id: "rawData", title: "Raw Tabs", symbol: "tablecells")
+
+    /// Fixed pages, in sidebar order (used by the Go menu).
+    static let allCases: [SidebarItem] = [overview, issues, compute, vms, storage, network, configuration, lifecycle, correlations, rawData]
+
+    static func solution(_ s: any Solution) -> SidebarItem {
+        SidebarItem(id: "solution:" + s.id, title: s.title, symbol: s.symbol)
     }
 }
 
@@ -118,6 +116,15 @@ final class AppModel {
     var networkTab = 0
     var focusRule: String?
 
+    // Solutions: per-solution VM selection (reset per export), assumptions (persisted) and active tab.
+    var solutionSelections: [String: Set<String>] = [:]
+    var solutionParams: [String: ParamValues] = AppModel.loadSolutionParams() {
+        didSet { if let data = try? JSONEncoder().encode(solutionParams) { UserDefaults.standard.set(data, forKey: "solutionParams") } }
+    }
+    var solutionTab: [String: Int] = [:]
+    private(set) var reportVersion = 0
+    @ObservationIgnored private var solutionCache: [String: SolutionResult] = [:]
+
     var thresholds: Thresholds = AppModel.loadThresholds() {
         didSet {
             guard thresholds != oldValue else { return }
@@ -193,6 +200,8 @@ final class AppModel {
         scopeID = "all"
         report = r
         lookup = Lookup(r.inventory)
+        reportVersion += 1
+        solutionSelections = Dictionary(uniqueKeysWithValues: SolutionCatalog.all.map { ($0.id, $0.defaultSelection(inv)) })
         selectedVMID = nil
         selectedHostID = nil
         selectedDatastoreID = nil
@@ -225,6 +234,7 @@ final class AppModel {
                 guard gen == self.generation else { return }
                 self.report = r
                 self.lookup = Lookup(r.inventory)
+                self.reportVersion += 1
             }
         }
     }
@@ -289,6 +299,68 @@ final class AppModel {
     func showIssues(rule: String? = nil) {
         focusRule = rule
         sidebar = .issues
+    }
+
+    // MARK: Solutions
+
+    private static func loadSolutionParams() -> [String: ParamValues] {
+        guard let data = UserDefaults.standard.data(forKey: "solutionParams"),
+              let v = try? JSONDecoder().decode([String: ParamValues].self, from: data) else { return [:] }
+        return v
+    }
+
+    /// Result for the current selection / assumptions / scope, cached until any of them change.
+    func result(for s: any Solution) -> SolutionResult? {
+        guard let r = report else { return nil }
+        let selection = solutionSelections[s.id] ?? []
+        let values = solutionParams[s.id] ?? ParamValues()
+        let key = "\(s.id)|\(reportVersion)|\(selection.hashValue)|\(values.hashValue)"
+        if let cached = solutionCache[key] { return cached }
+        let result = s.run(vms: r.inventory.vms.filter { selection.contains($0.id) }, inventory: r.inventory, values: values)
+        if solutionCache.count > 16 { solutionCache.removeAll() }
+        solutionCache[key] = result
+        return result
+    }
+
+    func exportSolution(_ s: any Solution) {
+        guard let r = report, let result = result(for: s) else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Export \(s.title)"
+        panel.message = "Choose a folder for the report (Markdown) and its tables (CSV)."
+        panel.prompt = "Export Here"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        let base = "\(exportBaseName)_\(s.id)"
+        let subtitle = "\(sourceSummary) · exported \(Fmt.dateTime(r.inventory.reportDate)) · scope: \(scopeLabel)"
+        write(result.markdown(title: s.title, subtitle: subtitle), to: dir.appendingPathComponent(base + ".md"))
+        for file in result.csvFiles() { write(file.content, to: dir.appendingPathComponent("\(base)_\(file.name).csv")) }
+        let selected = r.inventory.vms.filter { (solutionSelections[s.id] ?? []).contains($0.id) }
+        write(CSVExport.selection(selected), to: dir.appendingPathComponent("\(base)_selected-vms.csv"))
+        NSWorkspace.shared.activateFileViewerSelecting([dir.appendingPathComponent(base + ".md")])
+    }
+
+    func canReveal(_ kind: ObjectKind, _ id: String) -> Bool {
+        switch kind {
+        case .vm: return lookup.vms[id] != nil
+        case .host: return lookup.hosts[id] != nil
+        case .datastore: return lookup.datastores[id] != nil
+        case .network: return lookup.portGroups[id] != nil
+        case .cluster: return lookup.clusters[id] != nil
+        default: return false
+        }
+    }
+
+    func reveal(_ kind: ObjectKind, _ id: String) {
+        switch kind {
+        case .vm: reveal(vm: id)
+        case .host: reveal(host: id)
+        case .datastore: reveal(datastore: id)
+        case .network: reveal(portGroup: id)
+        case .cluster: computeTab = 0; sidebar = .compute
+        default: break
+        }
     }
 
     // MARK: Export

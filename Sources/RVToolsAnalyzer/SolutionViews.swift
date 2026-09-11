@@ -1,0 +1,476 @@
+import RVToolsCore
+import SwiftUI
+
+extension CheckStatus {
+    var color: Color {
+        switch self {
+        case .blocker: return Palette.critical
+        case .warning: return Palette.warning
+        case .info: return Palette.severity(.info)
+        case .ready: return Palette.good
+        }
+    }
+}
+
+extension ValueFormat {
+    func format(_ v: Double) -> String {
+        switch self {
+        case .count: return Fmt.int(Int(v.rounded()))
+        case .capacityMiB: return Fmt.capacity(mib: v)
+        case .number(let unit): return Fmt.num(v, 1) + (unit.isEmpty ? "" : " " + unit)
+        }
+    }
+}
+
+struct StatusBadge: View {
+    let status: CheckStatus
+    var showLabel = true
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: status.symbol).foregroundStyle(status.color)
+            if showLabel { Text(status.label) }
+        }
+        .help(status.label)
+    }
+}
+
+/// A solution page: 1 · select VMs, 2 · assumptions, 3 · results.
+struct SolutionView: View {
+    @Environment(AppModel.self) private var model
+    let solution: any Solution
+    let report: Report
+
+    private var selection: Binding<Set<String>> {
+        Binding(get: { model.solutionSelections[solution.id] ?? [] }, set: { model.solutionSelections[solution.id] = $0 })
+    }
+
+    private var values: Binding<ParamValues> {
+        Binding(get: { model.solutionParams[solution.id] ?? ParamValues() }, set: { model.solutionParams[solution.id] = $0 })
+    }
+
+    private var tab: Binding<Int> {
+        Binding(get: { model.solutionTab[solution.id] ?? 0 }, set: { model.solutionTab[solution.id] = $0 })
+    }
+
+    var body: some View {
+        let selected = model.solutionSelections[solution.id] ?? []
+        let inScope = report.inventory.vms.filter { selected.contains($0.id) }.count
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                Image(systemName: solution.symbol).font(.system(size: 26)).foregroundStyle(Palette.primary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(solution.title).font(.title3.weight(.semibold))
+                    Text(solution.summary).font(.callout).foregroundStyle(.secondary).lineLimit(2)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text("\(Fmt.int(inScope)) VMs selected").font(.callout.weight(.medium))
+                    if selected.count > inScope {
+                        Text("\(selected.count - inScope) outside the current scope").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Button { model.exportSolution(solution) } label: { Label("Export Report…", systemImage: "square.and.arrow.up") }
+                    .disabled(inScope == 0)
+            }
+            .padding(.horizontal, 20).padding(.vertical, 12)
+            Picker("Step", selection: tab) {
+                Text("1 · Select VMs").tag(0)
+                Text("2 · Assumptions").tag(1)
+                Text("3 · Results").tag(2)
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(width: 420).padding(.bottom, 10)
+            Divider()
+            switch tab.wrappedValue {
+            case 0:
+                VMSelectionView(vms: report.inventory.vms, selection: selection)
+            case 1:
+                AssumptionsForm(parameters: solution.parameters, values: values)
+            default:
+                if let result = model.result(for: solution) {
+                    SolutionResultView(result: result)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - VM selection
+
+struct VMSelectionView: View {
+    let vms: [VM]
+    @Binding var selection: Set<String>
+    @State private var search = ""
+    @State private var cluster = "All clusters"
+    @State private var power = 0
+    @State private var family = "All OS families"
+    @State private var showTemplates = false
+    @State private var includedOnly = false
+    @State private var highlighted: Set<String> = []
+    @State private var sortOrder = [KeyPathComparator(\VM.name)]
+
+    private static func clusterLabel(_ vm: VM) -> String { vm.cluster.isEmpty ? "(no cluster)" : vm.cluster }
+
+    private var shown: [VM] {
+        let q = search.lowercased().trimmingCharacters(in: .whitespaces)
+        var r = vms.filter { showTemplates || !$0.isTemplate }
+        if cluster != "All clusters" { r = r.filter { VMSelectionView.clusterLabel($0) == cluster } }
+        if power == 1 { r = r.filter(\.isRunning) } else if power == 2 { r = r.filter { !$0.isRunning } }
+        if family != "All OS families" { r = r.filter { $0.os.family.rawValue == family } }
+        if includedOnly { r = r.filter { selection.contains($0.id) } }
+        if !q.isEmpty { r = r.filter { VMsView.searchText($0).contains(q) } }
+        return r.sorted(using: sortOrder)
+    }
+
+    var body: some View {
+        let rows = shown
+        VStack(spacing: 0) {
+            filterBar
+            actionBar(rows)
+            Divider()
+            table(rows)
+        }
+    }
+
+    private var filterBar: some View {
+        HStack(spacing: 10) {
+            TextField("Filter: name, host, OS, folder, network, IP, notes", text: $search)
+                .textFieldStyle(.roundedBorder).frame(minWidth: 220, maxWidth: 320)
+            Picker("Cluster", selection: $cluster) {
+                Text("All clusters").tag("All clusters")
+                ForEach(Array(Set(vms.map(VMSelectionView.clusterLabel))).sorted(), id: \.self) { Text($0).tag($0) }
+            }
+            .frame(width: 200)
+            Picker("Power", selection: $power) {
+                Text("All").tag(0)
+                Text("On").tag(1)
+                Text("Off").tag(2)
+            }
+            .pickerStyle(.segmented).labelsHidden().frame(width: 130).help("Power state")
+            Picker("OS", selection: $family) {
+                Text("All OS families").tag("All OS families")
+                ForEach(OSFamily.allCases, id: \.self) { Text($0.rawValue).tag($0.rawValue) }
+            }
+            .frame(width: 210)
+            Toggle("Templates", isOn: $showTemplates).toggleStyle(.checkbox)
+            Toggle("Selected only", isOn: $includedOnly).toggleStyle(.checkbox)
+            Spacer()
+        }
+        .padding(.horizontal, 14).padding(.top, 10).padding(.bottom, 6)
+    }
+
+    private func actionBar(_ rows: [VM]) -> some View {
+        let ids = rows.map(\.id)
+        let chosen = vms.filter { selection.contains($0.id) }
+        return HStack(spacing: 8) {
+            Button("Add Shown (\(Fmt.int(ids.count)))") { selection.formUnion(ids) }
+            Button("Remove Shown") { selection.subtract(ids) }
+            Button("Only Shown") { selection = Set(ids) }
+            Divider().frame(height: 16)
+            Button("Add Highlighted") { selection.formUnion(highlighted) }.disabled(highlighted.isEmpty)
+            Button("Remove Highlighted") { selection.subtract(highlighted) }.disabled(highlighted.isEmpty)
+            Divider().frame(height: 16)
+            Button("All VMs") { selection = Set(vms.filter { !$0.isTemplate }.map(\.id)) }
+            Button("None") { selection = [] }
+            Spacer()
+            Text("\(Fmt.int(chosen.count)) selected · \(Fmt.int(chosen.reduce(0) { $0 + $1.cpus })) vCPU · "
+                + "\(Fmt.capacity(mib: chosen.reduce(0) { $0 + $1.memoryMiB })) vRAM · \(Fmt.capacity(mib: chosen.reduce(0) { $0 + $1.inUseMiB })) in use")
+                .font(.callout).foregroundStyle(.secondary).tabular()
+        }
+        .controlSize(.small)
+        .padding(.horizontal, 14).padding(.bottom, 8)
+    }
+
+    private func table(_ rows: [VM]) -> some View {
+        Table(rows, selection: $highlighted, sortOrder: $sortOrder) {
+            Group {
+                TableColumn("✓", sortUsing: KeyPathComparator(\VM.name)) { (vm: VM) in IncludeToggle(id: vm.id, selection: $selection) }.width(26)
+                TableColumn("Name", sortUsing: KeyPathComparator(\VM.name)) { (vm: VM) in SelectionNameCell(vm: vm) }.width(min: 150, ideal: 220)
+                TableColumn("Cluster", sortUsing: KeyPathComparator(\VM.cluster)) { (vm: VM) in Text(vm.cluster) }
+                TableColumn("Host", sortUsing: KeyPathComparator(\VM.host)) { (vm: VM) in Text(VMsView.shortHost(vm)) }
+                TableColumn("Guest OS", sortUsing: KeyPathComparator(\VM.osName)) { (vm: VM) in Text(vm.os.name) }.width(min: 110, ideal: 160)
+            }
+            Group {
+                TableColumn("vCPU", sortUsing: KeyPathComparator(\VM.cpus)) { (vm: VM) in Text("\(vm.cpus)").tabular() }.width(44)
+                TableColumn("Memory", sortUsing: KeyPathComparator(\VM.memoryMiB)) { (vm: VM) in Text(Fmt.capacity(mib: vm.memoryMiB)).tabular() }.width(70)
+                TableColumn("In use", sortUsing: KeyPathComparator(\VM.inUseMiB)) { (vm: VM) in Text(Fmt.capacity(mib: vm.inUseMiB)).tabular() }.width(75)
+                TableColumn("Provisioned", sortUsing: KeyPathComparator(\VM.provisionedMiB)) { (vm: VM) in Text(Fmt.capacity(mib: vm.provisionedMiB)).tabular() }.width(85)
+                TableColumn("Folder", sortUsing: KeyPathComparator(\VM.folder)) { (vm: VM) in Text(vm.folder) }
+            }
+        }
+    }
+}
+
+private struct IncludeToggle: View {
+    let id: String
+    @Binding var selection: Set<String>
+
+    var body: some View {
+        Toggle("Include", isOn: Binding(get: { selection.contains(id) }, set: { on in
+            if on { selection.insert(id) } else { selection.remove(id) }
+        }))
+        .labelsHidden()
+        .toggleStyle(.checkbox)
+    }
+}
+
+private struct SelectionNameCell: View {
+    let vm: VM
+    var body: some View {
+        HStack(spacing: 6) {
+            PowerIcon(vm: vm).frame(width: 12)
+            Text(vm.name)
+        }
+    }
+}
+
+// MARK: - Assumptions
+
+struct AssumptionsForm: View {
+    let parameters: [SolutionParameter]
+    @Binding var values: ParamValues
+
+    var body: some View {
+        var seen = Set<String>()
+        let groups = parameters.map(\.group).filter { seen.insert($0).inserted }
+        return Form {
+            ForEach(groups, id: \.self) { group in
+                Section(group) {
+                    ForEach(parameters.filter { $0.group == group }) { p in ParameterRow(parameter: p, values: $values) }
+                }
+            }
+            Section {
+                HStack {
+                    Text("Assumptions are saved and reused for every export you open.").font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Button("Restore Defaults") { values = ParamValues() }
+                }
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct ParameterRow: View {
+    let parameter: SolutionParameter
+    @Binding var values: ParamValues
+
+    private var current: ParamValue { values.values[parameter.id] ?? parameter.defaultValue }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            switch parameter.kind {
+            case .number(let lo, let hi, let step, let unit):
+                let binding = Binding<Double>(
+                    get: { if case .number(let x) = current { return x }; return lo },
+                    set: { values.values[parameter.id] = .number(min(hi, max(lo, $0))) })
+                LabeledContent(parameter.label) {
+                    HStack(spacing: 6) {
+                        TextField(parameter.label, value: binding, format: .number)
+                            .labelsHidden().multilineTextAlignment(.trailing).frame(width: 80)
+                        Stepper(parameter.label, value: binding, in: lo...hi, step: step).labelsHidden()
+                        Text(unit).foregroundStyle(.secondary).frame(minWidth: 56, alignment: .leading)
+                    }
+                }
+            case .choice(let options):
+                Picker(parameter.label, selection: Binding<Int>(
+                    get: { if case .choice(let i) = current { return i }; return 0 },
+                    set: { values.values[parameter.id] = .choice($0) })) {
+                    ForEach(options.indices, id: \.self) { Text(options[$0]).tag($0) }
+                }
+            case .toggle:
+                Toggle(parameter.label, isOn: Binding<Bool>(
+                    get: { if case .flag(let b) = current { return b }; return false },
+                    set: { values.values[parameter.id] = .flag($0) }))
+            }
+            if !parameter.help.isEmpty {
+                Text(parameter.help).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+}
+
+// MARK: - Results
+
+struct SolutionResultView: View {
+    let result: SolutionResult
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                if result.vmCount == 0 {
+                    ContentUnavailableView("No VMs selected", systemImage: "checklist", description: Text("Choose VMs on the Select VMs step."))
+                        .frame(maxWidth: .infinity, minHeight: 300)
+                } else {
+                    Text(result.headline).font(.title3.weight(.medium)).textSelection(.enabled)
+                    ForEach(Array(result.sections.enumerated()), id: \.offset) { _, section in
+                        SectionView(section: section)
+                    }
+                    Card("Assumptions used") { KeyValueGrid(rows: result.assumptions) }
+                }
+            }
+            .padding(20)
+        }
+    }
+}
+
+private struct SectionView: View {
+    let section: SolutionSection
+
+    var body: some View {
+        switch section {
+        case .metrics(let title, let metrics):
+            VStack(alignment: .leading, spacing: 8) {
+                if !title.isEmpty && title != "Summary" { Text(title).font(.headline) }
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
+                    ForEach(Array(metrics.enumerated()), id: \.offset) { _, m in
+                        KPITile(title: m.label, value: m.value, detail: m.detail.isEmpty ? nil : m.detail, symbol: m.symbol)
+                    }
+                }
+            }
+        case .checks(let title, let checks):
+            ChecksCard(title: title, checks: checks)
+        case .table(let table):
+            TableCard(table: table)
+        case .bars(let title, let subtitle, let items, let format):
+            Card(title, subtitle: subtitle.isEmpty ? nil : subtitle) {
+                BarListChart(items: items, value: { $0.value }, label: { format.format($0.value) })
+            }
+        case .notes(let title, let lines):
+            Card(title) {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                        Text("• " + line).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct ChecksCard: View {
+    let title: String
+    let checks: [SolutionCheck]
+
+    var body: some View {
+        var seen = Set<String>()
+        let areas = checks.map(\.area).filter { seen.insert($0).inserted }
+        let counts = Dictionary(grouping: checks, by: \.status).mapValues(\.count)
+        return Card(title) {
+            HStack(spacing: 16) {
+                ForEach(CheckStatus.allCases) { s in
+                    if let n = counts[s] {
+                        HStack(spacing: 4) { StatusBadge(status: s); Text("\(n)").foregroundStyle(.secondary).tabular() }
+                    }
+                }
+            }
+            .font(.callout)
+            ForEach(areas, id: \.self) { area in
+                VStack(alignment: .leading, spacing: 0) {
+                    Text(area).font(.subheadline.weight(.semibold)).padding(.top, 8).padding(.bottom, 4)
+                    ForEach(checks.filter { $0.area == area }) { c in
+                        CheckRow(check: c)
+                        Divider()
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct CheckRow: View {
+    @Environment(AppModel.self) private var model
+    let check: SolutionCheck
+    @State private var expanded = false
+
+    var body: some View {
+        if check.affected.isEmpty && (check.remediation.isEmpty || check.status == .ready) {
+            header.padding(.vertical, 6).padding(.leading, 18)
+        } else {
+            DisclosureGroup(isExpanded: $expanded) {
+                VStack(alignment: .leading, spacing: 4) {
+                    if !check.remediation.isEmpty {
+                        Label(check.remediation, systemImage: "lightbulb").font(.callout).foregroundStyle(.secondary).padding(.bottom, 4)
+                    }
+                    ForEach(Array(check.affected.prefix(300).enumerated()), id: \.offset) { _, a in
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Image(systemName: a.kind.symbol).foregroundStyle(.secondary).frame(width: 16)
+                            if model.canReveal(a.kind, a.id) {
+                                Button(a.name) { model.reveal(a.kind, a.id) }.buttonStyle(.link)
+                            } else {
+                                Text(a.name)
+                            }
+                            Text(a.detail).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                            Spacer()
+                        }
+                    }
+                    if check.affected.count > 300 {
+                        Text("… and \(check.affected.count - 300) more (included in the export)").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            } label: {
+                header
+            }
+            .padding(.vertical, 4)
+        }
+    }
+
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            StatusBadge(status: check.status, showLabel: false)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(check.title).font(.body.weight(.medium))
+                Text(check.summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            if !check.affected.isEmpty { Text(Fmt.int(check.affected.count)).font(.callout.weight(.semibold)).tabular() }
+        }
+    }
+}
+
+private struct TableCard: View {
+    @Environment(AppModel.self) private var model
+    let table: SolutionTable
+
+    var body: some View {
+        Card(table.title, subtitle: table.subtitle.isEmpty ? nil : table.subtitle) {
+            if table.rows.count <= 30 {
+                ScrollView(.horizontal) {
+                    Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 20, verticalSpacing: 6) {
+                        GridRow {
+                            ForEach(table.columns.indices, id: \.self) { j in
+                                Text(table.columns[j]).font(.caption).foregroundStyle(.secondary)
+                                    .gridColumnAlignment(table.numericColumns.contains(j) ? .trailing : .leading)
+                            }
+                        }
+                        Divider().gridCellUnsizedAxes(.horizontal)
+                        ForEach(table.rows.indices, id: \.self) { i in
+                            GridRow {
+                                ForEach(table.columns.indices, id: \.self) { j in cell(i, j) }
+                            }
+                            .fontWeight(table.emphasized.contains(i) ? .semibold : .regular)
+                        }
+                    }
+                    .font(.callout)
+                    .padding(.bottom, 2)
+                }
+            } else {
+                DataGrid(headers: table.columns, rows: table.rows, identity: "\(table.id)|\(table.rows.hashValue)")
+                    .frame(height: 380)
+                Text("\(Fmt.int(table.rows.count)) rows — click a column header to sort; the full table is included in the export.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func cell(_ i: Int, _ j: Int) -> some View {
+        let text = j < table.rows[i].count ? table.rows[i][j] : ""
+        if j == 0, i < table.rowRefs.count, let ref = table.rowRefs[i], model.canReveal(ref.kind, ref.id) {
+            Button(text) { model.reveal(ref.kind, ref.id) }.buttonStyle(.link)
+        } else {
+            Text(text).tabular().textSelection(.enabled)
+        }
+    }
+}

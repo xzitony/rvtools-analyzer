@@ -9,6 +9,12 @@ if let i = args.firstIndex(of: "--export"), i + 1 < args.count {
     exportDir = args[i + 1]
     args.removeSubrange(i...(i + 1))
 }
+// --solution <id>: print that solution's report (Markdown) for its default VM selection.
+var solutionID: String?
+if let i = args.firstIndex(of: "--solution"), i + 1 < args.count {
+    solutionID = args[i + 1]
+    args.removeSubrange(i...(i + 1))
+}
 guard !args.isEmpty else {
     print("usage: rvtools-cli <RVTools export .xlsx | folder of RVTools_tab*.csv> [...] [--export <dir>]")
     exit(1)
@@ -26,6 +32,17 @@ do {
     let t2 = Date()
     let r = Analyzer.run(inv)
     let t3 = Date()
+
+    if let sid = solutionID {
+        guard let s = SolutionCatalog.solution(id: sid) else {
+            print("unknown solution '\(sid)'; available: " + SolutionCatalog.all.map(\.id).joined(separator: ", "))
+            exit(1)
+        }
+        let selected = s.defaultSelection(r.inventory)
+        let result = s.run(vms: r.inventory.vms.filter { selected.contains($0.id) }, inventory: r.inventory, values: ParamValues())
+        print(result.markdown(title: s.title, subtitle: "\(ds.sources.map(\.lastPathComponent).joined(separator: ", ")) · exported \(Fmt.dateTime(ds.reportDate))"))
+        exit(0)
+    }
 
     print("Sources:      \(ds.sources.map(\.lastPathComponent).joined(separator: ", "))")
     print("Export date:  \(Fmt.dateTime(ds.reportDate))   RVTools \(ds.rvtoolsVersion)")

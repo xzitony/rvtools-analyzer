@@ -32,7 +32,7 @@ struct VMsView: View {
         return r.sorted(using: sortOrder)
     }
 
-    private static func searchText(_ vm: VM) -> String {
+    static func searchText(_ vm: VM) -> String {
         var parts: [String] = [vm.name, vm.host, vm.cluster, vm.os.name, vm.osConfig, vm.folder, vm.annotation, vm.dnsName]
         parts.append(contentsOf: vm.ips)
         parts.append(contentsOf: vm.networks)

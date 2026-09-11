@@ -1,0 +1,359 @@
+import Foundation
+
+// A "solution" turns a selection of VMs plus a set of assumptions into a report (sizing, readiness, ...).
+// To add one: create a type conforming to `Solution` and append it to `SolutionCatalog.all`. The app
+// renders its parameters, VM selection and results generically, and exports them to Markdown + CSV.
+
+public protocol Solution: Sendable {
+    var id: String { get }
+    var title: String { get }
+    var symbol: String { get }
+    var summary: String { get }
+    var parameters: [SolutionParameter] { get }
+    /// VMs included when an export is first opened.
+    func defaultSelection(_ inventory: Inventory) -> Set<String>
+    func run(vms: [VM], inventory: Inventory, params: Params) -> SolutionResult
+}
+
+public extension Solution {
+    /// Runs the solution and records the assumptions that were used.
+    func run(vms: [VM], inventory: Inventory, values: ParamValues) -> SolutionResult {
+        var result = run(vms: vms, inventory: inventory, params: Params(parameters, values))
+        result.vmCount = vms.count
+        result.assumptions = parameters.map { ($0.group + " · " + $0.label, $0.display(values.values[$0.id] ?? $0.defaultValue)) }
+        return result
+    }
+}
+
+public enum SolutionCatalog {
+    public static let all: [any Solution] = [BackupSizing(), DisasterRecoverySizing(), VCF9Readiness()]
+    public static func solution(id: String) -> (any Solution)? { all.first { $0.id == id } }
+}
+
+// MARK: - Parameters
+
+public enum ParamValue: Codable, Hashable, Sendable {
+    case number(Double)
+    case choice(Int)
+    case flag(Bool)
+}
+
+public struct SolutionParameter: Identifiable, Sendable {
+    public enum Kind: Sendable {
+        case number(min: Double, max: Double, step: Double, unit: String)
+        case choice([String])
+        case toggle
+    }
+
+    public let id: String
+    public let group: String
+    public let label: String
+    public let help: String
+    public let kind: Kind
+    public let defaultValue: ParamValue
+
+    public static func number(_ id: String, _ group: String, _ label: String, _ value: Double, min: Double, max: Double,
+                              step: Double = 1, unit: String = "", help: String = "") -> SolutionParameter {
+        SolutionParameter(id: id, group: group, label: label, help: help, kind: .number(min: min, max: max, step: step, unit: unit), defaultValue: .number(value))
+    }
+
+    public static func choice(_ id: String, _ group: String, _ label: String, _ options: [String], selected: Int = 0, help: String = "") -> SolutionParameter {
+        SolutionParameter(id: id, group: group, label: label, help: help, kind: .choice(options), defaultValue: .choice(selected))
+    }
+
+    public static func toggle(_ id: String, _ group: String, _ label: String, _ on: Bool, help: String = "") -> SolutionParameter {
+        SolutionParameter(id: id, group: group, label: label, help: help, kind: .toggle, defaultValue: .flag(on))
+    }
+
+    public func display(_ value: ParamValue) -> String {
+        switch (kind, value) {
+        case (.number(_, _, _, let unit), .number(let x)): return SFmt.num(x) + (unit.isEmpty ? "" : " " + unit)
+        case (.choice(let options), .choice(let i)): return options.indices.contains(i) ? options[i] : "—"
+        case (.toggle, .flag(let on)): return on ? "Yes" : "No"
+        default: return "—"
+        }
+    }
+}
+
+/// User-edited values; anything missing falls back to the parameter's default.
+public struct ParamValues: Codable, Hashable, Sendable {
+    public var values: [String: ParamValue]
+    public init(values: [String: ParamValue] = [:]) { self.values = values }
+}
+
+/// Typed access to parameter values with defaults filled in.
+public struct Params {
+    private let specs: [String: SolutionParameter]
+    private let values: ParamValues
+
+    public init(_ specs: [SolutionParameter], _ values: ParamValues) {
+        self.specs = Dictionary(specs.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        self.values = values
+    }
+
+    private func value(_ id: String) -> ParamValue? { values.values[id] ?? specs[id]?.defaultValue }
+    public func num(_ id: String) -> Double { if case .number(let x)? = value(id) { return x }; return 0 }
+    public func choice(_ id: String) -> Int { if case .choice(let i)? = value(id) { return i }; return 0 }
+    public func flag(_ id: String) -> Bool { if case .flag(let b)? = value(id) { return b }; return false }
+}
+
+// MARK: - Results
+
+public enum CheckStatus: Int, CaseIterable, Comparable, Identifiable, Sendable {
+    case blocker = 0, warning, info, ready
+    public var id: Int { rawValue }
+    public static func < (a: CheckStatus, b: CheckStatus) -> Bool { a.rawValue < b.rawValue }
+    public var label: String { ["Blocker", "Warning", "Info", "Ready"][rawValue] }
+    public var symbol: String { ["xmark.octagon.fill", "exclamationmark.triangle.fill", "info.circle.fill", "checkmark.circle.fill"][rawValue] }
+}
+
+public struct AffectedObject: Hashable, Sendable {
+    public let kind: ObjectKind
+    public let id: String
+    public let name: String
+    public let detail: String
+    public init(kind: ObjectKind, id: String, name: String, detail: String = "") {
+        self.kind = kind; self.id = id; self.name = name; self.detail = detail
+    }
+}
+
+public struct SolutionCheck: Identifiable, Sendable {
+    public let id: String
+    public let area: String
+    public let title: String
+    public let status: CheckStatus
+    public let summary: String
+    public let remediation: String
+    public let affected: [AffectedObject]
+}
+
+public struct SolutionMetric: Sendable {
+    public let label: String
+    public let value: String
+    public let detail: String
+    public let symbol: String?
+    public init(_ label: String, _ value: String, _ detail: String = "", symbol: String? = nil) {
+        self.label = label; self.value = value; self.detail = detail; self.symbol = symbol
+    }
+}
+
+public enum ValueFormat: Sendable {
+    case count
+    case capacityMiB
+    case number(String)
+}
+
+public struct SolutionTable: Sendable {
+    public let id: String
+    public let title: String
+    public let subtitle: String
+    public let columns: [String]
+    public let numericColumns: Set<Int>
+    public let rows: [[String]]
+    /// Optional object per row (for navigation); empty or same length as `rows`.
+    public let rowRefs: [AffectedObject?]
+    /// Rows rendered in bold (totals).
+    public let emphasized: Set<Int>
+
+    public init(id: String, title: String, subtitle: String = "", columns: [String], numeric: Set<Int> = [], rows: [[String]],
+                rowRefs: [AffectedObject?] = [], emphasized: Set<Int> = []) {
+        self.id = id; self.title = title; self.subtitle = subtitle; self.columns = columns; self.numericColumns = numeric
+        self.rows = rows; self.rowRefs = rowRefs; self.emphasized = emphasized
+    }
+}
+
+public enum SolutionSection: Sendable {
+    case metrics(String, [SolutionMetric])
+    case checks(String, [SolutionCheck])
+    case table(SolutionTable)
+    case bars(String, String, [CountItem], ValueFormat)
+    case notes(String, [String])
+}
+
+public struct SolutionResult {
+    public var headline: String
+    public var sections: [SolutionSection]
+    public var assumptions: [(String, String)] = []
+    public var vmCount = 0
+
+    public init(headline: String, sections: [SolutionSection]) {
+        self.headline = headline
+        self.sections = sections
+    }
+}
+
+// MARK: - Builders & helpers (internal)
+
+struct CheckBuilder {
+    var checks: [SolutionCheck] = []
+
+    mutating func add(_ id: String, _ area: String, _ title: String, _ status: CheckStatus, _ summary: String,
+                      remediation: String = "", affected: [AffectedObject] = []) {
+        checks.append(SolutionCheck(id: id, area: area, title: title, status: status, summary: summary, remediation: remediation, affected: affected))
+    }
+
+    /// One check over many objects: status is the most severe non-ready item; only non-ready items are listed.
+    mutating func aggregate(_ id: String, _ area: String, _ title: String, noun: String, items: [(CheckStatus, AffectedObject)],
+                            ready: String, remediation: String, empty: String? = nil) {
+        guard !items.isEmpty else {
+            if let empty { add(id, area, title, .info, empty, remediation: remediation) }
+            return
+        }
+        let bad = items.filter { $0.0 != .ready }.sorted { $0.0 < $1.0 }
+        guard let worst = bad.first?.0 else {
+            add(id, area, title, .ready, ready)
+            return
+        }
+        let blockers = bad.filter { $0.0 == .blocker }.count
+        var summary = "\(bad.count) of \(items.count) \(noun)"
+        if blockers > 0 && blockers < bad.count { summary += " (\(blockers) blocking)" }
+        add(id, area, title, worst, summary, remediation: remediation, affected: bad.map(\.1))
+    }
+
+    /// A check that is "ready" when nothing is affected, otherwise `status`.
+    mutating func list(_ id: String, _ area: String, _ title: String, _ status: CheckStatus, noun: String, affected: [AffectedObject],
+                       ready: String, remediation: String, total: Int? = nil) {
+        if affected.isEmpty {
+            add(id, area, title, .ready, ready)
+        } else {
+            let of = total.map { " of \($0)" } ?? ""
+            add(id, area, title, status, "\(affected.count)\(of) \(noun)", remediation: remediation, affected: affected)
+        }
+    }
+}
+
+enum SFmt {
+    static func num(_ v: Double) -> String {
+        guard v.isFinite else { return "—" }
+        if v.rounded() == v && abs(v) < 1e12 { return Fmt.int(Int(v)) }
+        return Fmt.num(v, abs(v) < 10 ? 2 : 1)
+    }
+
+    static func mbps(_ v: Double) -> String {
+        guard v.isFinite else { return "—" }
+        if v >= 1000 { return String(format: "%.2f Gb/s", v / 1000) }
+        if v >= 10 { return String(format: "%.0f Mb/s", v) }
+        return String(format: "%.1f Mb/s", v)
+    }
+
+    static func duration(hours: Double) -> String {
+        guard hours.isFinite else { return "—" }
+        if hours < 1 { return String(format: "%.0f minutes", hours * 60) }
+        if hours < 48 { return String(format: "%.1f hours", hours) }
+        return String(format: "%.1f days", hours / 24)
+    }
+}
+
+/// MiB → megabits
+let mibToMegabits = 8.388608
+/// MiB → decimal MB
+let mibToMB = 1.048576
+
+func regexMatch(_ s: String, _ pattern: String) -> [String]? {
+    guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),
+          let m = re.firstMatch(in: s, range: NSRange(s.startIndex..., in: s)) else { return nil }
+    return (0..<m.numberOfRanges).map { i in
+        let r = m.range(at: i)
+        guard r.location != NSNotFound, let rr = Range(r, in: s) else { return "" }
+        return String(s[rr])
+    }
+}
+
+extension VM {
+    /// vInfo "In Use" includes the .vswp file of running VMs; it is not backed up or replicated.
+    var swapMiB: Double { isRunning ? max(0, memoryMiB - memReservationMiB) : 0 }
+    var inUseExcludingSwapMiB: Double { max(0, inUseMiB - swapMiB) }
+    var vmRef: AffectedObject { AffectedObject(kind: .vm, id: id, name: name) }
+    func ref(_ detail: String) -> AffectedObject { AffectedObject(kind: .vm, id: id, name: name, detail: detail) }
+}
+
+extension VDisk {
+    var isSharedWriter: Bool {
+        sharing.lowercased().contains("multi") || (!sharedBus.isEmpty && !["nosharing", "none"].contains(sharedBus.lowercased()))
+    }
+}
+
+extension Host {
+    func ref(_ detail: String) -> AffectedObject { AffectedObject(kind: .host, id: id, name: name, detail: detail) }
+}
+
+func clusterName(_ inv: Inventory, _ vm: VM) -> String {
+    inv.clusters.first { $0.id == vm.clusterKey }?.name ?? (vm.cluster.isEmpty ? "(no cluster)" : vm.cluster)
+}
+
+// MARK: - Export
+
+public extension SolutionResult {
+    func markdown(title: String, subtitle: String) -> String {
+        func esc(_ s: String) -> String { s.replacingOccurrences(of: "|", with: "\\|").replacingOccurrences(of: "\n", with: " ") }
+        func table(_ header: [String], _ rows: [[String]]) -> String {
+            var t = "| " + header.map(esc).joined(separator: " | ") + " |\n|" + String(repeating: "---|", count: header.count) + "\n"
+            for r in rows { t += "| " + r.map(esc).joined(separator: " | ") + " |\n" }
+            return t
+        }
+        var md = "# \(title)\n\n_\(subtitle)_\n\n**\(headline)**\n\n"
+        for section in sections {
+            switch section {
+            case .metrics(let t, let metrics):
+                md += "## \(t.isEmpty ? "Summary" : t)\n\n" + table(["Metric", "Value", "Detail"], metrics.map { [$0.label, $0.value, $0.detail] })
+            case .checks(let t, let checks):
+                md += "## \(t)\n\n" + table(["Status", "Area", "Check", "Result"], checks.map { [$0.status.label, $0.area, $0.title, $0.summary] })
+                for c in checks where c.status != .ready && (!c.affected.isEmpty || !c.remediation.isEmpty) {
+                    md += "\n### \(c.status.label): \(c.title)\n\n"
+                    if !c.remediation.isEmpty { md += "\(c.remediation)\n\n" }
+                    for a in c.affected.prefix(100) { md += "- \(a.name)\(a.detail.isEmpty ? "" : " — \(a.detail)")\n" }
+                    if c.affected.count > 100 { md += "- … and \(c.affected.count - 100) more (see checks CSV)\n" }
+                }
+            case .table(let t):
+                md += "## \(t.title)\n\n"
+                if !t.subtitle.isEmpty { md += "_\(t.subtitle)_\n\n" }
+                md += t.rows.count > 60 ? "_\(t.rows.count) rows — see the \(t.id) CSV._\n" : table(t.columns, t.rows)
+            case .bars(let t, _, let items, let format):
+                let f: (Double) -> String = {
+                    switch format {
+                    case .count: return Fmt.int(Int($0.rounded()))
+                    case .capacityMiB: return Fmt.capacity(mib: $0)
+                    case .number(let unit): return SFmt.num($0) + " " + unit
+                    }
+                }
+                md += "## \(t)\n\n" + table(["Item", "Value", "Count"], items.map { [$0.label, f($0.value), Fmt.int($0.count)] })
+            case .notes(let t, let lines):
+                md += "## \(t)\n\n" + lines.map { "- \($0)" }.joined(separator: "\n") + "\n"
+            }
+            md += "\n"
+        }
+        md += "## Assumptions\n\n" + table(["Assumption", "Value"], assumptions.map { [$0.0, $0.1] })
+        return md
+    }
+
+    /// One CSV per table plus summary, checks and assumptions.
+    func csvFiles() -> [(name: String, content: String)] {
+        var files: [(String, String)] = []
+        var summary: [[String]] = []
+        var checkRows: [[String]] = []
+        for section in sections {
+            switch section {
+            case .metrics(_, let metrics): summary += metrics.map { [$0.label, $0.value, $0.detail] }
+            case .checks(_, let checks):
+                for c in checks {
+                    if c.affected.isEmpty {
+                        checkRows.append([c.status.label, c.area, c.title, c.summary, c.remediation, "", "", ""])
+                    } else {
+                        for a in c.affected { checkRows.append([c.status.label, c.area, c.title, c.summary, c.remediation, a.kind.rawValue, a.name, a.detail]) }
+                    }
+                }
+            case .table(let t): files.append((t.id, CSVExport.build(t.columns, t.rows)))
+            case .bars(let t, _, let items, _):
+                let id = t.lowercased().replacingOccurrences(of: " ", with: "-")
+                files.append((id, CSVExport.build(["Item", "Value", "Count"], items.map { [$0.label, String(format: "%.2f", $0.value), "\($0.count)"] })))
+            case .notes: break
+            }
+        }
+        if !summary.isEmpty { files.insert(("summary", CSVExport.build(["Metric", "Value", "Detail"], summary)), at: 0) }
+        if !checkRows.isEmpty {
+            files.append(("checks", CSVExport.build(["Status", "Area", "Check", "Result", "Remediation", "Object type", "Object", "Detail"], checkRows)))
+        }
+        files.append(("assumptions", CSVExport.build(["Assumption", "Value"], assumptions.map { [$0.0, $0.1] })))
+        return files
+    }
+}

@@ -54,7 +54,11 @@ enum DebugSnapshot {
                 ("11-correlations", { model.sidebar = .correlations }),
                 ("12-raw", { model.sidebar = .rawData }),
                 ("13-overview-again", { model.sidebar = .overview }),
-            ]
+            ] + SolutionCatalog.all.enumerated().flatMap { i, s -> [(String, () -> Void)] in
+                [("\(20 + i * 3)-\(s.id)-select", { model.solutionTab[s.id] = 0; model.sidebar = .solution(s) }),
+                 ("\(21 + i * 3)-\(s.id)-assumptions", { model.solutionTab[s.id] = 1; model.sidebar = .solution(s) }),
+                 ("\(22 + i * 3)-\(s.id)-results", { model.solutionTab[s.id] = 2; model.sidebar = .solution(s) })]
+            }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             for (name, setup) in steps {
                 setup()

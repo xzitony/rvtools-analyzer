@@ -46,6 +46,22 @@ Ages are measured from the export timestamp in `vMetaData` or the file name, not
 | **Correlations** | The entity graph, what each cross-tab relationship reveals, join coverage per tab, and consistency checks (RVTools' own counts vs the counts derived from other tabs). |
 | **Raw Tabs** | Every tab exactly as loaded, including custom-attribute columns, in a fast sortable and filterable grid. |
 
+## Solutions
+
+The **Solutions** section of the sidebar turns a chosen set of VMs and editable assumptions into a report. Each solution has three steps:
+
+1. **Select VMs** — filter by name, cluster, power state or OS family, then add or remove the shown or highlighted VMs, or tick them one by one. Each solution keeps its own selection.
+2. **Assumptions** — change rates, retention, host specs and so on. They are saved and reused for every export you open.
+3. **Results** — headline figures, sizing tables, a checklist with the affected objects, and a per-VM breakdown. **Export Report…** writes a Markdown report plus CSV tables and the list of selected VMs.
+
+| Solution | What it produces |
+|---|---|
+| **Backup Sizing** | Protected data (guest used, in-use or provisioned), primary repository capacity for daily points and GFS fulls with growth and headroom, offsite copy, throughput for the backup window, licensing counts (VMs, hosts, sockets), and coverage gaps (independent, RDM or shared disks, no Tools, consolidation). |
+| **DR Sizing** | DR hosts, sized by whichever of CPU, memory or storage needs the most, plus spares; replica storage with point-in-time history; average and peak replication bandwidth against the link and RPO; initial seed time; a DR network map of port groups, VLANs and subnets; and replication blockers. |
+| **VCF 9 Readiness** | Checks on the clusters, hosts and vCenters behind the selected VMs: upgrade path, CPU generation, NTP, DNS, certificates, uplinks, cluster size, DRS/HA and host-evacuation headroom. Also vDS vs standard switches, datastore types, VM live-migration blockers, and VCF core licensing. |
+
+The rules and defaults are built in; confirm them against current vendor documentation. VCF 9 upgrade paths and CPU support are the ones most likely to need checking. To add a solution, create a type conforming to `Solution` in `Sources/RVToolsCore/Solutions/` and add it to `SolutionCatalog.all`. The app renders its parameters, selection and results automatically. `rvtools-cli <export> --solution backup|dr|vcf9` prints a report from the terminal.
+
 The **Scope** picker in the toolbar limits every page to one vCenter, datacenter or cluster. Datastores and networks follow the hosts and VMs in scope.
 
 **Export** writes CSVs of the findings, the correlated VM inventory, hosts, clusters and datastores. **Settings** (⌘,) holds the thresholds; findings recalculate immediately when you change them.

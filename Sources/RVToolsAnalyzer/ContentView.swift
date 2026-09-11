@@ -104,6 +104,11 @@ struct MainView: View {
                     row(.lifecycle)
                     row(.correlations)
                 }
+                Section("Solutions") {
+                    ForEach(SolutionCatalog.all.map { SidebarItem.solution($0) }) { item in
+                        row(item, badge: model.solutionSelections[item.solutionID ?? ""]?.count ?? 0)
+                    }
+                }
                 Section("Source") {
                     row(.rawData, badge: model.dataset?.tableNames.count ?? 0)
                 }
@@ -176,6 +181,12 @@ struct MainView: View {
         case .lifecycle: LifecycleView(report: report)
         case .correlations: CorrelationsView(report: report)
         case .rawData: RawDataView()
+        default:
+            if let sid = model.sidebar?.solutionID, let solution = SolutionCatalog.solution(id: sid) {
+                SolutionView(solution: solution, report: report).id(sid)
+            } else {
+                OverviewView(report: report)
+            }
         }
     }
 }
