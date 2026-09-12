@@ -32,6 +32,13 @@ struct SidebarItem: Hashable, Identifiable {
     /// Fixed pages, in sidebar order (used by the Go menu).
     static let allCases: [SidebarItem] = [overview, issues, compute, vms, storage, network, configuration, lifecycle, correlations, rawData]
 
+    // Trend mode pages
+    static let trendSummary = SidebarItem(id: "trend:summary", title: "Trend Summary", symbol: "chart.line.uptrend.xyaxis")
+    static let trendChanges = SidebarItem(id: "trend:changes", title: "Changes", symbol: "arrow.triangle.2.circlepath")
+    static let trendGrowth = SidebarItem(id: "trend:growth", title: "Growth", symbol: "chart.bar.xaxis")
+    static let trendCapacity = SidebarItem(id: "trend:capacity", title: "Capacity Forecast", symbol: "calendar.badge.exclamationmark")
+    static let trendPages: [SidebarItem] = [trendSummary, trendChanges, trendGrowth, trendCapacity]
+
     static func solution(_ s: any Solution) -> SidebarItem {
         SidebarItem(id: "solution:" + s.id, title: s.title, symbol: s.symbol)
     }
@@ -111,6 +118,14 @@ final class AppModel {
     var errorMessage: String?
     var sources: [URL] = []
 
+    // Trend mode: several exports of one environment over time. The snapshot dashboards (report, lookup, …)
+    // show the export picked with `trendSnapshot` (the latest by default).
+    var trend: TrendReport?
+    var trendSnapshot = 0 { didSet { if oldValue != trendSnapshot { showSnapshot(trendSnapshot) } } }
+    var trendVMKey: String?
+    var trendInterval: Int?
+    var trendChangesTab = 0
+
     // Cross-page navigation state
     var selectedVMID: String?
     var selectedHostID: String?
@@ -168,6 +183,7 @@ final class AppModel {
     var scopeLabel: String { scopes.first { $0.id == scopeID }?.label ?? "Entire environment" }
 
     var sourceSummary: String {
+        if let t = trend { return "\(t.snapshots.count) snapshots · \(Fmt.date(t.first.date)) → \(Fmt.date(t.last.date))" }
         guard let first = sources.first else { return "" }
         if sources.count == 1 { return first.lastPathComponent }
         let folders = Set(sources.map { $0.deletingLastPathComponent().lastPathComponent })
@@ -195,7 +211,11 @@ final class AppModel {
         if let url = urls.first(where: ProjectFile.isProject) {
             do {
                 let opened = try ProjectFile.read(url)
-                load(opened.sources, project: (opened.project, url, opened.prices))
+                if opened.project.isTrend {
+                    loadTrend(groups: opened.project.sourceGroups(in: url), urls: nil, project: (opened.project, url, opened.prices))
+                } else {
+                    load(opened.sources, project: (opened.project, url, opened.prices))
+                }
             } catch {
                 errorMessage = error.localizedDescription
             }
@@ -232,11 +252,144 @@ final class AppModel {
         }
     }
 
-    private func apply(_ ds: Dataset, _ inv: Inventory, _ r: Report) {
+    // MARK: Trend mode
+
+    var sampleSeriesURL: URL? { Bundle.main.url(forResource: "RVTools_sample_series", withExtension: nil) }
+
+    func presentTrendPanel() {
+        let panel = NSOpenPanel()
+        panel.title = "Compare Snapshots"
+        panel.message = "Choose two or more RVTools exports of the same environment taken at different times, or a folder that contains them."
+        panel.prompt = "Compare"
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [UTType(filenameExtension: "xlsx"), UTType(filenameExtension: "xlsm"), .commaSeparatedText, .folder].compactMap { $0 }
+        if panel.runModal() == .OK { openTrend(panel.urls) }
+    }
+
+    /// Opens exports as a time series of one environment (trend mode).
+    func openTrend(_ urls: [URL]) {
+        guard !urls.isEmpty, confirmDiscardChanges() else { return }
+        if let url = urls.first(where: ProjectFile.isProject) { open([url]); return }
+        loadTrend(groups: nil, urls: urls, project: nil)
+    }
+
+    private func loadTrend(groups: [[URL]]?, urls: [URL]?, project: (file: ProjectFile, url: URL, prices: [RegionPrices])?) {
+        let all = urls ?? groups?.flatMap { $0 } ?? []
+        let scoped = all.filter { $0.startAccessingSecurityScopedResource() }
+        isLoading = true
+        errorMessage = nil
+        loadingMessage = project.map { "Opening \($0.file.name)…" } ?? "Reading \(all.count == 1 ? all[0].lastPathComponent : "\(all.count) exports")…"
+        let t = project?.file.thresholds ?? thresholds
+        Task.detached(priority: .userInitiated) {
+            do {
+                let snapshots = try groups.map { try TrendLoader.load(groups: $0) } ?? TrendLoader.load(all)
+                guard snapshots.count >= 2 else {
+                    throw RVToolsError.unreadable("Compare Snapshots needs exports of the same environment taken at different times, but these files form a single snapshot. To combine several vCenters into one view, use Open… instead.")
+                }
+                await MainActor.run { self.loadingMessage = "Comparing \(snapshots.count) snapshots…" }
+                let trend = TrendAnalyzer.run(snapshots)
+                let latest = snapshots[snapshots.count - 1]
+                let report = Analyzer.run(latest.inventory, thresholds: t)
+                await MainActor.run {
+                    scoped.forEach { $0.stopAccessingSecurityScopedResource() }
+                    self.apply(latest.dataset, latest.inventory, report, trend: trend)
+                    if let project { self.restore(project.file, url: project.url, prices: project.prices) }
+                    DebugSnapshot.runIfRequested(self)
+                }
+            } catch {
+                await MainActor.run {
+                    scoped.forEach { $0.stopAccessingSecurityScopedResource() }
+                    self.isLoading = false
+                    self.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Points the snapshot dashboards at another export of the series.
+    private func showSnapshot(_ index: Int) {
+        guard let t = trend, t.snapshots.indices.contains(index) else { return }
+        let snap = t.snapshots[index]
+        let previous = fullInventory
         restoring = true
+        dataset = snap.dataset
+        fullInventory = snap.inventory
+        scopes = AppModel.buildScopes(snap.inventory)
+        if !scopes.contains(where: { $0.id == scopeID }) { scopeID = "all" }
+        // VM ids (vCenter + moref) are stable across exports: keep customized selections, re-default untouched ones.
+        let valid = Set(snap.inventory.vms.map(\.id))
+        for s in SolutionCatalog.all {
+            let current = solutionSelections[s.id] ?? []
+            let untouched = previous.map { current == s.defaultSelection($0) } ?? true
+            solutionSelections[s.id] = untouched ? s.defaultSelection(snap.inventory) : current.intersection(valid)
+        }
+        selectedHostID = nil
+        selectedDatastoreID = nil
+        selectedPortGroupID = nil
+        restoring = false
+        recompute()
+    }
+
+    /// Opens a VM from the trend pages in the dashboards of the latest snapshot it appears in.
+    func revealTrendVM(_ key: String) {
+        guard let t = trend else { return }
+        let history = t.history(key)
+        guard let i = history.lastIndex(where: { $0.vm != nil }), let vm = history[i].vm else { return }
+        trendSnapshot = i
+        selectedVMID = vm.id
+        sidebar = .vms
+    }
+
+    /// Sets the annual growth assumption of the Backup and DR solutions to an observed rate.
+    func applyObservedGrowth(_ pct: Double) {
+        for id in ["backup", "dr"] {
+            var v = solutionParams[id] ?? ParamValues()
+            v.values["growth"] = .number(pct)
+            solutionParams[id] = v
+        }
+    }
+
+    func paramNumber(_ solution: String, _ id: String) -> Double? {
+        let value = solutionParams[solution]?.values[id] ?? SolutionCatalog.solution(id: solution)?.parameters.first { $0.id == id }?.defaultValue
+        if case .number(let v) = value { return v }
+        return nil
+    }
+
+    func exportTrend() {
+        guard let t = trend else { return }
+        let panel = NSOpenPanel()
+        panel.title = "Export Trend Report"
+        panel.message = "Choose a folder for the trend CSV files (metrics, changes, growth, datastores)."
+        panel.prompt = "Export Here"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let dir = panel.url else { return }
+        let base = (t.last.sources.first?.deletingPathExtension().lastPathComponent ?? "RVTools") + "_trend"
+        let files: [(String, String)] = [
+            ("summary", TrendExport.summary(t)),
+            ("vm-changes", TrendExport.changes(t)),
+            ("infrastructure-changes", TrendExport.infrastructure(t)),
+            ("vm-growth", TrendExport.vmGrowth(t)),
+            ("datastores", TrendExport.datastores(t)),
+        ]
+        for (name, content) in files { write(content, to: dir.appendingPathComponent("\(base)_\(name).csv")) }
+        NSWorkspace.shared.activateFileViewerSelecting([dir])
+    }
+
+    private func apply(_ ds: Dataset, _ inv: Inventory, _ r: Report, trend: TrendReport? = nil) {
+        restoring = true
+        self.trend = nil
+        trendSnapshot = (trend?.snapshots.count ?? 1) - 1
+        self.trend = trend
+        trendVMKey = nil
+        trendInterval = nil
+        trendChangesTab = 0
         dataset = ds
         fullInventory = inv
-        sources = ds.sources
+        sources = trend.map { $0.snapshots.flatMap(\.sources) } ?? ds.sources
         scopes = AppModel.buildScopes(inv)
         generation += 1
         scopeID = "all"
@@ -248,7 +401,7 @@ final class AppModel {
         selectedHostID = nil
         selectedDatastoreID = nil
         selectedPortGroupID = nil
-        sidebar = .overview
+        sidebar = trend == nil ? .overview : .trendSummary
         isLoading = false
         // A freshly opened export is a new, unsaved session.
         projectURL = nil
@@ -282,7 +435,7 @@ final class AppModel {
         for (id, values) in p.solutionParams { solutionParams[id] = values }
         solutionTab = p.solutionTabs
         if scopes.contains(where: { $0.id == p.scopeID }) { scopeID = p.scopeID }
-        let pages = SidebarItem.allCases + SolutionCatalog.all.map { SidebarItem.solution($0) }
+        let pages = SidebarItem.allCases + SidebarItem.trendPages + SolutionCatalog.all.map { SidebarItem.solution($0) }
         if let page = p.page, let item = pages.first(where: { $0.id == page }) { sidebar = item }
         addRecent(url)
     }
@@ -293,6 +446,8 @@ final class AppModel {
         fullInventory = nil
         report = nil
         lookup = Lookup()
+        trend = nil
+        trendVMKey = nil
         sources = []
         scopes = []
         restoring = true
@@ -309,8 +464,9 @@ final class AppModel {
     var projectTitle: String { projectURL == nil ? "Unsaved session" : projectName }
 
     private var defaultProjectName: String {
-        guard let first = sources.first else { return "RVTools Project" }
-        return first.pathExtension.lowercased() == "csv" ? first.deletingLastPathComponent().lastPathComponent : first.deletingPathExtension().lastPathComponent
+        guard let first = trend?.last.sources.first ?? sources.first else { return "RVTools Project" }
+        let base = first.pathExtension.lowercased() == "csv" ? first.deletingLastPathComponent().lastPathComponent : first.deletingPathExtension().lastPathComponent
+        return trend == nil ? base : base + " trend"
     }
 
     /// Records a user customization; saved projects autosave shortly afterwards.
@@ -339,6 +495,7 @@ final class AppModel {
         p.solutionParams = solutionParams
         p.solutionTabs = solutionTab
         p.page = sidebar?.id
+        p.mode = trend == nil ? nil : ProjectFile.trendMode
         return p
     }
 
@@ -366,7 +523,13 @@ final class AppModel {
         var p = snapshot()
         p.name = url.deletingPathExtension().lastPathComponent
         do {
-            finishSave(try ProjectFile.write(p, to: url, copySources: ds.sources, prices: projectPrices()), url)
+            let saved: ProjectFile
+            if let t = trend {
+                saved = try ProjectFile.write(p, to: url, copyGroups: t.snapshots.map(\.sources), prices: projectPrices())
+            } else {
+                saved = try ProjectFile.write(p, to: url, copySources: ds.sources, prices: projectPrices())
+            }
+            finishSave(saved, url)
             addRecent(url)
         } catch {
             errorMessage = "Couldn't save the project: \(error.localizedDescription)"

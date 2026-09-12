@@ -541,7 +541,6 @@ public struct Inventory: Sendable {
     public var checks: [ConsistencyCheck] = []
 
     public var datacenterCount: Int { Set(hosts.map { key($0.vcenter, $0.datacenter) } + vms.map { key($0.vcenter, $0.datacenter) }).count }
-
     /// Restricts the inventory to a set of clusters (by cluster id). Datastores, networks and host
     /// children follow the hosts/VMs that remain in scope.
     public func scoped(to clusterIDs: Set<String>) -> Inventory {

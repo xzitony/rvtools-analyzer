@@ -21,6 +21,11 @@ SAMPLE="$(ls samples/RVTools_export_all_*.xlsx 2>/dev/null | head -1 || true)"
 if [ -n "$SAMPLE" ]; then
   cp "$SAMPLE" "$APP/Contents/Resources/RVTools_sample.xlsx"
 fi
+# Monthly series for trend mode (scripts/generate_series.py)
+if ls samples/series/RVTools_export_all_*.xlsx >/dev/null 2>&1; then
+  mkdir -p "$APP/Contents/Resources/RVTools_sample_series"
+  cp samples/series/RVTools_export_all_*.xlsx "$APP/Contents/Resources/RVTools_sample_series/"
+fi
 
 if [ ! -f build/AppIcon.icns ] || [ scripts/make_icon.swift -nt build/AppIcon.icns ]; then
   echo "▸ Rendering icon…"

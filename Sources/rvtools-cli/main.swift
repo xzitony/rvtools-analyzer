@@ -24,6 +24,45 @@ if let i = args.firstIndex(of: "--save-project"), i + 1 < args.count {
 /// Set when the input is a .rvaproj project: its thresholds, selections and assumptions are used.
 var project: ProjectFile?
 
+// --trend: treat the inputs as snapshots of one environment over time and print the trend analysis.
+var trendMode = false
+if let i = args.firstIndex(of: "--trend") {
+    trendMode = true
+    args.remove(at: i)
+}
+
+func printTrend(_ t: TrendReport) {
+    func cap(_ v: Double) -> String { Fmt.capacity(mib: v) }
+    func fmt(_ v: Double, _ f: TrendFormat) -> String { f == .count ? Fmt.int(Int(v.rounded())) : (f == .percent ? Fmt.pct(v) : cap(v)) }
+    func signed(_ v: Double, _ f: TrendFormat) -> String { (v >= 0 ? "+" : "−") + fmt(abs(v), f) }
+    print("Snapshots (\(t.snapshots.count), \(Fmt.num(t.spanDays, 0)) days):")
+    for s in t.snapshots {
+        print("  \(s.id + 1). \(Fmt.dateTime(s.date))  VMs \(s.inventory.vms.filter(\.isVM).count) · hosts \(s.inventory.hosts.count) · \(s.vcenters.joined(separator: ", ")) · \(s.sources.map(\.lastPathComponent).first ?? "")\(s.sources.count > 1 ? " +\(s.sources.count - 1)" : "")")
+    }
+    print("\n== Metrics (first → last)")
+    for s in t.series { print("  \(s.metric.rawValue.padding(toLength: 24, withPad: " ", startingAt: 0)) \(fmt(s.first, s.metric.format)) → \(fmt(s.last, s.metric.format))  (\(signed(s.last - s.first, s.metric.format)))") }
+    print("\n== Observed growth")
+    for g in t.growth {
+        print("  \(g.label.padding(toLength: 40, withPad: " ", startingAt: 0)) \(signed(g.change, g.format)) · \(signed(g.perDay * 30.4, g.format))/month · \(g.annualPct.map { Fmt.num($0, 1) + "%/yr" } ?? "—")")
+    }
+    if let s = t.suggestedGrowthPct { print("  → suggested annual growth assumption: \(Fmt.num(s, 1))%") }
+    if let d = t.netDailyGrowthPct { print("  → net daily growth \(Fmt.num(d, 3))% (lower bound for the daily change rate)") }
+    print("\n== Changes per interval")
+    for iv in t.intervals {
+        let parts = ChangeKind.allCases.compactMap { k in iv.counts[k].map { "\(k.rawValue) \($0)" } }
+        print("  \(Fmt.date(iv.from)) → \(Fmt.date(iv.to)) (\(Fmt.num(iv.days, 0))d): net VMs \(iv.netVMs >= 0 ? "+" : "")\(iv.netVMs), vCPU \(iv.netVCPU >= 0 ? "+" : "")\(iv.netVCPU), data \(signed(iv.dataGrowthMiB, .capacityMiB)) · " + parts.joined(separator: ", "))
+    }
+    print("\n== Top growing VMs")
+    for g in t.vmGrowth.prefix(8) { print("  \(g.name.padding(toLength: 22, withPad: " ", startingAt: 0)) \(cap(g.firstDataMiB)) → \(cap(g.lastDataMiB)) (\(signed(g.perMonthMiB, .capacityMiB))/month)") }
+    print("\n== Datastores by days to full")
+    for d in t.datastores.prefix(6) { print("  \(d.name.padding(toLength: 20, withPad: " ", startingAt: 0)) \(Fmt.pct(d.usedPctLast)) used · \(signed(d.perMonthMiB, .capacityMiB))/month · full in \(d.daysToFull.map { Fmt.num($0, 0) + " days" } ?? "—")") }
+    print("\n== Infrastructure changes")
+    for c in t.infra { print("  \(Fmt.date(c.date)) \(c.kind.rawValue.padding(toLength: 9, withPad: " ", startingAt: 0)) \(c.name) — \(c.change) \(c.detail)") }
+    print("\n== VM changes (\(t.changes.count); first 25 excluding host moves)")
+    for c in t.changes.filter({ $0.kind != .hostMove }).prefix(25) { print("  \(Fmt.date(c.date)) \(c.kind.rawValue.padding(toLength: 16, withPad: " ", startingAt: 0)) \(c.name) — \(c.detail)") }
+    if !t.warnings.isEmpty { print("\n== Warnings"); t.warnings.forEach { print("  ! \($0)") } }
+}
+
 // --set name=value (repeatable): override a solution assumption. Choices take an index; multi-selects take "0,2,5".
 var overrides: [String: String] = [:]
 while let i = args.firstIndex(of: "--set"), i + 1 < args.count {
@@ -77,6 +116,26 @@ func ms(_ a: Date, _ b: Date) -> String { String(format: "%.0f ms", b.timeInterv
 do {
     let t0 = Date()
     var inputs = args.map { URL(fileURLWithPath: $0) }
+    if inputs.count == 1, ProjectFile.isProject(inputs[0]), let opened = try? ProjectFile.read(inputs[0]), opened.project.isTrend {
+        printTrend(TrendAnalyzer.run(try TrendLoader.load(groups: opened.project.sourceGroups(in: inputs[0]))))
+        exit(0)
+    }
+    if trendMode {
+        let snapshots = try TrendLoader.load(inputs)
+        guard snapshots.count >= 2 else { print("Trend analysis needs at least two exports taken at different times (found \(snapshots.count))."); exit(1) }
+        let t0 = Date()
+        let trend = TrendAnalyzer.run(snapshots)
+        printTrend(trend)
+        print(String(format: "\n(analysed in %.0f ms)", Date().timeIntervalSince(t0) * 1000))
+        if let out = saveProjectPath {
+            let url = URL(fileURLWithPath: out)
+            var p = ProjectFile(name: url.deletingPathExtension().lastPathComponent)
+            p.mode = ProjectFile.trendMode
+            _ = try ProjectFile.write(p, to: url, copyGroups: snapshots.map(\.sources), prices: [])
+            print("Saved trend project \(url.path)")
+        }
+        exit(0)
+    }
     if inputs.count == 1, ProjectFile.isProject(inputs[0]) {
         let opened = try ProjectFile.read(inputs[0])
         project = opened.project

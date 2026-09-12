@@ -41,6 +41,26 @@ After the first save, changes save automatically. If you've customized an unsave
 
 Projects are ordinary files, so they can sit next to the customer's exports in OneDrive or SharePoint, or in iCloud Drive to sync across your Macs. The app doesn't use iCloud directly: that would need an Apple Developer membership and a provisioned, signed build, and it would move customer data out of company storage. `rvtools-cli Customer.rvaproj --solution azure` runs a solution with the project's saved selection and assumptions, and `--save-project <path>` creates a project from the CLI.
 
+### Trend mode (Compare Snapshots)
+
+Opening several exports normally *merges* them into one view of several vCenters (the single-snapshot mode above, unchanged). **Compare Snapshots…** (⌥⌘O, or on the start screen) instead treats exports of the **same environment taken at different times** as a time series:
+
+- Each export is one point in time, ordered by its export timestamp. Exports of *different* vCenters taken within 12 hours are combined into one snapshot, so a multi-vCenter estate can be trended too. A folder containing several exports can be chosen directly.
+- VMs are matched across snapshots by vCenter + VM UUID (then VM ID, then name), so renames are recognised as renames rather than remove + add.
+
+The **Trends** section of the sidebar adds:
+
+| Page | What it shows |
+|---|---|
+| **Trend Summary** | The snapshots (click one to open its dashboards), headline changes, charts over time (VMs, vCPU, vRAM, VM storage, datastores, host utilization) and a table of changes per interval. |
+| **Changes** | Every VM add, remove, rename, vCPU/memory resize, disk change, cluster/host/datastore move, power change, upgrade (HW version, Tools, guest OS), network change and snapshot change — plus infrastructure changes (hosts added/removed/updated, datastores added/expanded, cluster HA/DRS changes, vCenter updates). DRS/vMotion host moves are hidden unless you ask. Selecting a VM shows its full history. |
+| **Growth** | Observed growth (net and for VMs present throughout) of data, provisioned storage, datastore use, VMs, vCPU and vRAM, per month and annualised, with per-VM growth. **Apply** puts the observed annual growth into the Backup and DR sizing assumptions. |
+| **Capacity Forecast** | Days until each datastore is full at its observed rate, aggregate runway, and cluster changes. |
+
+Below the Trends section, the normal dashboards and solutions work on one snapshot at a time — the latest by default; switch with the **Snapshot** picker in the toolbar. The VM inspector gains a history across snapshots. **Export › Trend Report to Folder…** writes the metrics, changes, growth and datastore forecast as CSV, and **Save Project** keeps every snapshot (`sources/snapshot-N/`) in the project.
+
+What RVTools can't tell you: exports are point-in-time totals, so the *daily change rate* (blocks rewritten per day) can't be measured — net growth is shown as a lower bound. Anything that happened and reverted between two exports is invisible, and rates need weeks or months of history to mean much.
+
 Ages are measured from the export timestamp in `vMetaData` or the file name, not from today. That applies to snapshot age, host uptime, certificate expiry and end-of-support status, so an old export shows what was true when it was taken.
 
 ## Dashboards
@@ -103,9 +123,13 @@ swift build -c release --product rvtools-cli
 
 This prints the inventory, cluster headroom, join coverage, consistency checks, findings and distributions. With `--export` it also writes the CSVs.
 
+`rvtools-cli --trend <exports or folder…> [--save-project <path>]` prints the trend analysis (metrics, growth, changes per interval, top-growing VMs, datastore forecast, infrastructure and VM changes) and can save it as a trend project; opening a trend project with `rvtools-cli <project>` prints the same.
+
 ## Sample data
 
 `python3 scripts/generate_sample.py` (requires `openpyxl`) regenerates a fictional environment in `samples/`, as both an `.xlsx` and a CSV folder. It contains deliberate issues for every dashboard to show. The build script bundles the `.xlsx` into the app as the **Try Sample Data** file.
+
+`python3 scripts/generate_series.py` derives four monthly exports of the same environment from it in `samples/series/`, with known adds, removals, resizes, moves, upgrades, a rename, data growth, a new host, an ESXi update and a datastore expansion. It's bundled as **Try Sample Trend**, and `RVToolsAnalyzer --trend <paths>` opens trend mode from a shell (used with `RVTA_SNAPSHOT_DIR` for trend screenshots).
 
 ## Screenshots for review
 

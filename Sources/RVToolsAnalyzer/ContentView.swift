@@ -56,7 +56,8 @@ struct WelcomeView: View {
             VStack(spacing: 10) {
                 Image(systemName: "arrow.down.doc").font(.system(size: 28)).foregroundStyle(.secondary)
                 Text("Drop an RVTools .xlsx export, a folder of RVTools_tab*.csv files, or a saved project here").font(.callout)
-                Text("Drop several exports at once to merge multiple vCenters.").font(.caption).foregroundStyle(.secondary)
+                Text("Drop several exports at once to merge multiple vCenters — to follow one environment over time, use Compare Snapshots.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             .frame(width: 520, height: 150)
             .background(RoundedRectangle(cornerRadius: 14).fill(dropTargeted ? Palette.primary.opacity(0.12) : Palette.card))
@@ -70,8 +71,18 @@ struct WelcomeView: View {
                 .controlSize(.large)
                 .buttonStyle(.borderedProminent)
                 .keyboardShortcut("o")
+                Button {
+                    model.presentTrendPanel()
+                } label: {
+                    Label("Compare Snapshots…", systemImage: "chart.line.uptrend.xyaxis").padding(.horizontal, 6)
+                }
+                .controlSize(.large)
+                .help("Trend mode: several exports of the same environment taken over time")
                 if let sample = model.sampleURL {
                     Button("Try Sample Data") { model.open([sample]) }.controlSize(.large)
+                }
+                if let series = model.sampleSeriesURL {
+                    Button("Try Sample Trend") { model.openTrend([series]) }.controlSize(.large)
                 }
             }
             RecentProjectsList()
@@ -156,7 +167,15 @@ struct MainView: View {
         @Bindable var model = model
         NavigationSplitView {
             List(selection: $model.sidebar) {
-                Section("Dashboard") {
+                if let trend = model.trend {
+                    Section("Trends") {
+                        row(.trendSummary)
+                        row(.trendChanges, badge: trend.changes.count - trend.count(.hostMove))
+                        row(.trendGrowth)
+                        row(.trendCapacity, badge: trend.datastores.filter { ($0.daysToFull ?? .infinity) < 180 }.count)
+                    }
+                }
+                Section(model.trend == nil ? "Dashboard" : "Snapshot · \(Fmt.date(report.inventory.reportDate))") {
                     row(.overview)
                     row(.issues, badge: report.totals.critical + report.totals.warning)
                 }
@@ -193,22 +212,34 @@ struct MainView: View {
                         Text(model.isDirty ? "Saving…" : "Saved \(Fmt.dateTime(saved))").font(.caption2).foregroundStyle(.secondary)
                     }
                     Text(model.sourceSummary).font(.caption).lineLimit(2).truncationMode(.middle)
-                    Text("Exported \(Fmt.dateTime(report.inventory.reportDate))" + ((model.dataset?.rvtoolsVersion ?? "").isEmpty ? "" : " · RVTools \(model.dataset!.rvtoolsVersion)"))
+                    Text((model.trend.map { "Viewing snapshot \(model.trendSnapshot + 1) of \($0.snapshots.count) · " } ?? "")
+                         + "Exported \(Fmt.dateTime(report.inventory.reportDate))" + ((model.dataset?.rvtoolsVersion ?? "").isEmpty ? "" : " · RVTools \(model.dataset!.rvtoolsVersion)"))
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(12)
+                .background(.bar)
             }
         } detail: {
             detail
                 .navigationTitle(model.sidebar?.rawValue ?? "Overview")
-                .navigationSubtitle(model.projectTitle + (model.projectURL != nil && model.isDirty ? " — Edited" : "") + " · " + model.scopeLabel)
+                .navigationSubtitle(model.projectTitle + (model.projectURL != nil && model.isDirty ? " — Edited" : "") + " · " + subtitleContext)
         }
         .sheet(isPresented: $model.showProjectInfo) {
             ProjectInfoSheet().environment(model)
         }
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                if let trend = model.trend {
+                    Picker("Snapshot", selection: $model.trendSnapshot) {
+                        ForEach(trend.snapshots) { s in
+                            Text(Fmt.dateTime(s.date) + (s.id == trend.snapshots.count - 1 ? " (latest)" : "")).tag(s.id)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(minWidth: 190)
+                    .help("The export shown in the snapshot dashboards and solutions")
+                }
                 Picker("Scope", selection: $model.scopeID) {
                     ForEach(model.scopes) { s in
                         if s.isGroupStart { Divider() }
@@ -248,6 +279,12 @@ struct MainView: View {
         }
     }
 
+    private var subtitleContext: String {
+        guard let trend = model.trend else { return model.scopeLabel }
+        if let item = model.sidebar, SidebarItem.trendPages.contains(item) { return "Trend of \(trend.snapshots.count) snapshots" }
+        return "Snapshot \(Fmt.date(report.inventory.reportDate)) · " + model.scopeLabel
+    }
+
     /// The badge must be applied before `.tag` — a modifier added after the tag hides it from the
     /// List's selection, which made badged rows unclickable.
     private func row(_ item: SidebarItem, badge: Int = 0) -> some View {
@@ -268,6 +305,10 @@ struct MainView: View {
         case .lifecycle: LifecycleView(report: report)
         case .correlations: CorrelationsView(report: report)
         case .rawData: RawDataView()
+        case .trendSummary: if let t = model.trend { TrendSummaryView(trend: t) }
+        case .trendChanges: if let t = model.trend { TrendChangesView(trend: t) }
+        case .trendGrowth: if let t = model.trend { TrendGrowthView(trend: t) }
+        case .trendCapacity: if let t = model.trend { TrendCapacityView(trend: t) }
         default:
             if let sid = model.sidebar?.solutionID, let solution = SolutionCatalog.solution(id: sid) {
                 SolutionView(solution: solution, report: report).id(sid)

@@ -17,6 +17,7 @@ struct RVToolsAnalyzerApp: App {
         .commands {
             CommandGroup(replacing: .newItem) {
                 Button("Open…") { model.presentOpenPanel() }.keyboardShortcut("o")
+                Button("Compare Snapshots…") { model.presentTrendPanel() }.keyboardShortcut("o", modifiers: [.command, .option])
                 Menu("Open Recent Project") {
                     ForEach(model.recentProjects, id: \.self) { url in
                         Button(url.deletingPathExtension().lastPathComponent) { model.open([url]) }
@@ -42,12 +43,18 @@ struct RVToolsAnalyzerApp: App {
                 }
                 Divider()
                 Button("All CSV Files to Folder…") { model.exportAll() }.keyboardShortcut("e", modifiers: [.command, .shift]).disabled(model.report == nil)
+                Divider()
+                Button("Trend Report to Folder…") { model.exportTrend() }.disabled(model.trend == nil)
             }
             CommandMenu("Go") {
                 ForEach(Array(SidebarItem.allCases.enumerated()), id: \.element) { i, item in
                     Button(item.rawValue) { model.sidebar = item }
                         .keyboardShortcut(KeyEquivalent(Character("\((i + 1) % 10)")), modifiers: .command)
                         .disabled(model.report == nil)
+                }
+                Divider()
+                ForEach(SidebarItem.trendPages) { item in
+                    Button(item.rawValue) { model.sidebar = item }.disabled(model.trend == nil)
                 }
             }
         }
@@ -62,11 +69,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
-        // Allow `RVToolsAnalyzer <file-or-folder>...` from the command line.
+        // Allow `RVToolsAnalyzer [--trend] <file-or-folder>...` from the command line.
         let paths = CommandLine.arguments.dropFirst().filter { !$0.hasPrefix("-") && FileManager.default.fileExists(atPath: $0) }
         if !paths.isEmpty {
             let urls = paths.map { URL(fileURLWithPath: $0) }
-            Task { @MainActor in AppModel.shared.open(urls) }
+            let trend = CommandLine.arguments.contains("--trend")
+            Task { @MainActor in trend ? AppModel.shared.openTrend(urls) : AppModel.shared.open(urls) }
         }
     }
 

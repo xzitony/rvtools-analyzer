@@ -40,7 +40,7 @@ enum DebugSnapshot {
             let worstVM = inv?.vms.max { $0.issueCount < $1.issueCount }?.id
             let busiestHost = inv?.hosts.max { $0.issueCount < $1.issueCount }?.id
             let fullestDS = inv?.datastores.max { $0.usedPct < $1.usedPct }?.id
-            let steps: [(String, () -> Void)] = [
+            var steps: [(String, () -> Void)] = [
                 ("01-overview", { model.sidebar = .overview }),
                 ("02-issues", { model.focusRule = model.report?.groups.first?.rule; model.sidebar = .issues }),
                 ("03-compute-clusters", { model.computeTab = 0; model.sidebar = .compute }),
@@ -58,6 +58,19 @@ enum DebugSnapshot {
                 [("\(20 + i * 3)-\(s.id)-select", { model.solutionTab[s.id] = 0; model.sidebar = .solution(s) }),
                  ("\(21 + i * 3)-\(s.id)-assumptions", { model.solutionTab[s.id] = 1; model.sidebar = .solution(s) }),
                  ("\(22 + i * 3)-\(s.id)-results", { model.solutionTab[s.id] = 2; model.sidebar = .solution(s) })]
+            }
+            if let trend = model.trend {
+                let resized = trend.changes.first { $0.kind == .resized }?.key
+                steps = [
+                    ("30-trend-summary", { model.sidebar = .trendSummary }),
+                    ("31-trend-changes", { model.trendChangesTab = 0; model.sidebar = .trendChanges }),
+                    ("32-trend-vm-history", { model.trendVMKey = resized; model.sidebar = .trendChanges }),
+                    ("33-trend-infrastructure", { model.trendVMKey = nil; model.trendChangesTab = 1; model.sidebar = .trendChanges }),
+                    ("34-trend-growth", { model.sidebar = .trendGrowth }),
+                    ("35-trend-capacity", { model.sidebar = .trendCapacity }),
+                    ("36-snapshot-vm", { if let resized { model.revealTrendVM(resized) } }),
+                    ("37-first-snapshot-overview", { model.trendSnapshot = 0; model.sidebar = .overview }),
+                ]
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             for (name, setup) in steps {

@@ -1,16 +1,18 @@
 import Foundation
 
-/// A saved analysis session, stored as a package directory (`Name.rvaproj`):
+/// A saved session, stored as a package directory (`Name.rvaproj`):
 ///
 ///     Name.rvaproj/
 ///       project.json      settings: scope, thresholds, per-solution VM selections, assumptions, notes
 ///       sources/…         copies of the RVTools exports (so the project survives the originals moving)
+///                         — trend projects keep one sources/snapshot-N/ folder per point in time
 ///       prices/…          cloud price snapshots used by the estimates (reproducible later)
 ///
 /// Being plain files, projects can live anywhere — local disk, iCloud Drive or a OneDrive / SharePoint folder.
 public struct ProjectFile: Codable, Sendable {
     public static let fileExtension = "rvaproj"
     public static let currentFormat = 1
+    public static let trendMode = "trend"
 
     public var formatVersion = ProjectFile.currentFormat
     public var name: String
@@ -27,6 +29,10 @@ public struct ProjectFile: Codable, Sendable {
     public var solutionParams: [String: ParamValues] = [:]
     public var solutionTabs: [String: Int] = [:]
     public var page: String?
+    /// nil for a normal session; "trend" for a trend comparison.
+    public var mode: String?
+    /// Trend projects: source files (relative) per snapshot.
+    public var snapshotGroups: [[String]]?
 
     public init(name: String) {
         self.name = name
@@ -34,7 +40,14 @@ public struct ProjectFile: Codable, Sendable {
         modified = created
     }
 
+    public var isTrend: Bool { mode == ProjectFile.trendMode }
+
     public static func isProject(_ url: URL) -> Bool { url.pathExtension.lowercased() == fileExtension }
+
+    /// Source files per snapshot (a single group for normal sessions).
+    public func sourceGroups(in url: URL) -> [[URL]] {
+        (snapshotGroups ?? [sources]).map { $0.map { url.appendingPathComponent($0) } }
+    }
 
     private static var encoder: JSONEncoder {
         let e = JSONEncoder()
@@ -64,34 +77,50 @@ public struct ProjectFile: Codable, Sendable {
         return (project, sources, prices)
     }
 
-    /// Writes the project. With `copySources` the whole package is (re)built with copies of those files and swapped
-    /// into place atomically; without it only project.json and the price snapshots are rewritten (autosave).
+    /// Writes the project. With `copySources` the whole package is rebuilt with copies of those files;
+    /// without it only project.json and the price snapshots are rewritten (autosave).
     public static func write(_ project: ProjectFile, to url: URL, copySources: [URL]?, prices: [RegionPrices]) throws -> ProjectFile {
-        let fm = FileManager.default
-        var p = project
-        p.modified = Date()
         guard let sources = copySources else {
+            var p = project
+            p.modified = Date()
             try writeContents(p, prices: prices, into: url)
             return p
         }
+        return try write(project, to: url, copyGroups: [sources], prices: prices)
+    }
+
+    /// Rebuilds the package with copies of the given source groups (one group per trend snapshot) and swaps it
+    /// into place atomically.
+    public static func write(_ project: ProjectFile, to url: URL, copyGroups groups: [[URL]], prices: [RegionPrices]) throws -> ProjectFile {
+        let fm = FileManager.default
+        var p = project
+        p.modified = Date()
         let parent = url.deletingLastPathComponent()
         let staging = (try? fm.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: parent, create: true)) ?? fm.temporaryDirectory
         let tmp = staging.appendingPathComponent(UUID().uuidString + "." + fileExtension, isDirectory: true)
         try fm.createDirectory(at: tmp.appendingPathComponent("sources"), withIntermediateDirectories: true)
-        var relative: [String] = []
-        for src in sources {
-            // CSV exports keep their folder so each export stays grouped.
-            let folder = src.pathExtension.lowercased() == "csv" ? src.deletingLastPathComponent().lastPathComponent + "/" : ""
-            var rel = "sources/" + folder + src.lastPathComponent
-            var n = 2
-            while relative.contains(rel) { rel = "sources/" + folder + "\(n)-" + src.lastPathComponent; n += 1 }
-            let dest = tmp.appendingPathComponent(rel)
-            try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fm.copyItem(at: src, to: dest)
-            relative.append(rel)
+        var all: [String] = []
+        var perGroup: [[String]] = []
+        for (g, group) in groups.enumerated() {
+            let base = groups.count > 1 ? "sources/snapshot-\(g + 1)/" : "sources/"
+            var rels: [String] = []
+            for src in group {
+                // CSV exports keep their folder so each export stays grouped.
+                let folder = src.pathExtension.lowercased() == "csv" ? src.deletingLastPathComponent().lastPathComponent + "/" : ""
+                var rel = base + folder + src.lastPathComponent
+                var n = 2
+                while all.contains(rel) { rel = base + folder + "\(n)-" + src.lastPathComponent; n += 1 }
+                let dest = tmp.appendingPathComponent(rel)
+                try fm.createDirectory(at: dest.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try fm.copyItem(at: src, to: dest)
+                rels.append(rel)
+                all.append(rel)
+            }
+            perGroup.append(rels)
         }
-        p.sources = relative
-        if p.originalSources.isEmpty { p.originalSources = sources.map(\.path) }
+        p.sources = all
+        p.snapshotGroups = groups.count > 1 ? perGroup : nil
+        if p.originalSources.isEmpty { p.originalSources = groups.flatMap { $0.map(\.path) } }
         try writeContents(p, prices: prices, into: tmp)
         if fm.fileExists(atPath: url.path) {
             _ = try fm.replaceItemAt(url, withItemAt: tmp)

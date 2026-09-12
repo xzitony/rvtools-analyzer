@@ -153,6 +153,11 @@ struct VMDetail: View {
                         Tag(text: e <= reportDate ? "OS support ended \(Fmt.date(e))" : "OS support ends \(Fmt.date(e))")
                     }
                 }
+                if let trend = model.trend {
+                    DetailSection("History across snapshots") {
+                        VMHistoryGrid(trend: trend, key: TrendAnalyzer.vmKey(vm))
+                    }
+                }
                 DetailSection("Findings", count: report.findingsByObject[vm.id]?.count ?? 0) {
                     ObjectFindings(findings: report.findingsByObject[vm.id] ?? [])
                 }
