@@ -70,6 +70,11 @@ enum DebugSnapshot {
                     ("35-trend-capacity", { model.sidebar = .trendCapacity }),
                     ("36-snapshot-vm", { if let resized { model.revealTrendVM(resized) } }),
                     ("37-first-snapshot-overview", { model.trendSnapshot = 0; model.sidebar = .overview }),
+                    ("38-backup-assumptions", {
+                        model.trendSnapshot = trend.snapshots.count - 1
+                        model.solutionTab["backup"] = 1
+                        if let backup = SolutionCatalog.solution(id: "backup") { model.sidebar = .solution(backup) }
+                    }),
                 ]
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)

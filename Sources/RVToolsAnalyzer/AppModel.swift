@@ -73,6 +73,14 @@ struct Lookup {
     static func id(_ server: String, _ name: String) -> String { server.lowercased() + "|" + name.lowercased() }
 }
 
+/// A rate measured in the loaded trend that an assumption can be replaced with (`value`), or that is only
+/// context for it (`value` nil).
+struct ObservedRate {
+    let text: String
+    let value: Double?
+    let unit: String
+}
+
 enum ExportKind: String, CaseIterable, Identifiable {
     case findings = "Findings"
     case vms = "VM inventory"
@@ -340,6 +348,25 @@ final class AppModel {
         trendSnapshot = i
         selectedVMID = vm.id
         sidebar = .vms
+    }
+
+    /// What the loaded trend measured for an assumption, shown beside it on the Assumptions step.
+    func observedRate(_ solutionID: String, _ paramID: String) -> ObservedRate? {
+        guard let t = trend, solutionID == "backup" || solutionID == "dr" else { return nil }
+        let period = "\(t.snapshots.count) snapshots over \(Fmt.int(Int(t.spanDays.rounded()))) days"
+        switch paramID {
+        case "growth":
+            guard let pct = t.suggestedGrowthPct else { return nil }
+            let organic = t.organicGrowthPct.map { ", existing VMs only \(Fmt.num($0, 1))%" } ?? ""
+            return ObservedRate(text: "Measured across \(period): \(Fmt.num(pct, 1))% a year\(organic).",
+                                value: min(100, max(0, (pct * 2).rounded() / 2)), unit: "%")
+        case "change":
+            guard let daily = t.netDailyGrowthPct else { return nil }
+            return ObservedRate(text: "Across \(period), existing VMs grew by a net \(Fmt.num(daily, 3))% a day. That's a floor for the change rate, not a measurement of it — rewritten blocks change without adding capacity.",
+                                value: nil, unit: "%")
+        default:
+            return nil
+        }
     }
 
     /// Sets the annual growth assumption of the Backup and DR solutions to an observed rate.

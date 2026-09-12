@@ -616,7 +616,7 @@ struct SizingAssumptionsCard: View {
         let resizedVMs = Set(resized.map(\.key)).count
         let vmCount = max(trend.last.inventory.vms.filter(\.isVM).count, 1)
         let days = Fmt.int(Int(trend.spanDays.rounded()))
-        Card("Use in sizing", subtitle: "Replace assumptions with what this environment actually did") {
+        Card("Use in sizing", subtitle: "Replace assumptions with what this environment actually did — the same rates appear beside the assumption on the Assumptions step of Backup Sizing and DR Sizing") {
             VStack(alignment: .leading, spacing: 12) {
                 if let all = trend.suggestedGrowthPct {
                     suggestion("Annual data growth — all VMs", all, "Includes VMs added and retired: how the protected footprint actually grew.")

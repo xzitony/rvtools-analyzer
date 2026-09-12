@@ -89,7 +89,7 @@ struct SolutionView: View {
             case 0:
                 VMSelectionView(vms: report.inventory.vms, selection: selection)
             case 1:
-                AssumptionsForm(parameters: solution.parameters, values: values)
+                AssumptionsForm(solutionID: solution.id, parameters: solution.parameters, values: values)
             default:
                 let _ = model.priceVersion
                 if let result = model.result(for: solution) {
@@ -268,6 +268,7 @@ private struct SelectionNameCell: View {
 // MARK: - Assumptions
 
 struct AssumptionsForm: View {
+    var solutionID = ""
     let parameters: [SolutionParameter]
     @Binding var values: ParamValues
 
@@ -277,7 +278,9 @@ struct AssumptionsForm: View {
         return Form {
             ForEach(groups, id: \.self) { group in
                 Section(group) {
-                    ForEach(parameters.filter { $0.group == group }) { p in ParameterRow(parameter: p, values: $values) }
+                    ForEach(parameters.filter { $0.group == group }) { p in
+                        ParameterRow(solutionID: solutionID, parameter: p, values: $values)
+                    }
                 }
             }
             Section {
@@ -293,10 +296,39 @@ struct AssumptionsForm: View {
 }
 
 private struct ParameterRow: View {
+    @Environment(AppModel.self) private var model
+    let solutionID: String
     let parameter: SolutionParameter
     @Binding var values: ParamValues
 
     private var current: ParamValue { values.values[parameter.id] ?? parameter.defaultValue }
+
+    private var currentNumber: Double? {
+        if case .number(let x) = current { return x }
+        return nil
+    }
+
+    /// In trend mode: what the snapshots actually measured for this assumption, with a one-click apply.
+    @ViewBuilder private var observed: some View {
+        if let rate = model.observedRate(solutionID, parameter.id) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: "chart.line.uptrend.xyaxis").foregroundStyle(Palette.primary)
+                Text(rate.text).fixedSize(horizontal: false, vertical: true)
+                if let value = rate.value {
+                    if currentNumber == value {
+                        Label("In use", systemImage: "checkmark.circle.fill").foregroundStyle(Palette.good)
+                    } else {
+                        Button("Use \(Fmt.num(value, 1))\(rate.unit)") { values.values[parameter.id] = .number(value) }
+                            .controlSize(.small)
+                    }
+                }
+                Button("Trend") { model.sidebar = .trendGrowth }.buttonStyle(.link)
+                    .help("Open the Growth page of the trend")
+                Spacer()
+            }
+            .font(.caption)
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
@@ -342,6 +374,7 @@ private struct ParameterRow: View {
             if !parameter.help.isEmpty {
                 Text(parameter.help).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
+            observed
         }
     }
 }
