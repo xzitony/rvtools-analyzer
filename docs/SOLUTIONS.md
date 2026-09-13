@@ -279,7 +279,7 @@ Unknown values are `null`. Fields are only ever added within an API version.
 
 ### Host
 
-`id`, `name`, `vcenter`, `datacenter`, `cluster`, `clusterId`, `maintenance`, `isVirtual` (vSAN witness or nested), `cpuModel`, `speedMHz`, `sockets`, `coresPerSocket`, `cores`, `threads`, `htActive`, `cpuCapacityMHz`, `cpuUsagePct`, `cpuUsedMHz`, `memoryMiB`, `memUsagePct`, `memUsedMiB`, `esxVersion`, `esxBuild`, `vendor`, `model`, `biosVersion`, `evcCurrent`, `evcMax`, `bootTime`, `uptimeDays`, `vmCount`, `vmsOn`, `vcpuOn`, `vcpuTotal`, `vramOnMiB`, `pnicCount`, `hbaCount`, `datastoreCount`, `certExpiry`
+`id`, `name`, `vcenter`, `datacenter`, `cluster`, `clusterId`, `maintenance`, `isVirtual` (vSAN witness or nested), `cpuModel`, `speedMHz`, `sockets`, `coresPerSocket`, `cores`, `threads`, `htActive`, `cpuCapacityMHz`, `cpuUsagePct`, `cpuUsedMHz`, `memoryMiB`, `memUsagePct`, `memUsedMiB`, `esxVersion`, `esxBuild`, `vendor`, `model`, `biosVersion`, `evcCurrent`, `evcMax`, `bootTime`, `uptimeDays`, `vsanFaultDomain`, `vmCount`, `vmsOn`, `vcpuOn`, `vcpuTotal`, `vramOnMiB`, `pnicCount`, `hbaCount`, `datastoreCount`, `certExpiry`
 
 ### Cluster
 

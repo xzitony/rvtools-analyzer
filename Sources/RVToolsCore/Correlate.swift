@@ -128,7 +128,7 @@ private final class Builder {
         let cESX = t.col("ESX Version"), cBoot = t.col("Boot time"), cDNS = t.col("DNS Servers"), cNTP = t.col("NTP Server(s)")
         let cNTPD = t.col("NTPD running"), cTZ = t.col("Time Zone Name", "Time Zone"), cVendor = t.col("Vendor")
         let cHWModel = t.col("Model"), cSerial = t.col("Serial number"), cBIOS = t.col("BIOS Version")
-        let cCert = t.col("Certificate Expiry Date"), cPower = t.col("Current CPU power man. policy")
+        let cCert = t.col("Certificate Expiry Date"), cPower = t.col("Current CPU power man. policy"), cFaultDomain = t.col("vSAN Fault Domain Name")
         for r in t.rows {
             let server = r.s(cServer), name = r.s(cHost)
             guard !name.isEmpty else { continue }
@@ -175,6 +175,7 @@ private final class Builder {
             h.serial = r.s(cSerial)
             h.biosVersion = r.s(cBIOS)
             h.certExpiry = r.date(cCert)
+            h.vsanFaultDomain = r.s(cFaultDomain)
             h.powerPolicy = r.s(cPower)
             if hostIndex[h.id] != nil { continue }
             inv.hosts.append(h)

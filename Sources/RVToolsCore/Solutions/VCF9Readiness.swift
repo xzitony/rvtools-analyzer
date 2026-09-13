@@ -57,19 +57,21 @@ public struct CPUGeneration: Sendable {
 
 /// Readiness of the infrastructure running the selected VMs (their clusters, hosts and vCenters) for an
 /// upgrade / convergence to VMware Cloud Foundation 9, plus VM-level items that affect rolling upgrades.
-/// Rules are built-in defaults; verify against Broadcom's upgrade matrix and compatibility guide.
+/// Only what RVTools exports is checked, following the VCF 9.1 "supported and not supported configurations to
+/// converge" documentation. Rules are built-in defaults; verify against Broadcom's upgrade matrix and compatibility guide.
 public struct VCF9Readiness: Solution {
     public init() {}
     public var id: String { "vcf9" }
     public var title: String { "VCF 9 Readiness" }
     public var symbol: String { "arrow.up.circle" }
-    public var summary: String { "Upgrade-path, hardware, cluster, network, storage and VM checks for moving the selected workloads' infrastructure to VCF 9." }
+    public var summary: String { "Upgrade-path, convergence, hardware, cluster, network, storage and VM checks for moving the selected workloads' infrastructure to VCF 9." }
 
     public var parameters: [SolutionParameter] { [
-        .choice("minSource", "Upgrade path", "Minimum version for a direct upgrade to 9.0", ["8.0 GA", "8.0 U1", "8.0 U2", "8.0 U3"], selected: 1,
-                help: "vCenter / ESXi below this need an intermediate update. Confirm against Broadcom's supported upgrade paths."),
+        .choice("minSource", "Upgrade path", "Minimum version for a direct upgrade to 9", ["8.0 GA", "8.0 U1", "8.0 U2", "8.0 U3"], selected: 1,
+                help: "vCenter / ESX below this need an intermediate update. Converging to VCF 9.1 requires vSphere 8; VCF 5.2 and 9.0 instances upgrade directly. Confirm against Broadcom's supported upgrade paths."),
         .choice("legacyCPU", "Hardware", "Treat Haswell / Broadwell / EPYC Naples hosts as", ["Warning — verify on the compatibility guide", "Blocker"]),
-        .number("minHosts", "Clusters", "Minimum hosts per cluster", 3, min: 2, max: 8),
+        .choice("deploy", "Clusters", "VCF deployment model", ["Simple — 3 hosts with vSAN, 2 with external storage", "High availability — 4 hosts"],
+                help: "Minimum hosts per cluster, from the VCF 9.1 convergence requirements."),
         .number("n1Warn", "Clusters", "Warn when memory after losing a host exceeds", 90, min: 50, max: 100, unit: "%",
                 help: "Rolling upgrades put one host at a time into maintenance mode."),
         .toggle("requireVDS", "Networking", "Require vSphere Distributed Switch", true),
@@ -103,13 +105,13 @@ public struct VCF9Readiness: Solution {
         if v.0 == 8 {
             return v.2 >= minUpdate ? (.ready, "\(label) — direct upgrade") : (.warning, "\(label) — update to 8.0 U\(minUpdate)+ first")
         }
-        return (.blocker, "\(label) — upgrade to 8.0 first (no direct path to 9.0)")
+        return (.blocker, "\(label) — upgrade to 8.0 first (no direct path to 9)")
     }
 
     public func run(vms: [VM], inventory inv: Inventory, params p: Params) -> SolutionResult {
         let minU = p.choice("minSource")
         let legacyStatus: CheckStatus = p.choice("legacyCPU") == 1 ? .blocker : .warning
-        let minHosts = Int(p.num("minHosts"))
+        let haModel = p.choice("deploy") == 1
         let n1Warn = p.num("n1Warn")
         let requireVDS = p.flag("requireVDS")
 
@@ -130,14 +132,46 @@ public struct VCF9Readiness: Solution {
 
         // MARK: vCenter
         let vcArea = "vCenter"
-        b.aggregate("vc.version", vcArea, "vCenter upgrade path to 9.0", noun: "vCenters need work first",
+        b.aggregate("vc.version", vcArea, "vCenter upgrade path to VCF 9", noun: "vCenters need work first",
                     items: vcenters.map { vc in
                         let (s, msg) = VCF9Readiness.upgradePath(VCF9Readiness.version(vc.version.isEmpty ? vc.fullName : vc.version), minUpdate: minU)
                         return (s, AffectedObject(kind: .vcenter, id: vc.id, name: vc.server, detail: msg))
                     },
                     ready: "All \(vcenters.count) vCenter(s) have a direct upgrade path",
-                    remediation: "vCenter is upgraded first and must reach 9.0 before its hosts. From 7.x this is a two-step upgrade via 8.0.",
+                    remediation: "vCenter is upgraded first and must reach 9 before its hosts. Converging to VCF 9.1 requires vSphere 8; from 7.x this is a two-step upgrade via 8.0.",
                     empty: "vCenter version unknown (no vSource tab)")
+        b.aggregate("vc.vds", vcArea, "vCenter has a distributed switch", noun: "vCenters have no distributed switch",
+                    items: vcenters.map { vc in
+                        let n = inv.dvSwitches.filter { $0.vcenter.lowercased() == vc.server.lowercased() }.count
+                        return (n > 0 ? .ready : .blocker, AffectedObject(kind: .vcenter, id: vc.id, name: vc.server, detail: n > 0 ? "\(n) distributed switch(es)" : "standard switches only"))
+                    },
+                    ready: "Every vCenter has a distributed switch",
+                    remediation: "Converging a vCenter without a vSphere Distributed Switch isn't supported; create a vDS 8.0 or later and migrate hosts to it.")
+        // The vCenter VM, matched by DNS name, VM name or IP address across the whole export.
+        func vcenterVM(_ vc: VCenter) -> VM? {
+            let server = vc.server.lowercased(), short = String(server.split(separator: ".").first ?? "")
+            let isIP = regexMatch(server, #"^\d+\.\d+\.\d+\.\d+$"#) != nil
+            return inv.vms.first { vm in
+                isIP ? vm.ips.contains(server) : (vm.dnsName.lowercased() == server || vm.name.lowercased() == server || vm.name.lowercased() == short)
+            }
+        }
+        let located = vcenters.map { ($0, vcenterVM($0)) }
+        let found = located.compactMap { vc, vm in vm.map { (vc, $0) } }
+        if !found.isEmpty {
+            b.aggregate("vc.location", vcArea, "vCenter VM runs on a cluster it manages", noun: "vCenter VMs run under another vCenter",
+                        items: found.map { vc, vm in
+                            let same = vm.vcenter.lowercased() == vc.server.lowercased()
+                            return (same ? .ready : .blocker, AffectedObject(kind: .vcenter, id: vc.id, name: vc.server,
+                                                                              detail: same ? "\(vm.name) on \(clusterName(inv, vm))" : "\(vm.name) runs under \(vm.vcenter) (\(clusterName(inv, vm)))"))
+                        },
+                        ready: "Every vCenter VM found runs on a cluster managed by that vCenter",
+                        remediation: "Converging isn't supported when the vCenter VM runs on a cluster managed by a different vCenter.")
+        }
+        let notFound = located.filter { $0.1 == nil }.map { AffectedObject(kind: .vcenter, id: $0.0.id, name: $0.0.server, detail: "no matching VM in the export") }
+        if !notFound.isEmpty {
+            b.add("vc.location.unknown", vcArea, "vCenter VM not found in the export", .info, "\(notFound.count) vCenter(s)",
+                  remediation: "Converging requires the vCenter VM to run on a cluster that vCenter manages; confirm where it runs.", affected: notFound)
+        }
 
         // MARK: Hosts & hardware
         let hwArea = "ESXi hosts & hardware"
@@ -145,7 +179,7 @@ public struct VCF9Readiness: Solution {
             let (s, msg) = VCF9Readiness.upgradePath(VCF9Readiness.version(h.esxVersion), minUpdate: minU)
             return (s, h.ref("ESXi " + msg + (h.esxBuild.isEmpty ? "" : " (build \(h.esxBuild))")))
         }
-        b.aggregate("host.version", hwArea, "ESXi upgrade path to 9.0", noun: "hosts need work first", items: hostPath,
+        b.aggregate("host.version", hwArea, "ESXi upgrade path to VCF 9", noun: "hosts need work first", items: hostPath,
                     ready: "All \(hosts.count) hosts have a direct upgrade path",
                     remediation: "Update hosts below the minimum to a supported 8.0 update first; hosts on 7.x need a two-step upgrade (7 → 8 → 9) and may need new hardware.")
         let cpuGen = Dictionary(hosts.map { ($0.id, CPUGeneration.classify($0.cpuModel)) }, uniquingKeysWith: { a, _ in a })
@@ -185,6 +219,15 @@ public struct VCF9Readiness: Solution {
                     items: hosts.map { h in (h.pnicCount > 0 && h.pnicCount < 2 ? .warning : .ready, h.ref("\(h.pnicCount) physical NIC")) },
                     ready: "Every host has two or more physical NICs",
                     remediation: "VCF host network profiles expect redundant uplinks.")
+        let pnicsByHost = Dictionary(grouping: inv.pnics, by: \.hostKey)
+        b.aggregate("host.nicspeed", hwArea, "10 Gbps or faster uplinks", noun: "hosts have no NIC of 10 Gbps or more",
+                    items: hosts.compactMap { h in
+                        let fastest = pnicsByHost[h.id]?.map(\.speedMbps).max() ?? 0
+                        guard fastest > 0 else { return nil }
+                        return (fastest >= 10_000 ? .ready : .warning, h.ref("fastest NIC \(fastest >= 1000 ? "\(fastest / 1000) Gbps" : "\(fastest) Mbps")"))
+                    },
+                    ready: "Every host has a 10 Gbps or faster NIC",
+                    remediation: "VCF expects 10 Gbps or faster uplinks on the distributed switch; 1 Gbps NICs are supported for ESX management traffic only.")
         let maint = hosts.filter(\.maintenance).map { $0.ref("in maintenance mode") }
         if !maint.isEmpty { b.add("host.maint", hwArea, "Hosts in maintenance mode", .info, "\(maint.count) hosts", affected: maint) }
         let virtualHosts = scopeHosts.filter(\.isVirtual).map { $0.ref($0.cpuModel) }
@@ -200,14 +243,58 @@ public struct VCF9Readiness: Solution {
                affected: standalone.map { cref($0, "\($0.hostCount) host(s)") },
                ready: "Every in-scope host is in a cluster", remediation: "VCF manages clusters; place standalone hosts into a cluster (or retire them) first.")
         let real = clusters.filter { !$0.isStandalone }
-        b.aggregate("cl.size", clArea, "Cluster size", noun: "clusters are below \(minHosts) hosts",
-                    items: real.map { c in (c.hostCount < minHosts ? .warning : .ready, cref(c, "\(c.hostCount) host(s)")) },
-                    ready: "All clusters have \(minHosts)+ hosts",
-                    remediation: "VCF domains need a minimum number of hosts per cluster (more for vSAN); check the minimum for your domain type.")
-        b.aggregate("cl.drs", clArea, "DRS enabled", noun: "clusters without DRS",
-                    items: real.map { c in (c.drsEnabled == false ? .warning : .ready, cref(c, "DRS disabled")) },
-                    ready: "DRS is enabled on all clusters",
-                    remediation: "Rolling host remediation relies on DRS to evacuate hosts automatically.")
+        func usesVSAN(_ c: Cluster) -> Bool { inv.datastores.contains { $0.type.lowercased() == "vsan" && $0.clusterKeys.contains(c.id) } }
+        b.aggregate("cl.size", clArea, "Cluster size", noun: "clusters are below the minimum",
+                    items: real.map { c in
+                        let vsan = usesVSAN(c)
+                        let minimum = haModel ? 4 : (vsan ? 3 : 2)
+                        let rule = haModel ? "high availability needs 4" : "simple deployment needs \(minimum) with \(vsan ? "vSAN" : "external storage")"
+                        return (c.hostCount >= minimum ? .ready : .warning, cref(c, "\(c.hostCount) host(s) — \(rule)"))
+                    },
+                    ready: haModel ? "All clusters have 4+ hosts" : "All clusters meet the simple-deployment minimum (3 hosts with vSAN, 2 with external storage)",
+                    remediation: "VCF 9.1 convergence minimums: simple deployment 3 hosts with vSAN or 2 with external storage; high availability 4 hosts. Two-node vSAN clusters also need a witness and HA admission control of at least 50%.")
+        b.aggregate("cl.drs", clArea, "DRS fully automated", noun: "clusters aren't fully automated",
+                    items: real.map { c in
+                        if c.drsEnabled == false { return (.blocker, cref(c, "DRS disabled")) }
+                        let behavior = c.drsBehavior.lowercased()
+                        if behavior.isEmpty { return (.info, cref(c, "DRS automation level not in the export")) }
+                        let label = behavior == "partiallyautomated" ? "partially automated" : behavior == "fullyautomated" ? "fully automated" : behavior
+                        return (behavior == "fullyautomated" ? .ready : .blocker, cref(c, "DRS \(label)"))
+                    },
+                    ready: "DRS is fully automated on all clusters",
+                    remediation: "Converging requires fully automated DRS; disabled, manual and partially automated DRS aren't supported. Rolling host remediation also relies on DRS to evacuate hosts.")
+        b.aggregate("cl.shared", clArea, "Datastore shared by every host", noun: "clusters have no datastore mounted on all hosts",
+                    items: real.compactMap { c in
+                        let members = Set(hosts.filter { $0.clusterKey == c.id }.map(\.id))
+                        guard members.count >= 2 else { return nil }
+                        let shared = inv.datastores.filter { members.isSubset(of: Set($0.hostKeys)) }.map(\.name).sorted()
+                        return (shared.isEmpty ? .warning : .ready,
+                                cref(c, shared.isEmpty ? "no datastore is mounted on all \(members.count) hosts" : shared.prefix(3).joined(separator: ", ") + (shared.count > 3 ? " +\(shared.count - 3)" : "")))
+                    },
+                    ready: "Every cluster has a datastore that all its hosts share",
+                    remediation: "Converging requires a datastore that every host in the cluster can access and write to.")
+        let stretched = real.compactMap { c -> (Cluster, [String: Int])? in
+            let domains = Dictionary(grouping: hosts.filter { $0.clusterKey == c.id && !$0.vsanFaultDomain.isEmpty }, by: \.vsanFaultDomain).mapValues(\.count)
+            return domains.count == 2 ? (c, domains) : nil
+        }
+        if !stretched.isEmpty {
+            b.aggregate("cl.stretched", clArea, "vSAN stretched cluster sites", noun: "stretched clusters have too few hosts per site",
+                        items: stretched.map { c, domains in
+                            let smallest = domains.values.min() ?? 0
+                            let status: CheckStatus = smallest >= 3 ? .ready : (smallest == 2 ? .warning : .blocker)
+                            return (status, cref(c, domains.sorted { $0.key < $1.key }.map { "\($0.key): \($0.value)" }.joined(separator: " · ")
+                                + (smallest == 2 ? " — needs VCF 9.1.1 or later" : "")))
+                        },
+                        ready: "Every stretched cluster has 3+ hosts per site",
+                        remediation: "Stretched vSAN clusters need at least 3 hosts per availability zone plus a witness on VCF 9.1, or 2 per zone from 9.1.1. (Clusters with exactly two vSAN fault domains are treated as stretched.)")
+        }
+        let supervisorClusters = Set(inv.vms.filter { $0.name.hasPrefix("SupervisorControlPlaneVM") }.map(\.clusterKey))
+        let supervisors = real.filter { supervisorClusters.contains($0.id) }
+        if !supervisors.isEmpty {
+            b.add("cl.supervisor", clArea, "vSphere Supervisor enabled", .info, "\(supervisors.count) cluster(s)",
+                  remediation: "Clusters with vSphere Supervisor (including with Avi Load Balancer) are supported for convergence; plan the Supervisor upgrade with VCF.",
+                  affected: supervisors.map { cref($0, "Supervisor control plane VMs found") })
+        }
         b.aggregate("cl.ha", clArea, "vSphere HA enabled", noun: "clusters without HA",
                     items: real.map { c in (c.haEnabled == false ? .warning : .ready, cref(c, "HA disabled")) },
                     ready: "HA is enabled on all clusters", remediation: "Enable HA to protect workloads while hosts are being upgraded.")
@@ -247,15 +334,27 @@ public struct VCF9Readiness: Solution {
         b.list("net.vmk", netArea, "VMkernel adapters on standard vSwitches", requireVDS ? .warning : .info, noun: "hosts",
                affected: vmkHosts.map { hk, ks in AffectedObject(kind: .host, id: hk, name: ks.first?.host ?? hk, detail: ks.map { "\($0.device) (\($0.portGroup))" }.joined(separator: ", ")) }
                 .sorted { $0.name < $1.name },
-               ready: "No VMkernel adapters on standard switches", remediation: "Migrate management, vMotion and storage VMkernel adapters to the vDS.")
+               ready: "No VMkernel adapters on standard switches",
+               remediation: "Hosts may mix standard switches and a vDS only when the VMkernel adapters are on the vDS; migrate management, vMotion and storage VMkernel adapters to it.")
+        let dhcpVMK = Dictionary(grouping: inv.vmkernels.filter { hostIDs.contains($0.hostKey) && $0.dhcp }, by: \.hostKey)
+        b.list("net.vmkdhcp", netArea, "Static VMkernel IP addresses", .blocker, noun: "hosts have VMkernel adapters using DHCP",
+               affected: dhcpVMK.map { hk, ks in AffectedObject(kind: .host, id: hk, name: ks.first?.host ?? hk, detail: ks.map { "\($0.device) (\($0.portGroup))" }.joined(separator: ", ")) }
+                .sorted { $0.name < $1.name },
+               ready: "Every VMkernel adapter has a static IP address",
+               remediation: "Converging requires statically assigned VMkernel IP addresses; set static IPs (with DNS records) before converging.")
         let dvsInScope = inv.dvSwitches.filter { d in servers.contains(d.vcenter.lowercased()) }
         b.aggregate("net.vds", netArea, "Distributed switch version", noun: "distributed switches are below 8.0",
                     items: dvsInScope.map { d in
                         let major = Int(d.version.split(separator: ".").first ?? "") ?? 0
-                        return (major >= 8 ? .ready : (major >= 7 ? .warning : .blocker),
+                        return (major >= 8 ? .ready : .blocker,
                                 AffectedObject(kind: .network, id: d.id, name: d.name, detail: "version \(d.version.isEmpty ? "unknown" : d.version)"))
                     },
-                    ready: "All distributed switches are 8.0 or later", remediation: "Upgrade distributed switches to the latest version supported by the target release.")
+                    ready: "All distributed switches are 8.0 or later",
+                    remediation: "Converging requires vSphere Distributed Switch 8.0 or later; upgrade these switches first.")
+        b.list("net.cisco", netArea, "Cisco virtual switches", .blocker, noun: "distributed switches",
+               affected: dvsInScope.filter { $0.vendor.lowercased().contains("cisco") }.map { AffectedObject(kind: .network, id: $0.id, name: $0.name, detail: $0.vendor) },
+               ready: "No Cisco virtual switches",
+               remediation: "Cisco virtual switches aren't supported for convergence; migrate to a vSphere Distributed Switch 8.0 or later.")
         let nsx = usedPGs.filter { $0.kind == "NSX / opaque" } + pgVMs.keys.filter { pgByID[$0] == nil }.map { k in
             PortGroup(id: k, name: String(k.split(separator: "|", maxSplits: 1).last ?? ""), kind: "NSX / opaque")
         }
@@ -269,7 +368,7 @@ public struct VCF9Readiness: Solution {
         let stArea = "Storage"
         let types = Dictionary(grouping: datastores, by: { $0.type.isEmpty ? "Unknown" : $0.type }).mapValues(\.count)
         let supported = ["vsan", "vmfs", "nfs", "nfs41"]
-        let other = datastores.filter { !supported.contains($0.type.lowercased()) }
+        let other = datastores.filter { !supported.contains($0.type.lowercased()) && !$0.type.lowercased().contains("vvol") }
         b.add("st.types", stArea, "Datastore types", other.isEmpty ? .ready : .info,
               types.sorted { $0.key < $1.key }.map { "\($0.key) \($0.value)" }.joined(separator: " · "),
               remediation: other.isEmpty ? "" : "Check whether these datastore types are supported as principal or supplemental storage for your VCF domain.",
@@ -278,13 +377,19 @@ public struct VCF9Readiness: Solution {
                affected: datastores.filter { $0.type.lowercased() == "vmfs" && $0.majorVersion > 0 && $0.majorVersion < 6 }
                 .map { AffectedObject(kind: .datastore, id: $0.id, name: $0.name, detail: "VMFS \($0.majorVersion)") },
                ready: "No VMFS 5 datastores", remediation: "Migrate VMs to VMFS 6 datastores; VMFS 5 is deprecated.")
+        let vvols = datastores.filter { $0.type.lowercased().contains("vvol") }
+        if !vvols.isEmpty {
+            b.add("st.vvol", stArea, "vVols datastores", .warning, "\(vvols.count) datastores",
+                  remediation: "vVols are supported only as existing storage when converging, and vVols are deprecated in future releases — plan a move to vSAN, VMFS or NFS.",
+                  affected: vvols.map { AffectedObject(kind: .datastore, id: $0.id, name: $0.name, detail: $0.type) })
+        }
         let iscsiOnly = hosts.filter { h in
             let types = inv.hbas.filter { $0.hostKey == h.id }.map { $0.type.lowercased() }
             return !types.isEmpty && types.contains { $0.contains("iscsi") } && !types.contains { $0.contains("fibre") || $0.contains("fc") }
         }
         if !iscsiOnly.isEmpty {
             b.add("st.iscsi", stArea, "Hosts using iSCSI storage", .info, "\(iscsiOnly.count) hosts",
-                  remediation: "Check whether iSCSI is supported as principal storage for your target domain type.",
+                  remediation: "iSCSI is supported when converging existing environments; check whether it's supported as principal storage for the domain you plan to build.",
                   affected: iscsiOnly.map { $0.ref("iSCSI adapters only") })
         }
         let full = datastores.filter { $0.capacityMiB > 0 && $0.freePct < 10 }
@@ -386,7 +491,8 @@ public struct VCF9Readiness: Solution {
         sections.append(.notes("About these checks", [
             "Scope: every host in the clusters that run the selected VMs, their vCenter(s) and datastores, plus VM-level checks on the selected VMs.",
             "Upgrade paths, CPU generations and minimums are built-in defaults (editable under Assumptions and in VCF9Readiness.swift) — confirm them against Broadcom's upgrade matrix, VCF 9 release notes and the Broadcom Compatibility Guide.",
-            "RVTools can't see firmware, NIC/HBA driver versions, boot mode, NSX version or licensing assignments; review those separately.",
+            "Unsupported configurations from the VCF 9.1 convergence documentation that RVTools can show are checked: DRS not fully automated, vCenter without a distributed switch, vDS below 8.0, Cisco virtual switches, VMkernel adapters using DHCP, and a vCenter VM running under another vCenter.",
+            "RVTools can't see — verify separately: vLCM images vs baselines and vSphere Configuration Profiles, Enhanced Linked Mode, vCenter HA, custom vCenter ports and ports-and-protocols alignment, an existing SDDC Manager connection, NSX Manager count and registrations, vSAN deduplication / compression settings, which services each VMkernel adapter carries (e.g. several on the vMotion port group), free space for the VCF management components, firmware and driver versions, and licensing assignments.",
         ]))
 
         let headline = "\(hosts.count) hosts in \(real.count) clusters · \(counts[.blocker] ?? 0) blockers · \(counts[.warning] ?? 0) warnings · \(Fmt.pct(score)) of checks ready"
