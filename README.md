@@ -15,6 +15,12 @@ open "build/RVTools Analyzer.app"
 
 Drag the app to `/Applications` if you like. It is ad-hoc signed, so the first launch may need right-click › **Open**.
 
+### Everyday use alongside development
+
+- **`scripts/install-app.sh`** builds the release app, runs `scripts/check-solutions.sh`, and copies the app to `/Applications/RVTools Analyzer.app`. The check runs every installed custom solution against the sample exports; if one fails, the install stops (`--force` installs anyway).
+- **`scripts/build-app.sh dev`** (or `debug`) builds **RVTools Analyzer Dev.app** for development. It has its own bundle id, so settings, recent projects and saved assumptions are separate. It also has its own `~/Library/Application Support/RVTools Analyzer Dev/` folder, so it never loads the solutions and price lists of the copy you use for real. The two copies share only the public cloud price cache.
+- **Private solutions can live in a synced folder** such as a company OneDrive. Make `~/Library/Application Support/RVTools Analyzer/Solutions` and `…/Price Lists` symlinks to that folder. Installs from the app then land there, and edits there reload automatically.
+
 ## Opening data
 
 - **An RVTools `.xlsx` export** (`RVTools_export_all_*.xlsx`)
