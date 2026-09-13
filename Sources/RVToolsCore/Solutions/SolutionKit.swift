@@ -13,16 +13,55 @@ public protocol Solution: Sendable {
     var symbol: String { get }
     var summary: String { get }
     var parameters: [SolutionParameter] { get }
-    /// VMs included when an export is first opened.
+    /// The VM selections offered on the Select VMs step. The first is the primary selection, passed to `run` as `vms`.
+    var selections: [SolutionSelection] { get }
+    /// VMs included in the primary selection when an export is first opened.
     func defaultSelection(_ inventory: Inventory) -> Set<String>
+    /// VMs included in a selection when an export is first opened.
+    func defaultSelection(_ inventory: Inventory, for selection: SolutionSelection) -> Set<String>
     func run(vms: [VM], inventory: Inventory, params: Params) -> SolutionResult
+    /// Runs with every selection (keyed by selection id); solutions with one selection only need `run(vms:inventory:params:)`.
+    func run(vms: [VM], selections: [String: [VM]], inventory: Inventory, params: Params) -> SolutionResult
+}
+
+/// One named set of VMs a solution works on (e.g. "DR scope" and "Pilot light").
+public struct SolutionSelection: Identifiable, Hashable, Sendable {
+    public let id: String
+    public let label: String
+    public let help: String
+    public let isPrimary: Bool
+
+    public init(id: String, label: String, help: String = "", isPrimary: Bool) {
+        self.id = id; self.label = label; self.help = help; self.isPrimary = isPrimary
+    }
+
+    public static let primary = SolutionSelection(id: "vms", label: "Selected VMs", isPrimary: true)
+
+    /// Where the selection is stored (app state, projects): the solution id for the primary selection, so single-selection
+    /// solutions and existing projects are unchanged, and "<solution>#<selection>" for the others.
+    public func key(_ solutionID: String) -> String { isPrimary ? solutionID : solutionID + "#" + id }
 }
 
 public extension Solution {
-    /// Runs the solution and records the assumptions that were used.
+    var selections: [SolutionSelection] { [.primary] }
+
+    func defaultSelection(_ inventory: Inventory, for selection: SolutionSelection) -> Set<String> {
+        defaultSelection(inventory)
+    }
+
+    func run(vms: [VM], selections: [String: [VM]], inventory: Inventory, params: Params) -> SolutionResult {
+        run(vms: vms, inventory: inventory, params: params)
+    }
+
+    /// Runs the solution on its primary selection and records the assumptions that were used.
     func run(vms: [VM], inventory: Inventory, values: ParamValues) -> SolutionResult {
-        var result = run(vms: vms, inventory: inventory, params: Params(parameters, values))
-        result.vmCount = vms.count
+        run(vms: vms, selections: [:], inventory: inventory, values: values)
+    }
+
+    /// Runs the solution on all its selections and records the assumptions that were used.
+    func run(vms: [VM], selections: [String: [VM]], inventory: Inventory, values: ParamValues) -> SolutionResult {
+        var result = run(vms: vms, selections: selections, inventory: inventory, params: Params(parameters, values))
+        result.vmCount = Set(vms.map(\.id) + selections.values.flatMap { $0.map(\.id) }).count
         result.assumptions = parameters.map { ($0.group + " · " + $0.label, $0.display(values.values[$0.id] ?? $0.defaultValue)) }
         return result
     }
@@ -37,6 +76,8 @@ public enum SolutionCatalog {
     public static var all: [any Solution] { builtIn + custom.map { $0 as any Solution } }
     public static func solution(id: String) -> (any Solution)? { builtIn.first { $0.id == id } ?? custom.first { $0.id == id } }
     public static func isBuiltIn(_ id: String) -> Bool { builtIn.contains { $0.id == id } }
+    /// The solution a stored selection key belongs to (see `SolutionSelection.key`).
+    public static func solutionID(fromSelectionKey key: String) -> String { String(key.prefix { $0 != "#" }) }
 }
 
 // MARK: - Parameters

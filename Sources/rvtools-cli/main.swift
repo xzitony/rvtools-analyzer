@@ -142,6 +142,37 @@ if let pack = validatePack {
     }
 }
 
+// --select <selection>=<vms> (repeatable): override a VM selection ("vms" is a single-selection solution's) with
+// all, vms, poweredOn, none, or comma-separated VM names.
+var selectOverrides: [String: String] = [:]
+while let i = args.firstIndex(of: "--select"), i + 1 < args.count {
+    let kv = args[i + 1].split(separator: "=", maxSplits: 1).map(String.init)
+    if kv.count == 2 { selectOverrides[kv[0]] = kv[1] }
+    args.removeSubrange(i...(i + 1))
+}
+
+/// VM ids for each selection of a solution: the project's saved selection or the default, then any --select override.
+func resolveSelections(_ s: any Solution, _ inv: Inventory) -> [String: Set<String>] {
+    var out: [String: Set<String>] = [:]
+    for sel in s.selections {
+        var ids = project?.solutionSelections[sel.key(s.id)].map { Set($0) } ?? s.defaultSelection(inv, for: sel)
+        if let raw = selectOverrides[sel.id] {
+            switch raw {
+            case "all": ids = Set(inv.vms.map(\.id))
+            case "vms": ids = Set(inv.vms.filter(\.isVM).map(\.id))
+            case "poweredOn": ids = Set(inv.vms.filter { $0.isVM && $0.isRunning }.map(\.id))
+            case "none": ids = []
+            default:
+                let names = Set(raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces).lowercased() })
+                ids = Set(inv.vms.filter { names.contains($0.name.lowercased()) }.map(\.id))
+                if ids.count < names.count { stderr("--select \(sel.id): \(names.count - ids.count) VM name(s) not found") }
+            }
+        }
+        out[sel.key(s.id)] = ids
+    }
+    return out
+}
+
 func paramValues(_ s: any Solution) -> ParamValues {
     var v = project?.solutionParams[s.id] ?? ParamValues()
     for (name, raw) in overrides {
@@ -177,7 +208,7 @@ if let i = args.firstIndex(of: "--prices"), i + 1 < args.count {
 
 guard !args.isEmpty else {
     print("usage: rvtools-cli <RVTools export .xlsx | folder of RVTools_tab*.csv | project.rvaproj> [...] [--export <dir>]")
-    print("       [--solution <id>] [--set name=value ...] [--save-project <path>] [--trend]")
+    print("       [--solution <id>] [--set name=value ...] [--select selection=vms ...] [--save-project <path>] [--trend]")
     print("       --list-solutions | --validate-solution <pack> [export] | --solutions <dir> | --price-list <file> | --prices azure|aws")
     exit(1)
 }
@@ -229,7 +260,12 @@ do {
         if !ProjectFile.isProject(url) { url.appendPathExtension(ProjectFile.fileExtension) }
         var p = project ?? ProjectFile(name: url.deletingPathExtension().lastPathComponent)
         p.name = url.deletingPathExtension().lastPathComponent
-        for s in SolutionCatalog.all where p.solutionSelections[s.id] == nil { p.solutionSelections[s.id] = s.defaultSelection(r.inventory).sorted() }
+        for s in SolutionCatalog.all {
+            let chosen = s.id == solutionID || validated?.id == s.id
+            for (key, ids) in resolveSelections(s, r.inventory) where p.solutionSelections[key] == nil || (chosen && !selectOverrides.isEmpty) {
+                p.solutionSelections[key] = ids.sorted()
+            }
+        }
         if let sid = solutionID, let s = SolutionCatalog.solution(id: sid) { p.solutionParams[sid] = paramValues(s) }
         _ = try ProjectFile.write(p, to: url, copySources: ds.sources, prices: [])
         print("Saved project \(url.path)")
@@ -250,7 +286,15 @@ do {
                 }
             }
         }
-        let selected = project?.solutionSelections[s.id].map { Set($0) } ?? s.defaultSelection(r.inventory)
+        let resolved = resolveSelections(s, r.inventory)
+        var selections: [String: [VM]] = [:]
+        for sel in s.selections {
+            let ids = resolved[sel.key(s.id)] ?? []
+            selections[sel.id] = r.inventory.vms.filter { ids.contains($0.id) }
+        }
+        for key in selectOverrides.keys where !s.selections.contains(where: { $0.id == key }) {
+            stderr("--select: \(s.title) has no selection “\(key)” — available: " + s.selections.map(\.id).joined(separator: ", "))
+        }
         if let scripted = s as? ScriptedSolution {
             // Custom solutions never download: they read cached, project or price-list prices.
             for sel in scripted.regionSelections(Params(scripted.parameters, paramValues(scripted))) {
@@ -260,7 +304,7 @@ do {
             }
         }
         let started = Date()
-        let result = s.run(vms: r.inventory.vms.filter { selected.contains($0.id) }, inventory: r.inventory, values: paramValues(s))
+        let result = s.run(vms: selections[s.selections[0].id] ?? [], selections: selections, inventory: r.inventory, values: paramValues(s))
         print(result.markdown(title: s.title, subtitle: "\(ds.sources.map(\.lastPathComponent).joined(separator: ", ")) · exported \(Fmt.dateTime(ds.reportDate))"))
         if s is ScriptedSolution {
             stderr("── \(s.title): \(String(format: "%.0f ms", Date().timeIntervalSince(started) * 1000)), \(result.log.count) console lines, prices read: "

@@ -359,9 +359,12 @@ final class AppModel {
         // VM ids (vCenter + moref) are stable across exports: keep customized selections, re-default untouched ones.
         let valid = Set(snap.inventory.vms.map(\.id))
         for s in SolutionCatalog.all {
-            let current = solutionSelections[s.id] ?? []
-            let untouched = previous.map { current == s.defaultSelection($0) } ?? true
-            solutionSelections[s.id] = untouched ? s.defaultSelection(snap.inventory) : current.intersection(valid)
+            for sel in s.selections {
+                let key = sel.key(s.id)
+                let current = solutionSelections[key] ?? []
+                let untouched = previous.map { current == s.defaultSelection($0, for: sel) } ?? true
+                solutionSelections[key] = untouched ? s.defaultSelection(snap.inventory, for: sel) : current.intersection(valid)
+            }
         }
         selectedHostID = nil
         selectedDatastoreID = nil
@@ -453,7 +456,7 @@ final class AppModel {
         report = r
         lookup = Lookup(r.inventory)
         reportVersion += 1
-        solutionSelections = Dictionary(uniqueKeysWithValues: SolutionCatalog.all.map { ($0.id, $0.defaultSelection(inv)) })
+        solutionSelections = AppModel.defaultSelections(SolutionCatalog.all, inv)
         latestScriptResults = [:]
         projectSolutionIDs = []
         projectPriceRefs = []
@@ -494,7 +497,8 @@ final class AppModel {
         projectPriceRefs = Set(prices.map { PriceRef(provider: $0.provider.rawValue, region: $0.region) })
         projectListIDs = Set(lists.map(\.id))
         PriceLibrary.shared.setProjectLists(lists)
-        projectSolutionIDs = Set(p.solutionSelections.keys).union(p.solutionParams.keys).filter { !SolutionCatalog.isBuiltIn($0) }
+        projectSolutionIDs = Set(p.solutionSelections.keys.map(SolutionCatalog.solutionID(fromSelectionKey:))).union(p.solutionParams.keys)
+            .filter { !SolutionCatalog.isBuiltIn($0) }
         thresholds = p.thresholds
         let valid = Set(fullInventory?.vms.map(\.id) ?? [])
         for (id, ids) in p.solutionSelections { solutionSelections[id] = Set(ids).intersection(valid) }
@@ -791,15 +795,17 @@ final class AppModel {
     /// in the background: nil while running (see `latestScriptResults`), then `scriptRunVersion` changes.
     func result(for s: any Solution) -> SolutionResult? {
         guard let r = report else { return nil }
-        let selection = solutionSelections[s.id] ?? []
+        let sets = s.selections.map { solutionSelections[$0.key(s.id)] ?? [] }
         let values = solutionParams[s.id] ?? ParamValues()
         let custom = s is ScriptedSolution
         let prices = custom ? "\(priceVersion).\(PriceLibrary.shared.version).\(extensionsVersion)" : "\(PriceStore.shared.version)"
-        let key = "\(s.id)|\(reportVersion)|\(prices)|\(selection.hashValue)|\(values.hashValue)"
+        let key = "\(s.id)|\(reportVersion)|\(prices)|\(sets.map { String($0.hashValue) }.joined(separator: ","))|\(values.hashValue)"
         if let cached = solutionCache[key] { return cached }
-        let vms = r.inventory.vms.filter { selection.contains($0.id) }
+        var selected: [String: [VM]] = [:]
+        for (sel, ids) in zip(s.selections, sets) { selected[sel.id] = r.inventory.vms.filter { ids.contains($0.id) } }
+        let vms = selected[s.selections[0].id] ?? []
         guard custom else {
-            let result = s.run(vms: vms, inventory: r.inventory, values: values)
+            let result = s.run(vms: vms, selections: selected, inventory: r.inventory, values: values)
             if solutionCache.count > 16 { solutionCache.removeAll() }
             solutionCache[key] = result
             return result
@@ -807,7 +813,7 @@ final class AppModel {
         if runningScripts.insert(key).inserted {
             let inventory = r.inventory
             Task.detached(priority: .userInitiated) {
-                let result = s.run(vms: vms, inventory: inventory, values: values)
+                let result = s.run(vms: vms, selections: selected, inventory: inventory, values: values)
                 await MainActor.run {
                     self.runningScripts.remove(key)
                     if self.solutionCache.count > 16 { self.solutionCache.removeAll() }
@@ -875,8 +881,11 @@ final class AppModel {
         let subtitle = "\(sourceSummary) · exported \(Fmt.dateTime(r.inventory.reportDate)) · scope: \(scopeLabel)"
         write(result.markdown(title: s.title, subtitle: subtitle), to: dir.appendingPathComponent(base + ".md"))
         for file in result.csvFiles() { write(file.content, to: dir.appendingPathComponent("\(base)_\(file.name).csv")) }
-        let selected = r.inventory.vms.filter { (solutionSelections[s.id] ?? []).contains($0.id) }
-        write(CSVExport.selection(selected), to: dir.appendingPathComponent("\(base)_selected-vms.csv"))
+        for sel in s.selections {
+            let ids = solutionSelections[sel.key(s.id)] ?? []
+            let name = sel.isPrimary ? "selected-vms" : "selected-" + sel.id
+            write(CSVExport.selection(r.inventory.vms.filter { ids.contains($0.id) }), to: dir.appendingPathComponent("\(base)_\(name).csv"))
+        }
         NSWorkspace.shared.activateFileViewerSelecting([dir.appendingPathComponent(base + ".md")])
     }
 
@@ -900,6 +909,15 @@ final class AppModel {
         case .cluster: computeTab = 0; sidebar = .compute
         default: break
         }
+    }
+
+    /// Default VM ids for every selection of the given solutions, keyed like `solutionSelections`.
+    static func defaultSelections(_ solutions: [any Solution], _ inv: Inventory) -> [String: Set<String>] {
+        var out: [String: Set<String>] = [:]
+        for s in solutions {
+            for sel in s.selections { out[sel.key(s.id)] = s.defaultSelection(inv, for: sel) }
+        }
+        return out
     }
 
     // MARK: Custom solutions and price lists
@@ -952,7 +970,7 @@ final class AppModel {
         if let inv = fullInventory {
             let wasRestoring = restoring
             restoring = true
-            for s in SolutionCatalog.custom where solutionSelections[s.id] == nil { solutionSelections[s.id] = s.defaultSelection(inv) }
+            for (key, ids) in AppModel.defaultSelections(SolutionCatalog.custom, inv) where solutionSelections[key] == nil { solutionSelections[key] = ids }
             restoring = wasRestoring
         }
         extensionsVersion += 1
