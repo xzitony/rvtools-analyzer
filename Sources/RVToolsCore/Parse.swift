@@ -32,16 +32,22 @@ public enum Parse {
         return df
     }
 
+    /// Anything earlier is a placeholder, not a real vSphere date. vCenter reports "unknown" as the Unix
+    /// epoch, which RVTools writes in the collector's local time — e.g. 1969-12-31 16:00 in US Pacific.
+    private static let earliestRealDate = Date(timeIntervalSince1970: 631_152_000) // 1990-01-01 UTC
+
     public static func date(_ raw: String) -> Date? {
         let s = raw.trimmingCharacters(in: .whitespaces)
         guard s.count >= 6 else { return nil }
         // Plain Excel serial number (a date column that lost its date style).
         if let serial = Double(s), serial > 20_000, serial < 80_000 {
-            return Date(timeIntervalSince1970: (serial - 25_569) * 86_400)
+            return real(Date(timeIntervalSince1970: (serial - 25_569) * 86_400))
         }
-        for f in formatters { if let d = f.date(from: s) { return d } }
+        for f in formatters { if let d = f.date(from: s) { return real(d) } }
         return nil
     }
+
+    private static func real(_ d: Date) -> Date? { d >= earliestRealDate ? d : nil }
 
     /// "RVTools_export_all_2026-03-18_16.05.15.xlsx" -> 2026-03-18 16:05:15
     public static func dateFromExportName(_ name: String) -> Date? {

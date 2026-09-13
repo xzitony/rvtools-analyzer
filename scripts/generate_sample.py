@@ -213,6 +213,8 @@ def make_vm(name, cluster, host, os_entry=None, template=False, cpus=None, mem_g
               template=template, id=f"vm-{1000 + len(vms)}", uuid=f"42{R.getrandbits(120):030x}", disks=[], nics=[], snaps=[],
               hw=R.choices([21, 20, 19, 17, 14, 13, 11, 10, 9], [10, 30, 15, 12, 12, 8, 7, 4, 2])[0],
               created=days_ago(R.randint(20, 3400)), dc=host["dc"])
+    if len(vms) % 40 == 7:
+        vm["created"] = dt.datetime(1969, 12, 31, 16, 0, 0)  # vCenter's "unknown" (epoch in US Pacific time)
     vms.append(vm)
     host["vms"].append(vm)
     return vm
