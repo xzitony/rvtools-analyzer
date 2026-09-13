@@ -237,6 +237,8 @@ public struct Host: Identifiable, Sendable {
     public var licenses = ""
     public var certExpiry: Date?
     public var powerPolicy = ""
+    /// vSAN fault domain (two per cluster usually means a stretched cluster).
+    public var vsanFaultDomain = ""
 
     // Correlated
     public var vmCount = 0

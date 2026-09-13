@@ -143,6 +143,7 @@ public enum SolutionAPI {
             "evcCurrent": h.evcCurrent, "evcMax": h.evcMax, "bootTime": date(h.bootTime), "uptimeDays": num(h.uptimeDays),
             "vmCount": h.vmCount, "vmsOn": h.vmsOn, "vcpuOn": h.vcpuOn, "vcpuTotal": h.vcpuTotal, "vramOnMiB": num(h.vramOnMiB),
             "pnicCount": h.pnicCount, "hbaCount": h.hbaCount, "datastoreCount": h.datastoreCount, "certExpiry": date(h.certExpiry),
+            "vsanFaultDomain": h.vsanFaultDomain,
         ]
     }
 
