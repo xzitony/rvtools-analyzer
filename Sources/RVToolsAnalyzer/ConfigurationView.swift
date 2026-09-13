@@ -55,7 +55,8 @@ struct LicenseRenewalsCard: View {
     let report: Report
 
     var body: some View {
-        let now = report.inventory.reportDate
+        let exported = report.inventory.reportDate
+        let now = License.renewalReference(exportDate: exported)
         let window = report.thresholds.licenseExpiryDays
         let due = report.inventory.licenses.filter { l in
             if let days = l.daysToExpiry(from: now) { return days <= window }
@@ -64,7 +65,8 @@ struct LicenseRenewalsCard: View {
         .sorted { ($0.expiration ?? .distantFuture, $0.name) < ($1.expiration ?? .distantFuture, $1.name) }
         if !due.isEmpty {
             let expired = due.filter { ($0.daysToExpiry(from: now) ?? 1) <= 0 }.count
-            Card("License renewals", subtitle: "Expired, or expiring within \(Fmt.num(window, 0)) days of the export date (\(Fmt.date(now))) — change the window in Settings › Findings") {
+            Card("License renewals", subtitle: "Expired, or expiring within \(Fmt.num(window, 0)) days of today (\(Fmt.date(now)))"
+                 + (Calendar.current.isDate(now, inSameDayAs: exported) ? "" : " · export taken \(Fmt.date(exported))") + " — change the window in Settings › Findings") {
                 VStack(alignment: .leading, spacing: 10) {
                     HStack(spacing: 8) {
                         Image(systemName: expired > 0 ? Severity.critical.symbol : Severity.warning.symbol)
@@ -101,7 +103,7 @@ struct LicenseRenewalsCard: View {
     }
 }
 
-/// Expired / days left / evaluation / active, for one license at the export date.
+/// Expired / days left / evaluation / active, for one license on `now` (see `License.renewalReference`).
 struct LicenseStatus: View {
     let license: License
     let now: Date
@@ -208,7 +210,7 @@ struct LifecycleView: View {
                             GridRow { Text("Status"); Text("Product"); Text("Key"); Text("Used / total"); Text("Expires") }.font(.caption).foregroundStyle(.secondary)
                             ForEach(inv.licenses) { l in
                                 GridRow {
-                                    LicenseStatus(license: l, now: now, window: report.thresholds.licenseExpiryDays)
+                                    LicenseStatus(license: l, now: License.renewalReference(exportDate: now), window: report.thresholds.licenseExpiryDays)
                                     Text(l.name)
                                     Text(l.keyMasked).tabular().foregroundStyle(.secondary)
                                     HStack(spacing: 4) {
