@@ -41,6 +41,7 @@ private struct FindingsSettingsView: View {
                 field("vCPU : core ratio above", $model.thresholds.vcpuPerCoreWarn, ": 1")
                 field("Host uptime longer than", $model.thresholds.hostUptimeDays, "days")
                 field("Certificate expires within", $model.thresholds.certExpiryDays, "days")
+                field("License expires within", $model.thresholds.licenseExpiryDays, "days")
             }
             Section("Guests") {
                 field("Guest partition free below", $model.thresholds.guestFreeWarnPct, "%")

@@ -480,6 +480,13 @@ public struct License: Identifiable, Sendable {
     public var expirationRaw = ""
 }
 
+public extension License {
+    var isEvaluation: Bool { expirationRaw.lowercased().contains("eval") || name.lowercased().contains("evaluation") }
+
+    /// Days from `date` until the license expires (zero or negative once it has); nil when it doesn't expire.
+    func daysToExpiry(from date: Date) -> Double? { expiration.map { $0.timeIntervalSince(date) / 86_400 } }
+}
+
 public struct ResourcePool: Identifiable, Sendable {
     public var id: String
     public var vcenter = ""

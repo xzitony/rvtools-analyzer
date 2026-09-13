@@ -61,6 +61,8 @@ public struct Thresholds: Codable, Equatable, Sendable {
     public var guestFreeWarnPct = 10.0
     public var hostUptimeDays = 365.0
     public var certExpiryDays = 90.0
+    /// Licenses expiring within this many days of the export date are flagged (a renewal opportunity).
+    public var licenseExpiryDays = 90.0
     /// Leave host-local datastores with no VM files (boot / scratch devices) out of every dashboard, finding and solution.
     public var ignoreUnusedLocalDatastores = true
 
@@ -81,6 +83,7 @@ public struct Thresholds: Codable, Equatable, Sendable {
         guestFreeWarnPct = try c.decodeIfPresent(Double.self, forKey: .guestFreeWarnPct) ?? d.guestFreeWarnPct
         hostUptimeDays = try c.decodeIfPresent(Double.self, forKey: .hostUptimeDays) ?? d.hostUptimeDays
         certExpiryDays = try c.decodeIfPresent(Double.self, forKey: .certExpiryDays) ?? d.certExpiryDays
+        licenseExpiryDays = try c.decodeIfPresent(Double.self, forKey: .licenseExpiryDays) ?? d.licenseExpiryDays
         ignoreUnusedLocalDatastores = try c.decodeIfPresent(Bool.self, forKey: .ignoreUnusedLocalDatastores) ?? d.ignoreUnusedLocalDatastores
     }
 }
@@ -248,8 +251,10 @@ enum Rules {
                               recommendation: "Upgrade vCenter first — it must be at or above the ESXi version."),
             "vc.eolsoon": RuleDef(title: "vCenter reaches end of support within 12 months", severity: .warning, category: .lifecycle,
                                   recommendation: "Schedule the vCenter upgrade."),
-            "lic.expiring": RuleDef(title: "License expiring within 90 days", severity: .warning, category: .lifecycle,
-                                    recommendation: "Renew or replace licences before expiry."),
+            "lic.expired": RuleDef(title: "License expired", severity: .critical, category: .lifecycle,
+                                   recommendation: "Renew or replace the license now: an expired license can stop hosts or features from working and ends the support entitlement."),
+            "lic.expiring": RuleDef(title: "License expiring within \(n(t.licenseExpiryDays)) days", severity: .warning, category: .lifecycle,
+                                    recommendation: "A renewal opportunity: confirm quantities and term with the customer and renew before the expiry date. Evaluation licenses need a permanent license."),
             "lic.overused": RuleDef(title: "License usage exceeds capacity", severity: .warning, category: .lifecycle,
                                     recommendation: "Assign additional licence capacity."),
         ]
@@ -506,10 +511,13 @@ enum Rules {
             }
         }
         for l in inv.licenses {
-            if let exp = l.expiration, exp <= now.addingTimeInterval(90 * 86_400) {
-                e.add("lic.expiring", .vcenter, l.vcenter.lowercased(), l.name, l.vcenter, "\(l.keyMasked) expires \(Fmt.date(exp))")
-            } else if l.expirationRaw.lowercased().contains("eval") {
-                e.add("lic.expiring", .vcenter, l.vcenter.lowercased(), l.name, l.vcenter, "Evaluation licence")
+            let quantity = l.total > 0 ? "\(Fmt.num(l.total, 0)) \(l.costUnit)" : l.costUnit
+            if let exp = l.expiration, let days = l.daysToExpiry(from: now), days <= 0 {
+                e.add("lic.expired", .vcenter, l.vcenter.lowercased(), l.name, l.vcenter, "\(l.keyMasked) · \(quantity) · expired \(Fmt.date(exp))")
+            } else if let exp = l.expiration, let days = l.daysToExpiry(from: now), days <= t.licenseExpiryDays {
+                e.add("lic.expiring", .vcenter, l.vcenter.lowercased(), l.name, l.vcenter, "\(l.keyMasked) · \(quantity) · expires \(Fmt.date(exp)) (\(Int(days.rounded(.up))) days)")
+            } else if l.isEvaluation {
+                e.add("lic.expiring", .vcenter, l.vcenter.lowercased(), l.name, l.vcenter, "\(l.keyMasked) · evaluation license")
             }
             if l.total > 0 && l.used > l.total { e.add("lic.overused", .vcenter, l.vcenter.lowercased(), l.name, l.vcenter, "\(Fmt.num(l.used, 0)) used of \(Fmt.num(l.total, 0)) \(l.costUnit)") }
         }
