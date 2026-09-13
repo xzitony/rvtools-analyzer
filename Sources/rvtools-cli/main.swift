@@ -253,7 +253,7 @@ do {
     let t1 = Date()
     let inv = InventoryBuilder.build(ds)
     let t2 = Date()
-    let r = Analyzer.run(inv, thresholds: project?.thresholds ?? Thresholds())
+    let r = Analyzer.run(inv, thresholds: project?.thresholds ?? Thresholds(), acknowledgements: project?.acknowledgements ?? [])
     let t3 = Date()
 
     if let out = saveProjectPath {
@@ -347,7 +347,8 @@ do {
         print("  [\(c.ok ? "ok" : "!!")] \(pad(c.title, 50)) reported \(c.reported) · derived \(c.derived)")
     }
 
-    print("\n== Findings: \(t.critical) critical, \(t.warning) warning, \(t.info) info")
+    print("\n== Findings: \(t.critical) critical, \(t.warning) warning, \(t.info) info"
+        + (r.acknowledgedFindings.isEmpty ? "" : " (\(r.acknowledgedFindings.count) acknowledged findings not shown)"))
     for g in r.groups {
         print("  \(pad(g.severity.label, 8)) \(lpad("\(g.count)", 5))  \(pad(g.category.rawValue, 20)) \(g.title)")
     }

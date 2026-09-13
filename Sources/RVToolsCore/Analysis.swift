@@ -89,13 +89,18 @@ public struct Report: Sendable {
     public var findingsByObject: [String: [Finding]]
     /// Host-local datastores with no VM files. Left out of `inventory` when `thresholds.ignoreUnusedLocalDatastores`.
     public var unusedLocalDatastores: [Datastore] = []
+    /// Findings covered by an acknowledgement: left out of `findings`, `groups`, totals, inspectors and exports.
+    public var acknowledgedFindings: [Finding] = []
+    public var acknowledgedGroups: [FindingGroup] = []
+    public var acknowledgements: [Acknowledgement] = []
 }
 
 public enum Analyzer {
-    public static func run(_ source: Inventory, thresholds: Thresholds = Thresholds()) -> Report {
+    public static func run(_ source: Inventory, thresholds: Thresholds = Thresholds(), acknowledgements: [Acknowledgement] = []) -> Report {
         let unusedLocal = source.unusedLocalDatastores
         var inv = thresholds.ignoreUnusedLocalDatastores ? source.removingDatastores(Set(unusedLocal.map(\.id))) : source
-        let (findings, catalog) = Rules.evaluate(inv, thresholds)
+        let (allFindings, catalog) = Rules.evaluate(inv, thresholds)
+        let (findings, acknowledged) = acknowledgements.partition(allFindings)
 
         var byObject: [String: [Finding]] = [:]
         for f in findings where !f.objectID.isEmpty { byObject[f.objectID, default: []].append(f) }
@@ -108,17 +113,22 @@ public enum Analyzer {
         for i in inv.clusters.indices { inv.clusters[i].issueCount = byObject[inv.clusters[i].id]?.count ?? 0 }
         for i in inv.datastores.indices { inv.datastores[i].issueCount = byObject[inv.datastores[i].id]?.count ?? 0 }
 
+        let groupList = groupFindings(findings, catalog)
+
+        return Report(inventory: inv, totals: totals(inv, findings), findings: findings, groups: groupList,
+                      dist: distributions(inv, findings), storage: storage(inv), thresholds: thresholds, findingsByObject: byObject,
+                      unusedLocalDatastores: unusedLocal, acknowledgedFindings: acknowledged,
+                      acknowledgedGroups: groupFindings(acknowledged, catalog), acknowledgements: acknowledgements)
+    }
+
+    static func groupFindings(_ findings: [Finding], _ catalog: [String: RuleDef]) -> [FindingGroup] {
         var groups: [String: [Finding]] = [:]
         for f in findings { groups[f.rule, default: []].append(f) }
-        let groupList = groups.map { rule, fs in
+        return groups.map { rule, fs in
             let def = catalog[rule]
             return FindingGroup(rule: rule, title: def?.title ?? rule, severity: def?.severity ?? .info, category: def?.category ?? .configuration,
                                 recommendation: def?.recommendation ?? "", findings: fs.sorted { $0.objectName.localizedStandardCompare($1.objectName) == .orderedAscending })
         }.sorted { ($0.severity.rawValue, -$0.count, $0.title) < ($1.severity.rawValue, -$1.count, $1.title) }
-
-        return Report(inventory: inv, totals: totals(inv, findings), findings: findings, groups: groupList,
-                      dist: distributions(inv, findings), storage: storage(inv), thresholds: thresholds, findingsByObject: byObject,
-                      unusedLocalDatastores: unusedLocal)
     }
 
     static func totals(_ inv: Inventory, _ findings: [Finding]) -> Totals {
