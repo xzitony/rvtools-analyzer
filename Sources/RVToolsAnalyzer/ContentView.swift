@@ -26,6 +26,7 @@ struct ContentView: View {
                 }
             }
         }
+        .background(WindowCloseGuard())
         .dropDestination(for: URL.self) { urls, _ in
             model.open(urls)
             return true

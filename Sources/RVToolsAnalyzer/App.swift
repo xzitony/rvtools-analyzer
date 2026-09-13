@@ -78,6 +78,48 @@ struct RVToolsAnalyzerApp: App {
     }
 }
 
+/// Offers to save a customized session when the window's close button is clicked. Closing the only window quits the
+/// app, but that path doesn't reliably reach `applicationShouldTerminate`, so the close itself is checked. The
+/// window's own (SwiftUI) delegate keeps receiving every other delegate message.
+struct WindowCloseGuard: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView { GuardView() }
+    func updateNSView(_ nsView: NSView, context: Context) { (nsView as? GuardView)?.install() }
+
+    private final class GuardView: NSView {
+        private var proxy: DelegateProxy?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            install()
+        }
+
+        func install() {
+            guard let window, window.delegate !== proxy else { return }
+            let p = DelegateProxy(original: window.delegate)
+            proxy = p
+            window.delegate = p
+        }
+    }
+
+    private final class DelegateProxy: NSObject, NSWindowDelegate {
+        /// Strong: the window only holds its delegate weakly.
+        let original: NSWindowDelegate?
+
+        init(original: NSWindowDelegate?) { self.original = original }
+
+        override func responds(to aSelector: Selector!) -> Bool {
+            super.responds(to: aSelector) || (original?.responds(to: aSelector) ?? false)
+        }
+
+        override func forwardingTarget(for aSelector: Selector!) -> Any? { original }
+
+        func windowShouldClose(_ sender: NSWindow) -> Bool {
+            if original?.windowShouldClose?(sender) == false { return false }
+            return MainActor.assumeIsolated { AppModel.shared.confirmDiscardChanges() }
+        }
+    }
+}
+
 /// Which build is running, from keys `scripts/build-app.sh` writes into Info.plist.
 enum BuildInfo {
     private static func info(_ key: String) -> String? { Bundle.main.object(forInfoDictionaryKey: key) as? String }

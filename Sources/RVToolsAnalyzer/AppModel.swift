@@ -676,6 +676,8 @@ final class AppModel {
             saveProjectAs()
             return !isDirty
         case .alertSecondButtonReturn:
+            // Discarded: don't ask again when closing the window leads straight into quitting.
+            isDirty = false
             return true
         default:
             return false
