@@ -75,7 +75,9 @@ enum DebugSnapshot {
                         model.solutionTab["backup"] = 1
                         if let backup = SolutionCatalog.solution(id: "backup") { model.sidebar = .solution(backup) }
                     }),
-                ]
+                ] + SolutionCatalog.custom.filter { $0.parameters.contains { $0.observed != nil } }.enumerated().map { i, s in
+                    ("\(39 + i)-\(s.id)-assumptions", { model.solutionTab[s.id] = 1; model.sidebar = .solution(s) })
+                }
             }
             try? await Task.sleep(nanoseconds: 1_000_000_000)
             for (name, setup) in steps {

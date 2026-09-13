@@ -100,9 +100,16 @@ my-solution.rvasolution/     any folder name works; .rvasolution is the conventi
 
 Every parameter has an `id`, a `type` and a `label`, plus optional `group` (the section heading, default "Assumptions"), `help` and `default`. The user's values are saved and reused for every export, and **Restore Defaults** resets them.
 
+A `number` parameter can also set `observed`, so that in trend mode the Assumptions step shows what the snapshots measured beside it, like the built-in Backup and DR solutions do:
+
+- **`annualGrowth`:** the net annual growth of VM data in use, with a button that applies it (rounded to 0.5%). **Apply** on the trend's Growth page sets it too.
+- **`dailyChangeFloor`:** the net daily growth of existing VMs, shown as a lower bound for a daily change rate. There's no apply button: RVTools can't measure rewritten blocks, so the real change rate is usually much higher.
+
+The script gets the same rates in `context.trend` (see [The script](#the-script)).
+
 | Type | Extra fields | `default` | In `params` |
 |---|---|---|---|
-| `number` | `min`, `max`, `step`, `unit` | a number | a number |
+| `number` | `min`, `max`, `step`, `unit`, `observed` | a number | a number |
 | `choice` | `options` (list of labels) | an index or a label | the chosen **index**; the label is in `context.labels[id]` |
 | `toggle` | | `true` / `false` | a boolean |
 | `multi` | `options` | a list of indices or labels | a list of chosen **indices** (`context.labels[id]` has the labels) |
@@ -110,7 +117,7 @@ Every parameter has an `id`, a `type` and a `label`, plus optional `group` (the 
 
 ```json
 "parameters": [
-  { "id": "growth", "type": "number", "group": "Growth", "label": "Annual data growth", "default": 15, "min": 0, "max": 200, "unit": "%" },
+  { "id": "growth", "type": "number", "group": "Growth", "label": "Annual data growth", "default": 15, "min": 0, "max": 200, "unit": "%", "observed": "annualGrowth" },
   { "id": "basis", "type": "choice", "group": "Source data", "label": "Size from",
     "options": ["Guest used space", "VM in-use", "Provisioned"], "default": 0 },
   { "id": "snapshots", "type": "toggle", "group": "Source data", "label": "Include snapshot space", "default": false },
@@ -163,7 +170,7 @@ function run(vms, inventory, params, context) {
 | `vms` | The selected VMs that are in the current scope: objects from `inventory.vms`. |
 | `inventory` | The whole inventory in scope. See [Inventory reference](#inventory-reference). |
 | `params` | Parameter values by id (see the table above). |
-| `context` | `{ apiVersion, solution: { id, title, version }, selectedCount, reportDate, now, labels, selections }`. `selections` has every VM selection by id (see [Several VM selections](#several-vm-selections)). `selectedCount` counts the whole selection, including VMs outside the current scope. `reportDate` is the export timestamp: measure ages from it, not from `now`. |
+| `context` | `{ apiVersion, solution: { id, title, version }, selectedCount, reportDate, now, labels, selections, trend }`. `selections` has every VM selection by id (see [Several VM selections](#several-vm-selections)). `trend` is `null` unless a trend is loaded; then it's `{ snapshots, from, to, spanDays, annualGrowthPct, organicGrowthPct, netDailyGrowthPct }`, where each rate can be `null` when the trend is too short to measure it (growth needs 14 days). `netDailyGrowthPct` is a floor for a daily change rate, not a measurement of it. `selectedCount` counts the whole selection, including VMs outside the current scope. `reportDate` is the export timestamp: measure ages from it, not from `now`. |
 
 The script is modern JavaScript (ES2020+): `const`/`let`, arrow functions, template strings, destructuring, spread, `Map`/`Set`, `Array.prototype.flatMap` and so on. There is no `require`/`import`, `fetch`, `setTimeout` or DOM. You can split code into several top-level functions in the file. `console.log`, `console.warn` and `console.error` go to the script console (see `debug`).
 
@@ -504,6 +511,8 @@ rvtools-cli --list-solutions
 - choices take an index
 - multi-selects take `0,2`
 - region parameters take indices into the provider's region list
+
+With `--trend`, `--solution <id>` runs the solution on the latest snapshot, and a custom solution gets the trend's rates in `context.trend`.
 
 Custom solutions never download from the command line. Use `rvtools-cli --prices azure|aws` first if prices are missing. Packs from `--solutions`, `--validate-solution` and `RVTOOLS_SOLUTIONS_PATH` (colon-separated folders, also read by the app) take precedence over installed packs with the same id, which is handy while developing.
 

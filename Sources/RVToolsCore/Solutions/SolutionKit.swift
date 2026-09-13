@@ -103,6 +103,8 @@ public struct SolutionParameter: Identifiable, Sendable {
     public let help: String
     public let kind: Kind
     public let defaultValue: ParamValue
+    /// A trend rate offered for this assumption (custom solutions: the manifest's `observed`).
+    public var observed: String? = nil
 
     public static func number(_ id: String, _ group: String, _ label: String, _ value: Double, min: Double, max: Double,
                               step: Double = 1, unit: String = "", help: String = "") -> SolutionParameter {

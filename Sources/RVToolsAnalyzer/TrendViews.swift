@@ -660,7 +660,7 @@ struct SizingAssumptionsCard: View {
             Spacer()
             Text(Fmt.num(pct, 1) + "%").font(.title3.weight(.semibold)).monospacedDigit()
             Button("Apply") { model.applyObservedGrowth(value) }
-                .help("Set the annual growth assumption of Backup Sizing and DR Sizing to \(Fmt.num(value, 1))%")
+                .help("Set the annual growth assumption of Backup Sizing, DR Sizing and custom solutions that offer the observed growth to \(Fmt.num(value, 1))%")
         }
     }
 }

@@ -230,6 +230,26 @@ do {
         guard snapshots.count >= 2 else { print("Trend analysis needs at least two exports taken at different times (found \(snapshots.count))."); exit(1) }
         let t0 = Date()
         let trend = TrendAnalyzer.run(snapshots)
+        // --trend with --solution: run the solution on the latest snapshot; custom solutions get the trend rates.
+        if let sid = solutionID {
+            guard let found = SolutionCatalog.solution(id: sid) else {
+                print("unknown solution '\(sid)'; available: " + SolutionCatalog.all.map(\.id).joined(separator: ", "))
+                exit(1)
+            }
+            var s = found
+            if var scripted = found as? ScriptedSolution { scripted.trend = trend.rates; s = scripted }
+            let inv = Analyzer.run(trend.last.inventory, thresholds: Thresholds(), acknowledgements: []).inventory
+            let resolved = resolveSelections(s, inv)
+            var selections: [String: [VM]] = [:]
+            for sel in s.selections {
+                let ids = resolved[sel.key(s.id)] ?? []
+                selections[sel.id] = inv.vms.filter { ids.contains($0.id) }
+            }
+            let result = s.run(vms: selections[s.selections[0].id] ?? [], selections: selections, inventory: inv, values: paramValues(s))
+            print(result.markdown(title: s.title, subtitle: "Trend of \(trend.snapshots.count) snapshots over \(Fmt.num(trend.spanDays, 0)) days · latest exported \(Fmt.dateTime(trend.last.date))"))
+            result.log.forEach { stderr("  " + $0) }
+            exit(result.failed ? 3 : 0)
+        }
         printTrend(trend)
         print(String(format: "\n(analysed in %.0f ms)", Date().timeIntervalSince(t0) * 1000))
         if let out = saveProjectPath {
