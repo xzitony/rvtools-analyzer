@@ -15,7 +15,7 @@ public struct CloudMigration: PricedSolution {
     public var id: String { provider.rawValue }
     public var title: String { "\(provider.name) Migration" }
     public var symbol: String { provider == .azure ? "cloud" : "cloud.fill" }
-    public var summary: String { "Right-size the selected VMs onto \(provider.name) instances and compare monthly list-price estimates across regions." }
+    public var summary: String { "Lift-and-shift estimate: right-size the selected VMs onto \(provider.name) instances and compare monthly list-price costs across regions. Not for modernization projects." }
 
     static let azureFamilies = ["Dsv5", "Dasv5", "Esv5", "Easv5", "Fsv2", "Dsv6", "Dasv6", "Esv6", "Easv6"]
     static let awsFamilies = ["m6i", "m7i", "m6a", "m7a", "r6i", "r7i", "r6a", "r7a", "c6i", "c7i", "c6a", "c7a", "m5", "r5", "c5", "t3"]
@@ -315,6 +315,8 @@ public struct CloudMigration: PricedSolution {
             b.add("commit", "Pricing", "On-demand pricing", .info, "Estimates use on-demand rates",
                   remediation: "Enter an expected Savings Plan / Reserved Instance discount under Assumptions to model commitments.")
         }
+        b.add("scope", "Scope", "Lift-and-shift only", .info, "Each VM is priced as an \(provider.name) VM with the same disks",
+              remediation: "This estimate covers VM-centric rehosting. It doesn't size modernization — refactoring to PaaS or managed databases, containers or serverless, or consolidating and re-architecting workloads.")
         sections.append(.checks("Migration considerations", b.checks))
 
         let perVM = best.lines.sorted { $0.total > $1.total }
@@ -332,6 +334,7 @@ public struct CloudMigration: PricedSolution {
             rowRefs: perVM.map { $0.d.vm.vmRef })))
 
         sections.append(.notes("Pricing sources and exclusions", [
+            "Scope: a VM-centric lift-and-shift (rehost) estimate — each VM moves as-is to an \(provider.name) VM with equivalent disks. It doesn't cover modernization such as PaaS or managed database services, containers, serverless or re-architected applications.",
             provider == .azure
                 ? "Azure Retail Prices API list prices (USD) downloaded \(Fmt.dateTime(fetched)); reserved prices are the published 1- and 3-year reservation rates. Windows licence cost = Windows PAYG − Linux PAYG rate."
                 : "AWS public on-demand list prices (USD) from the aws.amazon.com pricing data, downloaded \(Fmt.dateTime(fetched)). Commitment discounts are your input; Windows licence cost = Windows − Linux on-demand rate and is not discounted.",
