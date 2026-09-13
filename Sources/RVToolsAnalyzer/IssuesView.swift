@@ -23,6 +23,8 @@ struct IssuesView: View {
     @State private var kind: ObjectKind?
     @State private var search = ""
     @State private var expanded: Set<String> = []
+    @State private var showAcknowledged = false
+    @State private var pending: PendingAcknowledgement?
 
     private struct Filtered: Identifiable {
         let group: FindingGroup
@@ -30,9 +32,21 @@ struct IssuesView: View {
         var id: String { group.rule }
     }
 
+    /// Findings waiting for a note before they're acknowledged.
+    struct PendingAcknowledgement: Identifiable {
+        let id = UUID()
+        let title: String
+        let rule: String
+        let findings: [Finding]
+        let wholeCheck: Bool
+    }
+
+    private var sourceFindings: [Finding] { showAcknowledged ? report.acknowledgedFindings : report.findings }
+    private var sourceGroups: [FindingGroup] { showAcknowledged ? report.acknowledgedGroups : report.groups }
+
     private var filtered: [Filtered] {
         let q = search.lowercased()
-        return report.groups.compactMap { g in
+        return sourceGroups.compactMap { g in
             guard severities.contains(g.severity), category == nil || g.category == category else { return nil }
             var fs = g.findings
             if let kind { fs = fs.filter { $0.kind == kind } }
@@ -43,15 +57,27 @@ struct IssuesView: View {
         }
     }
 
+    /// Whole-check acknowledgements with no current findings (only listed in the Acknowledged view).
+    private var idleCheckAcknowledgements: [Acknowledgement] {
+        let rules = Set(report.acknowledgedGroups.map(\.rule))
+        return report.acknowledgements.filter { $0.isWholeCheck && !rules.contains($0.rule) }
+    }
+
     var body: some View {
         let groups = filtered
         VStack(spacing: 0) {
             HStack(spacing: 10) {
+                Picker("View", selection: $showAcknowledged) {
+                    Text("Open").tag(false)
+                    Text("Acknowledged (\(Fmt.int(report.acknowledgedFindings.count)))").tag(true)
+                }
+                .pickerStyle(.segmented).labelsHidden().fixedSize()
+                Divider().frame(height: 18)
                 ForEach(Severity.allCases) { s in
                     Toggle(isOn: Binding(get: { severities.contains(s) }, set: { on in if on { severities.insert(s) } else { severities.remove(s) } })) {
                         HStack(spacing: 4) {
                             SeverityBadge(severity: s)
-                            Text(Fmt.int(report.findings.filter { $0.severity == s }.count)).foregroundStyle(.secondary).tabular()
+                            Text(Fmt.int(sourceFindings.filter { $0.severity == s }.count)).foregroundStyle(.secondary).tabular()
                         }
                         .fixedSize()
                     }
@@ -76,8 +102,13 @@ struct IssuesView: View {
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             Divider()
-            if groups.isEmpty {
-                ContentUnavailableView("No matching findings", systemImage: "checkmark.seal", description: Text("Adjust the filters above."))
+            if groups.isEmpty && (!showAcknowledged || idleCheckAcknowledgements.isEmpty) {
+                if showAcknowledged {
+                    ContentUnavailableView("Nothing acknowledged", systemImage: "checkmark.seal",
+                                           description: Text("Acknowledge findings you've reviewed and accepted. They're left out of counts, badges and exports, and listed here."))
+                } else {
+                    ContentUnavailableView("No matching findings", systemImage: "checkmark.seal", description: Text("Adjust the filters above."))
+                }
             } else {
                 ScrollViewReader { proxy in
                     List {
@@ -86,7 +117,19 @@ struct IssuesView: View {
                                 Label(fg.group.recommendation, systemImage: "lightbulb")
                                     .font(.callout).foregroundStyle(.secondary)
                                     .padding(.vertical, 4)
-                                ForEach(fg.findings) { f in FindingRow(finding: f) }
+                                if showAcknowledged, let check = report.acknowledgements.first(where: { $0.rule == fg.group.rule && $0.isWholeCheck }) {
+                                    AcknowledgementNote(acknowledgement: check, prefix: "Whole check acknowledged")
+                                }
+                                ForEach(fg.findings) { f in
+                                    if showAcknowledged {
+                                        FindingRow(finding: f, acknowledgement: report.acknowledgements.covering(f),
+                                                   onRestore: { model.restore([f]) })
+                                    } else {
+                                        FindingRow(finding: f, onAcknowledge: {
+                                            pending = PendingAcknowledgement(title: "\(fg.group.title) — \(f.objectName)", rule: f.rule, findings: [f], wholeCheck: false)
+                                        })
+                                    }
+                                }
                             } label: {
                                 HStack(spacing: 10) {
                                     SeverityBadge(severity: fg.group.severity, showLabel: false)
@@ -94,10 +137,22 @@ struct IssuesView: View {
                                     Tag(text: fg.group.category.rawValue)
                                     Spacer()
                                     Text(Fmt.int(fg.findings.count)).font(.body.weight(.semibold)).tabular()
+                                    groupMenu(fg)
                                 }
                                 .padding(.vertical, 3)
                             }
                             .id(fg.id)
+                        }
+                        if showAcknowledged && !idleCheckAcknowledgements.isEmpty {
+                            Section("Acknowledged checks with no current findings") {
+                                ForEach(idleCheckAcknowledgements) { a in
+                                    HStack {
+                                        AcknowledgementNote(acknowledgement: a, prefix: a.rule)
+                                        Spacer()
+                                        Button("Restore") { model.restore(a) }.buttonStyle(.link).font(.caption)
+                                    }
+                                }
+                            }
                         }
                     }
                     .onAppear {
@@ -111,6 +166,75 @@ struct IssuesView: View {
             }
         }
         .searchable(text: $search, placement: .toolbar, prompt: "Filter checks, objects, details")
+        .sheet(item: $pending) { p in
+            AcknowledgeSheet(pending: p) { note in
+                if p.wholeCheck { model.acknowledgeCheck(p.rule, note: note) } else { model.acknowledge(p.findings, note: note) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func groupMenu(_ fg: Filtered) -> some View {
+        Menu {
+            if showAcknowledged {
+                Button("Restore \(fg.findings.count == 1 ? "Finding" : "All \(Fmt.int(fg.findings.count)) Findings")") {
+                    model.restore(fg.findings, wholeCheck: fg.group.rule)
+                }
+            } else {
+                Button("Acknowledge \(fg.findings.count == 1 ? "This Finding" : "These \(Fmt.int(fg.findings.count)) Findings")…") {
+                    pending = PendingAcknowledgement(title: fg.group.title, rule: fg.group.rule, findings: fg.findings, wholeCheck: false)
+                }
+                Button("Acknowledge Whole Check…") {
+                    pending = PendingAcknowledgement(title: fg.group.title, rule: fg.group.rule, findings: fg.findings, wholeCheck: true)
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help(showAcknowledged ? "Restore" : "Acknowledge")
+    }
+}
+
+/// Asks for an optional note before acknowledging.
+private struct AcknowledgeSheet: View {
+    @Environment(\.dismiss) private var dismiss
+    let pending: IssuesView.PendingAcknowledgement
+    let onConfirm: (String) -> Void
+    @State private var note = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(pending.wholeCheck ? "Acknowledge the whole check?" : "Acknowledge \(pending.findings.count == 1 ? "this finding" : "\(Fmt.int(pending.findings.count)) findings")?")
+                .font(.title3.weight(.semibold))
+            Text(pending.title).font(.callout.weight(.medium))
+            Text(pending.wholeCheck
+                 ? "Every finding of this check, now and in future exports, is left out of counts, badges, inspectors and exports."
+                 : "\(pending.findings.count == 1 ? "It's" : "They're") left out of counts, badges, inspectors and exports. The same check on the same object stays acknowledged in newer exports.")
+                .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            TextField("Note (optional): reason, owner or ticket", text: $note, axis: .vertical)
+                .lineLimit(2...4)
+                .textFieldStyle(.roundedBorder)
+            Text("Restore it any time from the Acknowledged view. Projects save acknowledgements.").font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Acknowledge") { onConfirm(note.trimmingCharacters(in: .whitespacesAndNewlines)); dismiss() }.keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 480)
+    }
+}
+
+private struct AcknowledgementNote: View {
+    let acknowledgement: Acknowledgement
+    let prefix: String
+
+    var body: some View {
+        Label(prefix + " " + Fmt.date(acknowledgement.date) + (acknowledgement.note.isEmpty ? "" : " — " + acknowledgement.note), systemImage: "checkmark.seal")
+            .font(.caption).foregroundStyle(.secondary)
     }
 }
 
@@ -118,6 +242,9 @@ struct FindingRow: View {
     @Environment(AppModel.self) private var model
     let finding: Finding
     var showTitle = false
+    var acknowledgement: Acknowledgement? = nil
+    var onAcknowledge: (() -> Void)? = nil
+    var onRestore: (() -> Void)? = nil
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -134,10 +261,21 @@ struct FindingRow: View {
                 }
             }
             .frame(minWidth: showTitle ? 0 : 240, alignment: .leading)
-            Text(finding.detail).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(finding.detail).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                if let a = acknowledgement {
+                    AcknowledgementNote(acknowledgement: a, prefix: a.isWholeCheck ? "Whole check acknowledged" : "Acknowledged")
+                }
+            }
             Spacer(minLength: 8)
             if !showTitle && canReveal {
                 Button("Show") { model.reveal(finding) }.buttonStyle(.link).font(.caption)
+            }
+            if let onAcknowledge {
+                Button("Acknowledge") { onAcknowledge() }.buttonStyle(.link).font(.caption)
+            }
+            if let onRestore, acknowledgement?.isWholeCheck != true {
+                Button("Restore") { onRestore() }.buttonStyle(.link).font(.caption)
             }
         }
         .padding(.vertical, 2)

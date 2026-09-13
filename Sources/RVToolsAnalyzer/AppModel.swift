@@ -192,6 +192,15 @@ final class AppModel {
     @ObservationIgnored private var restoring = false
     @ObservationIgnored private var autosaveTask: Task<Void, Never>?
 
+    /// Findings and whole checks acknowledged on the Issues page; saved with the project.
+    var acknowledgements: [Acknowledgement] = [] {
+        didSet {
+            guard acknowledgements != oldValue else { return }
+            recompute()
+            noteChange()
+        }
+    }
+
     var thresholds: Thresholds = AppModel.loadThresholds() {
         didSet {
             guard thresholds != oldValue else { return }
@@ -275,12 +284,13 @@ final class AppModel {
         errorMessage = nil
         loadingMessage = project.map { "Opening \($0.file.name)…" } ?? "Reading \(urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) items")…"
         let t = project?.file.thresholds ?? thresholds
+        let acks = project?.file.acknowledgements ?? []
         Task.detached(priority: .userInitiated) {
             do {
                 let ds = try Dataset.load(urls)
                 await MainActor.run { self.loadingMessage = "Correlating \(ds.tableNames.count) tabs…" }
                 let inv = InventoryBuilder.build(ds)
-                let report = Analyzer.run(inv, thresholds: t)
+                let report = Analyzer.run(inv, thresholds: t, acknowledgements: acks)
                 await MainActor.run {
                     scoped.forEach { $0.stopAccessingSecurityScopedResource() }
                     self.apply(ds, inv, report)
@@ -327,6 +337,7 @@ final class AppModel {
         errorMessage = nil
         loadingMessage = project.map { "Opening \($0.file.name)…" } ?? "Reading \(all.count == 1 ? all[0].lastPathComponent : "\(all.count) exports")…"
         let t = project?.file.thresholds ?? thresholds
+        let acks = project?.file.acknowledgements ?? []
         Task.detached(priority: .userInitiated) {
             do {
                 let snapshots = try groups.map { try TrendLoader.load(groups: $0) } ?? TrendLoader.load(all)
@@ -336,7 +347,7 @@ final class AppModel {
                 await MainActor.run { self.loadingMessage = "Comparing \(snapshots.count) snapshots…" }
                 let trend = TrendAnalyzer.run(snapshots, ignoreUnusedLocalDatastores: t.ignoreUnusedLocalDatastores)
                 let latest = snapshots[snapshots.count - 1]
-                let report = Analyzer.run(latest.inventory, thresholds: t)
+                let report = Analyzer.run(latest.inventory, thresholds: t, acknowledgements: acks)
                 await MainActor.run {
                     scoped.forEach { $0.stopAccessingSecurityScopedResource() }
                     self.apply(latest.dataset, latest.inventory, report, trend: trend)
@@ -466,6 +477,7 @@ final class AppModel {
         solutionSelections = AppModel.defaultSelections(SolutionCatalog.all, inv)
         latestScriptResults = [:]
         projectSolutionIDs = []
+        acknowledgements = []
         projectPriceRefs = []
         projectListIDs = []
         PriceLibrary.shared.setProjectLists([])
@@ -507,6 +519,7 @@ final class AppModel {
         projectSolutionIDs = Set(p.solutionSelections.keys.map(SolutionCatalog.solutionID(fromSelectionKey:))).union(p.solutionParams.keys)
             .filter { !SolutionCatalog.isBuiltIn($0) }
         thresholds = p.thresholds
+        acknowledgements = p.acknowledgements ?? []
         let valid = Set(fullInventory?.vms.map(\.id) ?? [])
         for (id, ids) in p.solutionSelections { solutionSelections[id] = Set(ids).intersection(valid) }
         for (id, values) in p.solutionParams { solutionParams[id] = values }
@@ -529,6 +542,7 @@ final class AppModel {
         sources = []
         latestScriptResults = [:]
         projectSolutionIDs = []
+        acknowledgements = []
         PriceLibrary.shared.setProjectLists([])
         scopes = []
         restoring = true
@@ -572,6 +586,7 @@ final class AppModel {
         p.notes = projectNotes
         p.scopeID = scopeID
         p.thresholds = thresholds
+        p.acknowledgements = acknowledgements.isEmpty ? nil : acknowledgements
         p.solutionSelections = solutionSelections.mapValues { $0.sorted() }
         p.solutionParams = solutionParams
         p.solutionTabs = solutionTab
@@ -717,10 +732,11 @@ final class AppModel {
         let scope = scopes.first { $0.id == scopeID }
         let inv = scope?.clusterIDs.map { full.scoped(to: $0) } ?? full
         let t = thresholds
+        let acks = acknowledgements
         generation += 1
         let gen = generation
         Task.detached(priority: .userInitiated) {
-            let r = Analyzer.run(inv, thresholds: t)
+            let r = Analyzer.run(inv, thresholds: t, acknowledgements: acks)
             await MainActor.run {
                 guard gen == self.generation else { return }
                 self.report = r
@@ -790,6 +806,31 @@ final class AppModel {
     func showIssues(rule: String? = nil) {
         focusRule = rule
         sidebar = .issues
+    }
+
+    // MARK: Acknowledgements
+
+    /// Acknowledges findings one by one (they reappear if the check finds a different object).
+    func acknowledge(_ findings: [Finding], note: String) {
+        var list = acknowledgements
+        var keys = Set(list.map(\.key))
+        for f in findings where keys.insert(f.acknowledgementKey).inserted { list.append(Acknowledgement(finding: f, note: note)) }
+        acknowledgements = list
+    }
+
+    /// Acknowledges a whole check, including findings that appear later; replaces its individual acknowledgements.
+    func acknowledgeCheck(_ rule: String, note: String) {
+        acknowledgements = acknowledgements.filter { $0.rule != rule } + [Acknowledgement(rule: rule, note: note)]
+    }
+
+    /// Brings findings back, removing their own acknowledgements and, if `wholeCheck`, the check's.
+    func restore(_ findings: [Finding], wholeCheck rule: String? = nil) {
+        let keys = Set(findings.map(\.acknowledgementKey))
+        acknowledgements = acknowledgements.filter { !keys.contains($0.key) && !(rule != nil && $0.rule == rule && $0.isWholeCheck) }
+    }
+
+    func restore(_ acknowledgement: Acknowledgement) {
+        acknowledgements = acknowledgements.filter { $0.key != acknowledgement.key }
     }
 
     // MARK: Solutions

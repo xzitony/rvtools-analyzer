@@ -97,9 +97,9 @@ struct LicenseRenewalsCard: View {
 
     private func headline(_ count: Int, expired: Int, window: Double) -> String {
         let s = count == 1 ? "" : "s"
-        if expired == count { return "\(count) license\(s) expired — renewal needed" }
-        if expired > 0 { return "\(expired) expired and \(count - expired) more due within \(Fmt.num(window, 0)) days — a renewal opportunity" }
-        return "\(count) license\(s) due for renewal within \(Fmt.num(window, 0)) days — a renewal opportunity"
+        if expired == count { return "\(count) license\(s) expired" }
+        if expired > 0 { return "\(expired) expired and \(count - expired) more expire within \(Fmt.num(window, 0)) days" }
+        return "\(count) license\(s) expire\(count == 1 ? "s" : "") within \(Fmt.num(window, 0)) days"
     }
 }
 

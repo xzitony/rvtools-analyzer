@@ -42,7 +42,7 @@ To open an export you can:
 
 **Save Project** (⌘S) turns the current session into a `Name.rvaproj` project. Finder shows it as one file, but it's a folder that contains:
 - a copy of the export(s)
-- your settings: thresholds, scope, each solution's VM selection and assumptions, and the open page
+- your settings: thresholds, acknowledged findings, scope, each solution's VM selection and assumptions, and the open page
 - project notes
 - the cloud price lists behind any estimates, so they can be reproduced later, and copies of the custom price lists your custom solutions use
 
@@ -81,7 +81,7 @@ Ages are measured from the export timestamp in `vMetaData` or the file name, not
 | Page | What it rolls up |
 |---|---|
 | **Overview** | Headline figures: VMs, hosts, cores, vCPU:core, vRAM:RAM, CPU/memory use, storage, snapshots, findings. Also VM power state, workload footprint, VMs per cluster, OS family, a cluster capacity + N+1 table, the most-used datastores and the top issues. |
-| **Issues** | 70+ rule checks grouped by check, with severity, category and object-type filters, search, a recommendation per check, and a jump to each affected object. |
+| **Issues** | 70+ rule checks grouped by check, with severity, category and object-type filters, search, a recommendation per check, and a jump to each affected object. **Acknowledge** findings you've reviewed and accepted, one at a time, a whole check's current findings, or the whole check including future findings, with an optional note. Acknowledged findings are left out of counts, badges, the Overview, object inspectors and CSV exports. The **Acknowledged** view lists them with their notes, and **Restore** brings them back. Projects save acknowledgements, and they match by check and object, so they carry over to a newer export of the same environment. |
 | **Compute** | Cluster cards (HA/DRS/admission control, capacity, consolidation ratios, CPU/memory used, memory if the largest host fails, ESXi/CPU mix) and host utilization. The hosts table has an inspector covering the host's VMs, datastores, pNICs, VMkernel adapters, HBAs, LUN paths and findings. |
 | **Virtual Machines** | A searchable, sortable inventory (search by name, IP, host, OS, network, datastore or notes). The inspector shows everything joined to the VM: placement, compute, disks, guest partitions, NICs with VLANs, snapshots, Tools/HW/firmware, findings and vHealth messages. |
 | **Storage** | Capacity, used, provisioned (overcommit), thin vs thick, reclaim opportunities (powered-off VMs, snapshots, templates, guest free space, empty datastores, zombie files) and snapshot age. The datastores table has an inspector listing each datastore's VMs and hosts. |
@@ -89,7 +89,7 @@ Ages are measured from the export timestamp in `vMetaData` or the file name, not
 **Local datastores with no VM files.** Host-local datastores that hold no VMs, templates or VM disks, usually ESXi boot or scratch devices, are left out by default. They don't count in capacity totals, findings (such as low free space or "datastore with no VMs"), charts, trends, exports or solutions. A datastore counts as local when exactly one host mounts it and it isn't vSAN or NFS. Local datastores that VMs use always count. When any are left out, the Storage page says how many, with a button to include them; the same switch is in **Settings › Findings**, and projects save it.
 | **Network** | Port groups with VLANs, the switch they're on, host and VM counts, and security policy. Also distributed and standard switches, VMkernel adapters, physical NICs, and adapter types. |
 | **Configuration** | Distributions: guest OS, vCPU and memory sizes, firmware/Secure Boot, disk controllers, NIC types, resource controls, CPU models, hardware, link speeds. |
-| **Lifecycle** | **License renewals** at the top: licenses that have expired or expire within 90 days of today (adjustable in Settings; unlike support dates, renewals are measured from today even for an older export), plus evaluation licenses, with quantities and days left, a renewal opportunity; the sidebar badge counts them. Also guest OS end-of-support status, ESXi and vCenter support dates, virtual hardware versions, VMware Tools status, VM creation by year, host uptime, and every license with its status. |
+| **Lifecycle** | **License renewals** at the top: licenses that have expired or expire within 90 days of today (adjustable in Settings; unlike support dates, renewals are measured from today even for an older export), plus evaluation licenses, with quantities and days left; the sidebar badge counts them. Also guest OS end-of-support status, ESXi and vCenter support dates, virtual hardware versions, VMware Tools status, VM creation by year, host uptime, and every license with its status. |
 | **Correlations** | The entity graph, what each cross-tab relationship reveals, join coverage per tab, and consistency checks (RVTools' own counts vs the counts derived from other tabs). |
 | **Raw Tabs** | Every tab exactly as loaded, including custom-attribute columns, in a fast sortable and filterable grid. |
 

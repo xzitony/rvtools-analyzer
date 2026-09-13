@@ -61,7 +61,7 @@ public struct Thresholds: Codable, Equatable, Sendable {
     public var guestFreeWarnPct = 10.0
     public var hostUptimeDays = 365.0
     public var certExpiryDays = 90.0
-    /// Licenses expiring within this many days of the export date are flagged (a renewal opportunity).
+    /// Licenses expiring within this many days are flagged (measured from today; see `License.renewalReference`).
     public var licenseExpiryDays = 90.0
     /// Leave host-local datastores with no VM files (boot / scratch devices) out of every dashboard, finding and solution.
     public var ignoreUnusedLocalDatastores = true
@@ -254,7 +254,7 @@ enum Rules {
             "lic.expired": RuleDef(title: "License expired", severity: .critical, category: .lifecycle,
                                    recommendation: "Renew or replace the license now: an expired license can stop hosts or features from working and ends the support entitlement."),
             "lic.expiring": RuleDef(title: "License expiring within \(n(t.licenseExpiryDays)) days", severity: .warning, category: .lifecycle,
-                                    recommendation: "A renewal opportunity: confirm quantities and term with the customer and renew before the expiry date. Evaluation licenses need a permanent license."),
+                                    recommendation: "Renew or replace the license before it expires, confirming the quantity and term. Evaluation licenses need a permanent license."),
             "lic.overused": RuleDef(title: "License usage exceeds capacity", severity: .warning, category: .lifecycle,
                                     recommendation: "Assign additional licence capacity."),
         ]

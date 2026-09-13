@@ -3,7 +3,7 @@ import Foundation
 /// A saved session, stored as a package directory (`Name.rvaproj`):
 ///
 ///     Name.rvaproj/
-///       project.json      settings: scope, thresholds, per-solution VM selections, assumptions, notes
+///       project.json      settings: scope, thresholds, acknowledged findings, per-solution VM selections, assumptions, notes
 ///       sources/…         copies of the RVTools exports (so the project survives the originals moving)
 ///                         — trend projects keep one sources/snapshot-N/ folder per point in time
 ///       prices/…          cloud price snapshots used by the estimates (reproducible later), plus copies of the
@@ -29,6 +29,8 @@ public struct ProjectFile: Codable, Sendable {
     public var solutionSelections: [String: [String]] = [:]
     public var solutionParams: [String: ParamValues] = [:]
     public var solutionTabs: [String: Int] = [:]
+    /// Findings and whole checks acknowledged on the Issues page.
+    public var acknowledgements: [Acknowledgement]?
     public var page: String?
     /// nil for a normal session; "trend" for a trend comparison.
     public var mode: String?

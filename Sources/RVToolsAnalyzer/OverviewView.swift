@@ -24,7 +24,8 @@ struct OverviewView: View {
                             symbol: "externaldrive")
                     KPITile(title: "VM storage in use", value: Fmt.capacity(mib: t.vmInUseMiB), detail: "of \(Fmt.capacity(mib: t.vmProvisionedMiB)) provisioned", symbol: "internaldrive")
                     KPITile(title: "Snapshots", value: Fmt.int(t.snapshots), detail: "\(Fmt.capacity(mib: t.snapshotMiB)) in delta files", symbol: "camera.on.rectangle")
-                    KPITile(title: "Findings", value: Fmt.int(t.findings), detail: "\(t.critical) critical · \(t.warning) warning · \(t.info) info",
+                    KPITile(title: "Findings", value: Fmt.int(t.findings), detail: "\(t.critical) critical · \(t.warning) warning · \(t.info) info"
+                                + (report.acknowledgedFindings.isEmpty ? "" : " · \(report.acknowledgedFindings.count) acknowledged"),
                             symbol: Severity.critical.symbol, tint: t.critical > 0 ? Palette.critical : .secondary)
                 }
 
