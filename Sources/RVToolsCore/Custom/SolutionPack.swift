@@ -187,11 +187,17 @@ public final class SolutionLibrary: @unchecked Sendable {
         FileManager.default.fileExists(atPath: url.appendingPathComponent("manifest.json").path)
     }
 
+    /// Whether a pack lives in the Solutions folder (which may be a symlink, e.g. to a synced folder).
+    public static func isInstalled(_ pack: URL) -> Bool {
+        pack.resolvingSymlinksInPath().path.hasPrefix(directory.resolvingSymlinksInPath().path + "/")
+    }
+
     static func packs(in dirs: [URL]) -> [URL] {
         var out: [URL] = []
         for dir in dirs {
             if isPack(dir) { out.append(dir); continue }
-            let children = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
+            // The URL-based listing fails with ENOTDIR on a symlinked folder, so list where it really is.
+            let children = (try? FileManager.default.contentsOfDirectory(at: dir.resolvingSymlinksInPath(), includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
             out += children.filter(isPack).sorted { $0.lastPathComponent < $1.lastPathComponent }
         }
         return out
@@ -224,8 +230,8 @@ public final class SolutionLibrary: @unchecked Sendable {
         let fm = FileManager.default
         try fm.createDirectory(at: Self.directory, withIntermediateDirectories: true)
         let dest = Self.directory.appendingPathComponent("\(s.id).\(Self.packExtension)", isDirectory: true)
-        guard dest.standardizedFileURL != url.standardizedFileURL else { return s }
-        for existing in Self.packs(in: [Self.directory]) where existing.standardizedFileURL == dest.standardizedFileURL || (try? Self.loadPack(existing))?.id == s.id {
+        guard dest.resolvingSymlinksInPath() != url.resolvingSymlinksInPath() else { return s }
+        for existing in Self.packs(in: [Self.directory]) where existing.resolvingSymlinksInPath() == dest.resolvingSymlinksInPath() || (try? Self.loadPack(existing))?.id == s.id {
             try fm.trashItem(at: existing, resultingItemURL: nil)
         }
         try fm.copyItem(at: url, to: dest)
@@ -235,7 +241,7 @@ public final class SolutionLibrary: @unchecked Sendable {
     /// Moves an installed pack to the Trash. Call `reload` afterwards.
     public func remove(_ id: String) throws {
         guard let s = solutions.first(where: { $0.id == id }) else { return }
-        guard s.packURL.standardizedFileURL.path.hasPrefix(Self.directory.standardizedFileURL.path) else {
+        guard Self.isInstalled(s.packURL) else {
             throw ExtensionError("\(s.title) is loaded from \(s.packURL.path); remove it there.")
         }
         try FileManager.default.trashItem(at: s.packURL, resultingItemURL: nil)

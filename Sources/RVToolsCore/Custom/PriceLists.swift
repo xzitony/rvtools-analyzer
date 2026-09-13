@@ -195,7 +195,8 @@ public final class PriceLibrary: @unchecked Sendable {
     public func entry(_ id: String) -> Entry? { locked { entries[id] ?? projectEntries[id] } }
 
     static func files(in dir: URL) -> [URL] {
-        ((try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? [])
+        // The URL-based listing fails with ENOTDIR on a symlinked folder, so list where it really is.
+        ((try? FileManager.default.contentsOfDirectory(at: dir.resolvingSymlinksInPath(), includingPropertiesForKeys: nil)) ?? [])
             .filter { $0.pathExtension.lowercased() == PriceList.fileExtension }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
@@ -247,8 +248,8 @@ public final class PriceLibrary: @unchecked Sendable {
         let fm = FileManager.default
         try fm.createDirectory(at: Self.directory, withIntermediateDirectories: true)
         let dest = Self.directory.appendingPathComponent("\(list.id).\(PriceList.fileExtension)")
-        guard dest.standardizedFileURL != url.standardizedFileURL else { return list }
-        for existing in Self.files(in: Self.directory) where existing.standardizedFileURL == dest.standardizedFileURL || (try? PriceList.read(existing))?.id == list.id {
+        guard dest.resolvingSymlinksInPath() != url.resolvingSymlinksInPath() else { return list }
+        for existing in Self.files(in: Self.directory) where existing.resolvingSymlinksInPath() == dest.resolvingSymlinksInPath() || (try? PriceList.read(existing))?.id == list.id {
             try fm.trashItem(at: existing, resultingItemURL: nil)
         }
         try fm.copyItem(at: url, to: dest)
