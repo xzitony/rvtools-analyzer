@@ -91,9 +91,7 @@ private struct CustomSolutionRow: View {
     @Environment(AppModel.self) private var model
     let solution: ScriptedSolution
 
-    private var isInstalled: Bool {
-        solution.packURL.standardizedFileURL.path.hasPrefix(SolutionLibrary.directory.standardizedFileURL.path)
-    }
+    private var isInstalled: Bool { SolutionLibrary.isInstalled(solution.packURL) }
 
     var body: some View {
         let _ = model.extensionsVersion
