@@ -45,6 +45,11 @@ private struct FindingsSettingsView: View {
             Section("Guests") {
                 field("Guest partition free below", $model.thresholds.guestFreeWarnPct, "%")
             }
+            Section("Local datastores") {
+                Toggle("Ignore local datastores with no VM files", isOn: $model.thresholds.ignoreUnusedLocalDatastores)
+                Text("Host-local datastores that hold no VMs, templates or VM disks — usually ESXi boot or scratch devices — are left out of capacity totals, findings, charts, exports and solutions. Local datastores that VMs use always count.")
+                    .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
             Section {
                 HStack {
                     Text("Findings recalculate immediately.").font(.caption).foregroundStyle(.secondary)

@@ -87,11 +87,14 @@ public struct Report: Sendable {
     public var storage: StorageRollup
     public var thresholds: Thresholds
     public var findingsByObject: [String: [Finding]]
+    /// Host-local datastores with no VM files. Left out of `inventory` when `thresholds.ignoreUnusedLocalDatastores`.
+    public var unusedLocalDatastores: [Datastore] = []
 }
 
 public enum Analyzer {
     public static func run(_ source: Inventory, thresholds: Thresholds = Thresholds()) -> Report {
-        var inv = source
+        let unusedLocal = source.unusedLocalDatastores
+        var inv = thresholds.ignoreUnusedLocalDatastores ? source.removingDatastores(Set(unusedLocal.map(\.id))) : source
         let (findings, catalog) = Rules.evaluate(inv, thresholds)
 
         var byObject: [String: [Finding]] = [:]
@@ -114,7 +117,8 @@ public enum Analyzer {
         }.sorted { ($0.severity.rawValue, -$0.count, $0.title) < ($1.severity.rawValue, -$1.count, $1.title) }
 
         return Report(inventory: inv, totals: totals(inv, findings), findings: findings, groups: groupList,
-                      dist: distributions(inv, findings), storage: storage(inv), thresholds: thresholds, findingsByObject: byObject)
+                      dist: distributions(inv, findings), storage: storage(inv), thresholds: thresholds, findingsByObject: byObject,
+                      unusedLocalDatastores: unusedLocal)
     }
 
     static func totals(_ inv: Inventory, _ findings: [Finding]) -> Totals {

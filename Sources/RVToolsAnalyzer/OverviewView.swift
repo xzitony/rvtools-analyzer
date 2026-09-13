@@ -19,7 +19,9 @@ struct OverviewView: View {
                     KPITile(title: "vRAM : RAM", value: Fmt.pct(t.vramPerPhysical * 100), detail: "\(Fmt.capacity(mib: t.vramOnMiB)) assigned to running VMs", symbol: "memorychip")
                     KPITile(title: "CPU usage", value: Fmt.pct(t.cpuUsagePct), detail: "\(Fmt.ghz(t.cpuUsedMHz)) of \(Fmt.ghz(t.cpuMHz))", symbol: "speedometer")
                     KPITile(title: "Memory usage", value: Fmt.pct(t.memUsagePct), detail: "\(Fmt.capacity(mib: t.memUsedMiB)) of \(Fmt.capacity(mib: t.physMemMiB))", symbol: "memorychip.fill")
-                    KPITile(title: "Datastores", value: Fmt.capacity(mib: t.dsCapacityMiB), detail: "\(Fmt.pct(t.dsUsedPct)) used · \(Fmt.capacity(mib: t.dsFreeMiB)) free · \(t.datastores) datastores", symbol: "externaldrive")
+                    KPITile(title: "Datastores", value: Fmt.capacity(mib: t.dsCapacityMiB), detail: "\(Fmt.pct(t.dsUsedPct)) used · \(Fmt.capacity(mib: t.dsFreeMiB)) free · \(t.datastores) datastores"
+                            + (report.thresholds.ignoreUnusedLocalDatastores && !report.unusedLocalDatastores.isEmpty ? " (\(report.unusedLocalDatastores.count) unused local left out)" : ""),
+                            symbol: "externaldrive")
                     KPITile(title: "VM storage in use", value: Fmt.capacity(mib: t.vmInUseMiB), detail: "of \(Fmt.capacity(mib: t.vmProvisionedMiB)) provisioned", symbol: "internaldrive")
                     KPITile(title: "Snapshots", value: Fmt.int(t.snapshots), detail: "\(Fmt.capacity(mib: t.snapshotMiB)) in delta files", symbol: "camera.on.rectangle")
                     KPITile(title: "Findings", value: Fmt.int(t.findings), detail: "\(t.critical) critical · \(t.warning) warning · \(t.info) info",
