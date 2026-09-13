@@ -6,7 +6,8 @@ import Foundation
 ///       project.json      settings: scope, thresholds, per-solution VM selections, assumptions, notes
 ///       sources/…         copies of the RVTools exports (so the project survives the originals moving)
 ///                         — trend projects keep one sources/snapshot-N/ folder per point in time
-///       prices/…          cloud price snapshots used by the estimates (reproducible later)
+///       prices/…          cloud price snapshots used by the estimates (reproducible later), plus copies of the
+///                         custom price lists (.rvaprices) custom solutions read
 ///
 /// Being plain files, projects can live anywhere — local disk, iCloud Drive or a OneDrive / SharePoint folder.
 public struct ProjectFile: Codable, Sendable {
@@ -57,7 +58,7 @@ public struct ProjectFile: Codable, Sendable {
     }
 
     /// Reads a project; returns it with the absolute URLs of its embedded sources and its price snapshots.
-    public static func read(_ url: URL) throws -> (project: ProjectFile, sources: [URL], prices: [RegionPrices]) {
+    public static func read(_ url: URL) throws -> (project: ProjectFile, sources: [URL], prices: [RegionPrices], priceLists: [PriceList]) {
         let data: Data
         do { data = try Data(contentsOf: url.appendingPathComponent("project.json")) } catch {
             throw RVToolsError.unreadable("\(url.lastPathComponent) is not a readable RVTools Analyzer project")
@@ -74,24 +75,25 @@ public struct ProjectFile: Codable, Sendable {
         }
         let priceFiles = (try? FileManager.default.contentsOfDirectory(at: url.appendingPathComponent("prices"), includingPropertiesForKeys: nil)) ?? []
         let prices = priceFiles.filter { $0.pathExtension == "json" }.compactMap { try? JSONDecoder().decode(RegionPrices.self, from: Data(contentsOf: $0)) }
-        return (project, sources, prices)
+        let lists = priceFiles.filter { $0.pathExtension == PriceList.fileExtension }.compactMap { try? PriceList.read($0) }
+        return (project, sources, prices, lists)
     }
 
     /// Writes the project. With `copySources` the whole package is rebuilt with copies of those files;
     /// without it only project.json and the price snapshots are rewritten (autosave).
-    public static func write(_ project: ProjectFile, to url: URL, copySources: [URL]?, prices: [RegionPrices]) throws -> ProjectFile {
+    public static func write(_ project: ProjectFile, to url: URL, copySources: [URL]?, prices: [RegionPrices], priceLists: [PriceList] = []) throws -> ProjectFile {
         guard let sources = copySources else {
             var p = project
             p.modified = Date()
-            try writeContents(p, prices: prices, into: url)
+            try writeContents(p, prices: prices, priceLists: priceLists, into: url)
             return p
         }
-        return try write(project, to: url, copyGroups: [sources], prices: prices)
+        return try write(project, to: url, copyGroups: [sources], prices: prices, priceLists: priceLists)
     }
 
     /// Rebuilds the package with copies of the given source groups (one group per trend snapshot) and swaps it
     /// into place atomically.
-    public static func write(_ project: ProjectFile, to url: URL, copyGroups groups: [[URL]], prices: [RegionPrices]) throws -> ProjectFile {
+    public static func write(_ project: ProjectFile, to url: URL, copyGroups groups: [[URL]], prices: [RegionPrices], priceLists: [PriceList] = []) throws -> ProjectFile {
         let fm = FileManager.default
         var p = project
         p.modified = Date()
@@ -121,7 +123,7 @@ public struct ProjectFile: Codable, Sendable {
         p.sources = all
         p.snapshotGroups = groups.count > 1 ? perGroup : nil
         if p.originalSources.isEmpty { p.originalSources = groups.flatMap { $0.map(\.path) } }
-        try writeContents(p, prices: prices, into: tmp)
+        try writeContents(p, prices: prices, priceLists: priceLists, into: tmp)
         if fm.fileExists(atPath: url.path) {
             _ = try fm.replaceItemAt(url, withItemAt: tmp)
         } else {
@@ -131,14 +133,17 @@ public struct ProjectFile: Codable, Sendable {
         return p
     }
 
-    private static func writeContents(_ p: ProjectFile, prices: [RegionPrices], into dir: URL) throws {
+    private static func writeContents(_ p: ProjectFile, prices: [RegionPrices], priceLists: [PriceList], into dir: URL) throws {
         try encoder.encode(p).write(to: dir.appendingPathComponent("project.json"), options: .atomic)
         let pricesDir = dir.appendingPathComponent("prices")
         try? FileManager.default.removeItem(at: pricesDir)
-        guard !prices.isEmpty else { return }
+        guard !prices.isEmpty || !priceLists.isEmpty else { return }
         try FileManager.default.createDirectory(at: pricesDir, withIntermediateDirectories: true)
         for rp in prices {
             try JSONEncoder().encode(rp).write(to: pricesDir.appendingPathComponent("\(rp.provider.rawValue)-\(rp.region).json"))
+        }
+        for list in priceLists {
+            try encoder.encode(list).write(to: pricesDir.appendingPathComponent("\(list.id).\(PriceList.fileExtension)"))
         }
     }
 }

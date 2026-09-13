@@ -6,7 +6,7 @@ import Foundation
 //   AWS:   the public price files behind aws.amazon.com pricing pages (b0.p.awsstatic.com) — on-demand
 //          EC2 (Linux / Windows) and EBS. Commitment prices aren't published there.
 
-public enum CloudProvider: String, Codable, Sendable {
+public enum CloudProvider: String, Codable, CaseIterable, Sendable {
     case azure, aws
     public var name: String { self == .azure ? "Azure" : "AWS" }
 }
@@ -49,6 +49,8 @@ public struct InstanceOffer: Codable, Hashable, Sendable {
     public var windowsHourly: Double?
     public var reserved1yHourly: Double?
     public var reserved3yHourly: Double?
+    /// Further named rates from custom price lists (e.g. "savingsPlan1y", "monthly"); nil for downloaded list prices.
+    public var prices: [String: Double]?
 
     public var displayName: String { name.replacingOccurrences(of: "Standard_", with: "") }
 }
@@ -128,6 +130,26 @@ public final class PriceStore: @unchecked Sendable {
             }
         }
         return errors
+    }
+
+    /// Regions with prices in memory or in the disk cache (no network).
+    public func availableRegions(_ p: CloudProvider) -> [String] {
+        lock.lock()
+        var codes = Set(regions.values.filter { $0.provider == p }.map(\.region))
+        lock.unlock()
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: cacheDirectory.path)) ?? []
+        for f in files where f.hasPrefix(p.rawValue + "-") && f.hasSuffix(".json") {
+            codes.insert(String(f.dropFirst(p.rawValue.count + 1).dropLast(5)))
+        }
+        let order = CloudRegions.list(p).map(\.code)
+        return codes.sorted { (order.firstIndex(of: $0) ?? .max, $0) < (order.firstIndex(of: $1) ?? .max, $1) }
+    }
+
+    /// Prices for a region from memory, falling back to the disk cache (no network).
+    public func cachedPrices(_ p: CloudProvider, _ region: String) -> RegionPrices? {
+        if let rp = prices(p, region) { return rp }
+        loadFromDisk(p, regions: [region])
+        return prices(p, region)
     }
 
     /// Makes saved price snapshots current (e.g. from a project) without touching the disk cache.

@@ -191,8 +191,22 @@ struct MainView: View {
                     row(.correlations)
                 }
                 Section("Solutions") {
-                    ForEach(SolutionCatalog.all.map { SidebarItem.solution($0) }) { item in
+                    ForEach(SolutionCatalog.builtIn.map { SidebarItem.solution($0) }) { item in
                         row(item, badge: model.solutionSelections[item.solutionID ?? ""]?.count ?? 0)
+                    }
+                }
+                let _ = model.extensionsVersion
+                if !SolutionCatalog.custom.isEmpty || !model.missingSolutionIDs.isEmpty {
+                    Section("Custom Solutions") {
+                        ForEach(SolutionCatalog.custom.map { SidebarItem.solution($0) }) { item in
+                            row(item, badge: model.solutionSelections[item.solutionID ?? ""]?.count ?? 0)
+                        }
+                        ForEach(model.missingSolutionIDs.map(SidebarItem.missingSolution)) { item in
+                            Label(item.rawValue, systemImage: item.symbol)
+                                .foregroundStyle(.secondary)
+                                .help("Used by this project but not installed on this Mac")
+                                .tag(item)
+                        }
                     }
                 }
                 Section("Source") {
@@ -312,6 +326,8 @@ struct MainView: View {
         default:
             if let sid = model.sidebar?.solutionID, let solution = SolutionCatalog.solution(id: sid) {
                 SolutionView(solution: solution, report: report).id(sid)
+            } else if let sid = model.sidebar?.solutionID {
+                MissingSolutionView(id: sid)
             } else {
                 OverviewView(report: report)
             }
