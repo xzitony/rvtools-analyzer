@@ -18,6 +18,16 @@ public struct SolutionManifest: Codable, Sendable {
     public var debug: Bool?
     public var pricing: Pricing?
     public var parameters: [Parameter]?
+    /// Several named VM selections (e.g. "DR scope" and "Pilot light"); the first is the primary one. Default: one selection.
+    public var selections: [Selection]?
+
+    public struct Selection: Codable, Sendable {
+        public var id: String
+        public var label: String
+        public var help: String?
+        /// "vms", "poweredOn", "all" or "none"; the primary selection falls back to `defaultSelection`.
+        public var `default`: String?
+    }
 
     public struct Pricing: Codable, Sendable {
         /// "azure", "aws" and/or custom price list ids the script reads.
@@ -58,6 +68,16 @@ public struct SolutionManifest: Codable, Sendable {
         if title.trimmingCharacters(in: .whitespaces).isEmpty { p.append("title is empty") }
         if let s = defaultSelection, !Self.selectionModes.contains(s) { p.append("defaultSelection must be one of \(Self.selectionModes.joined(separator: ", "))") }
         if let t = timeoutSeconds, !(1...300).contains(t) { p.append("timeoutSeconds must be between 1 and 300") }
+        if let list = selections {
+            if list.isEmpty || list.count > 4 { p.append("selections must list 1 to 4 selections") }
+            var seen = Set<String>()
+            for (i, sel) in list.enumerated() {
+                let name = sel.id.isEmpty ? "selections[\(i)]" : "selection “\(sel.id)”"
+                if !ExtensionID.isValid(sel.id) || !seen.insert(sel.id).inserted { p.append("\(name) needs a unique id (lowercase letters, digits, dots, dashes or underscores)") }
+                if sel.label.trimmingCharacters(in: .whitespaces).isEmpty { p.append("\(name) needs a label") }
+                if let d = sel.default, !Self.selectionModes.contains(d) { p.append("\(name): default must be one of \(Self.selectionModes.joined(separator: ", "))") }
+            }
+        }
         let providers = pricing?.providers ?? []
         for provider in providers where !ExtensionID.isValid(provider) { p.append("pricing provider “\(provider)” isn't a valid id") }
         var ids = Set<String>()

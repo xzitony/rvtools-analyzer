@@ -85,6 +85,7 @@ my-solution.rvasolution/     any folder name works; .rvasolution is the conventi
 | `version`, `author` | | Shown in Settings › Solutions. |
 | `script` | | Script file name. Default: `solution.js`. |
 | `defaultSelection` | | Which VMs are selected when an export opens: `vms` (default: every VM except templates and SRM placeholders), `poweredOn`, `all` (templates included) or `none`. |
+| `selections` | | Several named VM selections instead of one. See [Several VM selections](#several-vm-selections). |
 | `timeoutSeconds` | | 1–300. Default: 20. |
 | `debug` | | `true` shows everything the script logs with `console.log` under the results. Warnings and errors are always shown. |
 | `pricing.providers` | | Price providers the script may read: `azure`, `aws` and/or price list ids. See [Prices](#prices). |
@@ -119,6 +120,24 @@ A `regions` parameter lists every region the provider can price, whether or not 
 
 Choices and multi-selects are saved as indices, so **add new options at the end** of an `options` list. Inserting or reordering options changes what saved projects mean.
 
+## Several VM selections
+
+Most solutions work on one set of VMs. A solution that needs more than one, for example the VMs protected by DR and the VMs that run in the cloud all the time, lists them in `selections`:
+
+```json
+"selections": [
+  { "id": "dr", "label": "DR scope", "default": "poweredOn", "help": "VMs replicated to the DR site." },
+  { "id": "pilot", "label": "Pilot light", "default": "none", "help": "VMs that run in the DR site all the time." }
+]
+```
+
+- **Select VMs step:** a picker switches which selection the checkboxes edit. VMs also show a badge for each other selection they're in, and the header shows a count per selection.
+- **First selection:** it's the primary one. The script gets it as `vms`, it drives the sidebar badge, and its `default` replaces `defaultSelection`. Other selections default to `none`.
+- **In the script:** `context.selections` has every selection by `id`, as lists of VM objects, e.g. `context.selections.pilot`.
+- **Storage:** projects save each selection. The primary one is under the solution id, as before, and the others under `<solution id>#<selection id>`.
+- **Export Report:** writes `…_selected-vms.csv` for the primary selection and `…_selected-<id>.csv` for each of the others.
+- **Limits:** up to 4 selections. Ids follow the same rules as solution ids. Don't rename an id after sharing, because saved projects use it.
+
 ## The script
 
 Define a global function named `run`:
@@ -140,7 +159,7 @@ function run(vms, inventory, params, context) {
 | `vms` | The selected VMs that are in the current scope: objects from `inventory.vms`. |
 | `inventory` | The whole inventory in scope. See [Inventory reference](#inventory-reference). |
 | `params` | Parameter values by id (see the table above). |
-| `context` | `{ apiVersion, solution: { id, title, version }, selectedCount, reportDate, now, labels }`. `selectedCount` counts the whole selection, including VMs outside the current scope. `reportDate` is the export timestamp: measure ages from it, not from `now`. |
+| `context` | `{ apiVersion, solution: { id, title, version }, selectedCount, reportDate, now, labels, selections }`. `selections` has every VM selection by id (see [Several VM selections](#several-vm-selections)). `selectedCount` counts the whole selection, including VMs outside the current scope. `reportDate` is the export timestamp: measure ages from it, not from `now`. |
 
 The script is modern JavaScript (ES2020+): `const`/`let`, arrow functions, template strings, destructuring, spread, `Map`/`Set`, `Array.prototype.flatMap` and so on. There is no `require`/`import`, `fetch`, `setTimeout` or DOM. You can split code into several top-level functions in the file. `console.log`, `console.warn` and `console.error` go to the script console (see `debug`).
 
@@ -472,6 +491,8 @@ rvtools-cli export.xlsx --solutions ~/dev/solutions --price-list acme.rvaprices 
 # What's installed, what failed to load, which prices are cached
 rvtools-cli --list-solutions
 ```
+
+**`--select <selection>=<vms>`** overrides a VM selection for the run. The value is `all`, `vms`, `poweredOn`, `none`, or comma-separated VM names, e.g. `--select pilot=dc01,sql02`. A solution with one selection calls it `vms`.
 
 **`--set` values:**
 - choices take an index

@@ -41,9 +41,21 @@ struct SolutionView: View {
     @Environment(AppModel.self) private var model
     let solution: any Solution
     let report: Report
+    @State private var activeSelection = 0
+
+    private var active: SolutionSelection {
+        let list = solution.selections
+        return list[min(activeSelection, list.count - 1)]
+    }
 
     private var selection: Binding<Set<String>> {
-        Binding(get: { model.solutionSelections[solution.id] ?? [] }, set: { model.solutionSelections[solution.id] = $0 })
+        let key = active.key(solution.id)
+        return Binding(get: { model.solutionSelections[key] ?? [] }, set: { model.solutionSelections[key] = $0 })
+    }
+
+    private func count(_ sel: SolutionSelection) -> Int {
+        let ids = model.solutionSelections[sel.key(solution.id)] ?? []
+        return report.inventory.vms.filter { ids.contains($0.id) }.count
     }
 
     private var values: Binding<ParamValues> {
@@ -69,7 +81,11 @@ struct SolutionView: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text("\(Fmt.int(inScope)) VMs selected").font(.callout.weight(.medium))
+                    if solution.selections.count > 1 {
+                        Text(solution.selections.map { "\(Fmt.int(count($0))) \($0.label)" }.joined(separator: " · ")).font(.callout.weight(.medium))
+                    } else {
+                        Text("\(Fmt.int(inScope)) VMs selected").font(.callout.weight(.medium))
+                    }
                     if selected.count > inScope {
                         Text("\(selected.count - inScope) outside the current scope").font(.caption).foregroundStyle(.secondary)
                     }
@@ -94,7 +110,22 @@ struct SolutionView: View {
             Divider()
             switch tab.wrappedValue {
             case 0:
-                VMSelectionView(vms: report.inventory.vms, selection: selection)
+                if solution.selections.count > 1 {
+                    HStack(spacing: 12) {
+                        Picker("Selection", selection: $activeSelection) {
+                            ForEach(Array(solution.selections.enumerated()), id: \.offset) { i, sel in
+                                Text("\(sel.label) (\(Fmt.int(count(sel))))").tag(i)
+                            }
+                        }
+                        .pickerStyle(.segmented).labelsHidden().fixedSize()
+                        Text(active.help.isEmpty ? "Choose which selection the checkboxes below edit." : active.help)
+                            .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 14).padding(.top, 10)
+                }
+                VMSelectionView(vms: report.inventory.vms, selection: selection,
+                                badges: solution.selections.filter { $0 != active }.map { ($0.label, model.solutionSelections[$0.key(solution.id)] ?? []) })
             case 1:
                 AssumptionsForm(solutionID: solution.id, parameters: solution.parameters, values: values)
             default:
@@ -258,6 +289,8 @@ private struct CustomPriceBar: View {
 struct VMSelectionView: View {
     let vms: [VM]
     @Binding var selection: Set<String>
+    /// The solution's other selections, shown as badges next to the VMs they include.
+    var badges: [(label: String, ids: Set<String>)] = []
     @State private var search = ""
     @State private var cluster = "All clusters"
     @State private var power = 0
@@ -343,7 +376,10 @@ struct VMSelectionView: View {
         Table(rows, selection: $highlighted, sortOrder: $sortOrder) {
             Group {
                 TableColumn("✓", sortUsing: KeyPathComparator(\VM.name)) { (vm: VM) in IncludeToggle(id: vm.id, selection: $selection) }.width(26)
-                TableColumn("Name", sortUsing: KeyPathComparator(\VM.name)) { (vm: VM) in SelectionNameCell(vm: vm) }.width(min: 150, ideal: 220)
+                TableColumn("Name", sortUsing: KeyPathComparator(\VM.name)) { (vm: VM) in
+                    SelectionNameCell(vm: vm, badges: badges.filter { $0.ids.contains(vm.id) }.map(\.label))
+                }
+                .width(min: 150, ideal: badges.isEmpty ? 220 : 300)
                 TableColumn("Cluster", sortUsing: KeyPathComparator(\VM.cluster)) { (vm: VM) in Text(vm.cluster) }
                 TableColumn("Host", sortUsing: KeyPathComparator(\VM.host)) { (vm: VM) in Text(VMsView.shortHost(vm)) }
                 TableColumn("Guest OS", sortUsing: KeyPathComparator(\VM.osName)) { (vm: VM) in Text(vm.os.name) }.width(min: 110, ideal: 160)
@@ -374,10 +410,19 @@ private struct IncludeToggle: View {
 
 private struct SelectionNameCell: View {
     let vm: VM
+    var badges: [String] = []
+
     var body: some View {
         HStack(spacing: 6) {
             PowerIcon(vm: vm).frame(width: 12)
             Text(vm.name)
+            ForEach(badges, id: \.self) { label in
+                Text(label)
+                    .font(.caption2.weight(.semibold))
+                    .padding(.horizontal, 5).padding(.vertical, 1)
+                    .background(Capsule().fill(Palette.primary.opacity(0.15)))
+                    .foregroundStyle(Palette.primary)
+            }
         }
     }
 }

@@ -62,8 +62,18 @@ public struct ScriptedSolution: Solution {
         }
     }
 
+    public var selections: [SolutionSelection] {
+        guard let list = manifest.selections, !list.isEmpty else { return [.primary] }
+        return list.enumerated().map { i, s in SolutionSelection(id: s.id, label: s.label, help: s.help ?? "", isPrimary: i == 0) }
+    }
+
     public func defaultSelection(_ inv: Inventory) -> Set<String> {
-        switch manifest.defaultSelection ?? "vms" {
+        defaultSelection(inv, for: selections[0])
+    }
+
+    public func defaultSelection(_ inv: Inventory, for selection: SolutionSelection) -> Set<String> {
+        let spec = manifest.selections?.first { $0.id == selection.id }
+        switch spec?.default ?? (selection.isPrimary ? manifest.defaultSelection : nil) ?? (selection.isPrimary ? "vms" : "none") {
         case "poweredOn": return Set(inv.vms.filter { $0.isVM && $0.isRunning }.map(\.id))
         case "all": return Set(inv.vms.map(\.id))
         case "none": return []
@@ -72,7 +82,11 @@ public struct ScriptedSolution: Solution {
     }
 
     public func run(vms: [VM], inventory: Inventory, params: Params) -> SolutionResult {
-        ScriptRuntime(solution: self, inventory: inventory).run(selected: vms, params: params)
+        run(vms: vms, selections: [:], inventory: inventory, params: params)
+    }
+
+    public func run(vms: [VM], selections: [String: [VM]], inventory: Inventory, params: Params) -> SolutionResult {
+        ScriptRuntime(solution: self, inventory: inventory).run(selected: vms, selections: selections, params: params)
     }
 }
 
@@ -95,7 +109,7 @@ final class ScriptRuntime {
         self.inventory = inventory
     }
 
-    func run(selected: [VM], params: Params) -> SolutionResult {
+    func run(selected: [VM], selections: [String: [VM]], params: Params) -> SolutionResult {
         guard let ctx = JSContext() else { return failure("JavaScript is unavailable", "Couldn't create a JavaScript context.") }
         ctx.name = solution.title
         let limited = JSWatchdog.limit(ctx, seconds: solution.timeout)
@@ -117,8 +131,14 @@ final class ScriptRuntime {
                 "reportDate": SolutionAPI.date(inventory.reportDate),
                 "now": SolutionAPI.date(Date()),
             ]
+            // Every declared selection, by id (the primary one is also `vms`).
+            var selectionIDs: [String: [String]] = [:]
+            for sel in solution.selections {
+                selectionIDs[sel.id] = (selections[sel.id] ?? (sel.isPrimary ? selected : [])).map(\.id)
+            }
             output = ctx.objectForKeyedSubscript("__main").call(withArguments: [
                 try json(selected.map(\.id)), try SolutionAPI.inventoryJSON(inventory), try json(values), try json(labels), try json(context),
+                try json(selectionIDs),
             ])
         } catch {
             return failure("The inventory couldn't be prepared for the script", error.localizedDescription)

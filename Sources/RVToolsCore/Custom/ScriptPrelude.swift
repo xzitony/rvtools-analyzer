@@ -212,13 +212,17 @@ globalThis.pricing = (() => {
   };
 })();
 
-function __main(idsJSON, inventoryJSON, paramsJSON, labelsJSON, contextJSON) {
+function __main(idsJSON, inventoryJSON, paramsJSON, labelsJSON, contextJSON, selectionsJSON) {
   const inventory = JSON.parse(inventoryJSON);
-  const ids = new Set(JSON.parse(idsJSON));
-  const vms = inventory.vms.filter((vm) => ids.has(vm.id));
+  const byID = new Map(inventory.vms.map((vm) => [vm.id, vm]));
+  const pick = (ids) => ids.map((id) => byID.get(id)).filter(Boolean);
+  const vms = pick(JSON.parse(idsJSON));
   const params = JSON.parse(paramsJSON);
   const context = JSON.parse(contextJSON);
   context.labels = JSON.parse(labelsJSON);
+  context.selections = {};
+  const selections = JSON.parse(selectionsJSON || "{}");
+  for (const id of Object.keys(selections)) context.selections[id] = pick(selections[id]);
   if (typeof run !== "function") throw new Error("the script must define function run(vms, inventory, params, context)");
   const result = run(vms, inventory, params, context);
   if (result === null || typeof result !== "object") throw new Error("run() must return an object like { headline, sections: [...] }");
