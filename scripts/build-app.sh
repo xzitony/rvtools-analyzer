@@ -12,14 +12,18 @@ MODE="${1:-release}"
 case "$MODE" in
   release)
     CONFIG=release; NAME="RVTools Analyzer"; BUNDLE_ID="local.rvtools-analyzer"; SUPPORT="RVTools Analyzer"
-    RANK=Owner; TYPES_KEY=UTExportedTypeDeclarations ;;
+    RANK=Owner; TYPES_KEY=UTExportedTypeDeclarations; VARIANT=release; ICON=build/AppIcon.icns; ICON_FLAGS="" ;;
   dev|debug)
     CONFIG=$([ "$MODE" = debug ] && echo debug || echo release); NAME="RVTools Analyzer Dev"; BUNDLE_ID="local.rvtools-analyzer.dev"
-    SUPPORT="RVTools Analyzer Dev"; RANK=Alternate; TYPES_KEY=UTImportedTypeDeclarations ;;
+    SUPPORT="RVTools Analyzer Dev"; RANK=Alternate; TYPES_KEY=UTImportedTypeDeclarations; VARIANT=dev; ICON=build/AppIcon-dev.icns; ICON_FLAGS="--dev" ;;
   *)
     echo "usage: scripts/build-app.sh [release|dev|debug]"; exit 1 ;;
 esac
 APP="build/$NAME.app"
+# Shown in About: the commit the build came from ("-dirty" = uncommitted changes), and when it was built.
+BUILD="$(git describe --tags --always --dirty 2>/dev/null || echo unknown)"
+BUILD_NUMBER="$(git rev-list --count HEAD 2>/dev/null || echo 1)"
+BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 echo "▸ Compiling ($CONFIG)…"
 swift build -c "$CONFIG" --product RVToolsAnalyzer
@@ -45,11 +49,12 @@ mkdir -p "$APP/Contents/Resources/Examples"
 cp -R examples/solutions examples/price-lists "$APP/Contents/Resources/Examples/"
 cp docs/SOLUTIONS.md "$APP/Contents/Resources/SOLUTIONS.md"
 
-if [ ! -f build/AppIcon.icns ] || [ scripts/make_icon.swift -nt build/AppIcon.icns ]; then
+if [ ! -f "$ICON" ] || [ scripts/make_icon.swift -nt "$ICON" ]; then
   echo "▸ Rendering icon…"
-  swift scripts/make_icon.swift build/AppIcon.icns
+  mkdir -p build
+  swift scripts/make_icon.swift "$ICON" $ICON_FLAGS
 fi
-cp build/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+cp "$ICON" "$APP/Contents/Resources/AppIcon.icns"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -62,9 +67,12 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>$NAME</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>CFBundleShortVersionString</key><string>1.0</string>
-  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
   <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>RVTASupportFolder</key><string>$SUPPORT</string>
+  <key>RVTABuildVariant</key><string>$VARIANT</string>
+  <key>RVTABuild</key><string>$BUILD</string>
+  <key>RVTABuildDate</key><string>$BUILD_DATE</string>
   <key>LSMinimumSystemVersion</key><string>14.0</string>
   <key>LSApplicationCategoryType</key><string>public.app-category.utilities</string>
   <key>NSHighResolutionCapable</key><true/>
@@ -125,5 +133,5 @@ PLIST
 echo "▸ Signing (ad-hoc)…"
 codesign --force --sign - "$APP" >/dev/null
 
-echo "✓ Built $APP"
+echo "✓ Built $APP ($BUILD)"
 echo "  Open with:  open \"$APP\""

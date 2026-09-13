@@ -15,6 +15,9 @@ struct RVToolsAnalyzerApp: App {
         }
         .defaultSize(width: 1440, height: 900)
         .commands {
+            CommandGroup(replacing: .appInfo) {
+                Button("About \(BuildInfo.name)") { BuildInfo.showAboutPanel() }
+            }
             CommandGroup(replacing: .newItem) {
                 Button("Open…") { model.presentOpenPanel() }.keyboardShortcut("o")
                 Button("Compare Snapshots…") { model.presentTrendPanel() }.keyboardShortcut("o", modifiers: [.command, .option])
@@ -71,6 +74,48 @@ struct RVToolsAnalyzerApp: App {
 
         Settings {
             SettingsView().environment(model)
+        }
+    }
+}
+
+/// Which build is running, from keys `scripts/build-app.sh` writes into Info.plist.
+enum BuildInfo {
+    private static func info(_ key: String) -> String? { Bundle.main.object(forInfoDictionaryKey: key) as? String }
+
+    static let name = info("CFBundleName") ?? "RVTools Analyzer"
+    /// A Dev build (`scripts/build-app.sh dev`): separate settings and custom solutions.
+    static let isDev = info("RVTABuildVariant") == "dev"
+    /// `git describe` of the source, e.g. "v1.0-3-g1a2b3c4"; "-dirty" means built with uncommitted changes.
+    static let build = info("RVTABuild")
+
+    static func showAboutPanel() {
+        var lines: [String] = []
+        if isDev { lines.append("Dev build — its own settings and custom solutions (~/Library/Application Support/\(info("RVTASupportFolder") ?? name)).") }
+        if let date = info("RVTABuildDate").flatMap({ ISO8601DateFormatter().date(from: $0) }) { lines.append("Built \(Fmt.dateTime(date)) UTC") }
+        lines.append("Local RVTools analysis — data never leaves this Mac.")
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.alignment = .center
+        let credits = NSAttributedString(string: lines.joined(separator: "\n"), attributes: [
+            .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+            .foregroundColor: isDev ? NSColor.systemOrange : NSColor.secondaryLabelColor,
+            .paragraphStyle: paragraph,
+        ])
+        var options: [NSApplication.AboutPanelOptionKey: Any] = [.credits: credits]
+        if let build { options[.version] = build }
+        NSApp.orderFrontStandardAboutPanel(options: options)
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+/// Marks the Dev build in the window, so it's never mistaken for the installed app.
+struct DevBuildBadge: View {
+    var body: some View {
+        if BuildInfo.isDev {
+            Label("Dev build" + (BuildInfo.build.map { " · \($0)" } ?? ""), systemImage: "hammer.fill")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(.orange)
+                .lineLimit(1)
+                .help("Separate settings and custom solutions from the installed RVTools Analyzer")
         }
     }
 }
