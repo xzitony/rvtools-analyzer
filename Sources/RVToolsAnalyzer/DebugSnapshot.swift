@@ -23,7 +23,7 @@ enum DebugSnapshot {
         }
 
         Task { @MainActor in
-            log("windows: " + NSApp.windows.map { "\($0.className) visible=\($0.isVisible) \(Int($0.frame.width))x\(Int($0.frame.height))" }.joined(separator: "; "))
+            log("windows: " + NSApp.windows.map { "\($0.className) visible=\($0.isVisible) \(Int($0.frame.width))x\(Int($0.frame.height)) delegate=\($0.delegate.map { String(describing: type(of: $0)) } ?? "nil")" }.joined(separator: "; "))
             if let w = mainWindow() {
                 w.setContentSize(NSSize(width: 1500, height: 960))
                 w.center()
