@@ -87,12 +87,7 @@ public struct CloudMigration: PricedSolution {
         let rightsized: Bool
     }
 
-    struct Disk {
-        let label: String
-        let gib: Double
-        let cost: Double
-        let oversize: Bool
-    }
+    typealias Disk = CloudSizing.Disk
 
     struct Line {
         let d: Demand
@@ -100,7 +95,7 @@ public struct CloudMigration: PricedSolution {
         let hourly: Double
         let compute: Double
         let disks: [Disk]
-        var storage: Double { disks.reduce(0) { $0 + $1.cost } }
+        var storage: Double { disks.reduce(0) { $0 + $1.monthly } }
         var total: Double { compute + storage }
     }
 
@@ -114,70 +109,34 @@ public struct CloudMigration: PricedSolution {
         var unmatched: [Line] { lines.filter { $0.offer == nil && ($0.d.vm.isRunning || $0.compute > 0 || $0.hourly < 0) } }
     }
 
-    static let azureTiers: [(num: Int, gib: Double)] = [(1, 4), (2, 8), (3, 16), (4, 32), (6, 64), (10, 128), (15, 256), (20, 512), (30, 1024),
-                                                        (40, 2048), (50, 4096), (60, 8192), (70, 16384), (80, 32767)]
-
     func demand(_ vm: VM, _ p: Params, _ hostSpeed: [String: Double], rightsize: Bool) -> Demand {
-        let buffer = 1 + p.num("buffer") / 100
-        var cpu = vm.cpus, mem = vm.memoryMiB / 1024, changed = false
-        if rightsize && p.choice("cpu") == 1, vm.isRunning, vm.cpuUsageMHz > 0, let speed = hostSpeed[vm.hostKey], speed > 0 {
-            let needed = Int((vm.cpuUsageMHz / speed * buffer).rounded(.up))
-            if needed < cpu { cpu = needed; changed = true }
-        }
-        if rightsize && p.choice("mem") == 1, vm.isRunning, vm.memConsumedMiB > 0 {
-            let needed = vm.memConsumedMiB / 1024 * buffer
-            if needed < mem { mem = needed; changed = true }
-        }
-        cpu = max(cpu, Int(p.num("minCPU")))
-        mem = max(mem, p.num("minMem"))
-
-        var sizes = vm.disks.isEmpty ? [max(vm.provisionedMiB / 1024, 1)] : vm.disks.map { max($0.capacityMiB / 1024, 1) }
-        if p.choice("diskBasis") == 1 {
-            let used = (vm.guestConsumedMiB > 0 ? vm.guestConsumedMiB : vm.inUseExcludingSwapMiB) / 1024 * (1 + p.num("diskHead") / 100)
-            let total = sizes.reduce(0, +)
-            if total > 0, used > 0, used < total { sizes = sizes.map { max(1, $0 / total * used) } }
-        }
-        let windows = vm.os.family == .windowsServer || vm.os.family == .windowsDesktop
-        return Demand(vm: vm, vcpu: cpu, memGiB: mem, windows: windows, diskGiB: sizes, rightsized: changed)
+        var o = CloudSizing.DemandOptions()
+        o.rightsizeCPU = rightsize && p.choice("cpu") == 1
+        o.rightsizeMemory = rightsize && p.choice("mem") == 1
+        o.bufferPct = p.num("buffer")
+        o.minVCPU = Int(p.num("minCPU"))
+        o.minMemoryGiB = p.num("minMem")
+        o.diskFromGuestUsage = p.choice("diskBasis") == 1
+        o.diskHeadroomPct = p.num("diskHead")
+        let s = CloudSizing.demand(vm, o, hostSpeedMHz: hostSpeed[vm.hostKey])
+        return Demand(vm: vm, vcpu: s.vcpu, memGiB: s.memoryGiB, windows: s.windows, diskGiB: s.diskGiB, rightsized: s.rightsized)
     }
 
     /// Hourly price for an offer under the chosen pricing model and licensing (nil if not purchasable).
     func hourly(_ o: InstanceOffer, windows: Bool, _ p: Params, model: Int?, windowsChoice: Int?, discount: Double?) -> Double? {
-        guard let linux = o.linuxHourly else { return nil }
-        let payLicense = windows && (windowsChoice ?? p.choice("windows")) == 0
-        var license = 0.0
-        if payLicense {
-            guard let win = o.windowsHourly else { return nil }
-            license = max(0, win - linux)
-        }
-        let base: Double
+        let licenseIncluded = (windowsChoice ?? p.choice("windows")) == 0
         if provider == .azure {
-            switch model ?? p.choice("pricing") {
-            case 1: base = o.reserved1yHourly ?? linux
-            case 2: base = o.reserved3yHourly ?? linux
-            default: base = linux
-            }
-        } else {
-            base = linux * (1 - (discount ?? p.num("discount")) / 100)
+            let m: CloudSizing.PriceModel = [.payg, .reserved1y, .reserved3y][min(max(model ?? p.choice("pricing"), 0), 2)]
+            return CloudSizing.hourly(o, windows: windows, licenseIncluded: licenseIncluded, model: m, discountPct: 0)
         }
-        return base + license   // licence uplift is never discounted
+        return CloudSizing.hourly(o, windows: windows, licenseIncluded: licenseIncluded, model: .payg, discountPct: discount ?? p.num("discount"))
     }
 
     func disk(_ gib: Double, _ prices: RegionPrices, _ p: Params) -> Disk {
         if provider == .azure {
-            let prefix = ["P", "E", "S"][min(max(p.choice("disk"), 0), 2)]
-            let count = max(1, (gib / 32767).rounded(.up))
-            let per = gib / count
-            for t in Self.azureTiers where t.gib >= per - 0.001 {
-                if let price = prices.storage["\(prefix)\(t.num)"] {
-                    return Disk(label: count > 1 ? "\(Int(count))× \(prefix)\(t.num)" : "\(prefix)\(t.num)", gib: gib, cost: price * count, oversize: count > 1)
-                }
-            }
-            return Disk(label: "n/a", gib: gib, cost: 0, oversize: false)
+            return CloudSizing.azureManagedDisk(gib: gib, prefix: ["P", "E", "S"][min(max(p.choice("disk"), 0), 2)], storage: prices.storage)
         }
-        let type = ["gp3", "gp2", "st1"][min(max(p.choice("disk"), 0), 2)]
-        let size = type == "st1" ? max(gib, 125) : gib
-        return Disk(label: type, gib: size, cost: (prices.storage[type] ?? 0) * size, oversize: gib > 16_384)
+        return CloudSizing.awsVolume(gib: gib, type: ["gp3", "gp2", "st1"][min(max(p.choice("disk"), 0), 2)], storage: prices.storage)
     }
 
     func evaluate(_ code: String, _ demands: [Demand], _ allowed: Set<String>, _ p: Params,
@@ -305,7 +264,7 @@ public struct CloudMigration: PricedSolution {
 
         // Storage mix
         var tiers: [String: (count: Int, gib: Double, cost: Double)] = [:]
-        for l in best.lines { for d in l.disks { let k = provider == .azure ? d.label : d.label; var e = tiers[k] ?? (0, 0, 0); e.count += 1; e.gib += d.gib; e.cost += d.cost; tiers[k] = e } }
+        for l in best.lines { for d in l.disks { let k = provider == .azure ? d.label : d.label; var e = tiers[k] ?? (0, 0, 0); e.count += 1; e.gib += d.gib; e.cost += d.monthly; tiers[k] = e } }
         sections.append(.table(SolutionTable(id: "storage", title: provider == .azure ? "Managed disks" : "EBS volumes", subtitle: cheapestName,
                                              columns: ["Type / tier", "Disks", "Capacity", "Storage / month"], numeric: [1, 2, 3],
                                              rows: tiers.sorted { $0.value.cost > $1.value.cost }.map { [$0.key, Fmt.int($0.value.count), Fmt.capacity(mib: $0.value.gib * 1024), SFmt.usd($0.value.cost)] })))

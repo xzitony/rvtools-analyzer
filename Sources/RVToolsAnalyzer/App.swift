@@ -46,6 +46,16 @@ struct RVToolsAnalyzerApp: App {
                 Divider()
                 Button("Trend Report to Folder…") { model.exportTrend() }.disabled(model.trend == nil)
             }
+            CommandMenu("Solutions") {
+                Button("Install Solution or Price List…") { model.presentInstallPanel() }
+                Button("Reload Custom Solutions") { model.reloadExtensions() }.keyboardShortcut("r", modifiers: [.command, .shift])
+                Divider()
+                Button("Open Solutions Folder") { model.openFolder(SolutionLibrary.directory) }
+                Button("Open Price Lists Folder") { model.openFolder(PriceLibrary.directory) }
+                Divider()
+                Button("Install Examples") { model.installExamples() }.disabled(model.bundledExamplesURL == nil)
+                Button("Authoring Guide") { model.openAuthoringGuide() }.disabled(model.authoringGuideURL == nil)
+            }
             CommandMenu("Go") {
                 ForEach(Array(SidebarItem.allCases.enumerated()), id: \.element) { i, item in
                     Button(item.rawValue) { model.sidebar = item }

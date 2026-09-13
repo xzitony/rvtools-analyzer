@@ -1,0 +1,31 @@
+{
+  "apiVersion": 1,
+  "id": "storage-refresh",
+  "title": "Storage Refresh",
+  "symbol": "internaldrive.fill",
+  "summary": "Size replacement primary storage for the selected VMs: growth, data reduction and free-space headroom.",
+  "version": "1.0.0",
+  "author": "RVTools Analyzer examples",
+  "defaultSelection": "vms",
+  "parameters": [
+    {
+      "id": "include", "type": "multi", "group": "Scope", "label": "Include",
+      "options": ["Powered-on VMs", "Powered-off VMs", "Templates"], "default": [0, 1, 2],
+      "help": "Applied on top of the VM selection."
+    },
+    {
+      "id": "basis", "type": "choice", "group": "Source data", "label": "Size from",
+      "options": ["Guest used space (fallback: VM in-use)", "VM in-use (excluding swap)", "Provisioned disk size"], "default": 0,
+      "help": "Guest used space comes from vPartition and needs VMware Tools. Provisioned size is the worst case for thick-provisioned targets."
+    },
+    { "id": "snapshots", "type": "toggle", "group": "Source data", "label": "Include snapshot space", "default": false },
+    { "id": "growth", "type": "number", "group": "Growth", "label": "Annual data growth", "default": 15, "min": 0, "max": 200, "unit": "%" },
+    { "id": "years", "type": "number", "group": "Growth", "label": "Sizing horizon", "default": 5, "min": 1, "max": 10, "unit": "years" },
+    {
+      "id": "reduction", "type": "number", "group": "Target array", "label": "Data reduction (compression + dedupe)",
+      "default": 1.5, "min": 1, "max": 10, "step": 0.1, "unit": ": 1",
+      "help": "Use the vendor's assessed ratio for this workload mix; 1 = none."
+    },
+    { "id": "freeSpace", "type": "number", "group": "Target array", "label": "Free space to keep", "default": 20, "min": 0, "max": 60, "unit": "%" }
+  ]
+}

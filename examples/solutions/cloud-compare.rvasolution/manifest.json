@@ -1,0 +1,34 @@
+{
+  "apiVersion": 1,
+  "id": "cloud-compare",
+  "title": "Cloud Cost Compare",
+  "symbol": "scalemass",
+  "summary": "Price the selected VMs on Azure and AWS side by side, and against negotiated or private-cloud rate cards.",
+  "version": "1.0.0",
+  "author": "RVTools Analyzer examples",
+  "defaultSelection": "poweredOn",
+  "pricing": {
+    "providers": ["azure", "aws", "example-azure-ea", "example-private-cloud"]
+  },
+  "parameters": [
+    { "id": "azureRegions", "type": "regions", "provider": "azure", "group": "Regions", "label": "Azure regions", "default": ["eastus2", "westeurope"] },
+    { "id": "awsRegions", "type": "regions", "provider": "aws", "group": "Regions", "label": "AWS regions", "default": ["us-east-1", "eu-west-1"] },
+    {
+      "id": "compare", "type": "multi", "group": "Also compare", "label": "Price lists",
+      "options": ["Negotiated Azure rates (example-azure-ea)", "Private cloud rate card (example-private-cloud)"], "default": [1],
+      "help": "The private cloud rate card is bundled with this solution. Import examples/price-lists/example-azure-ea.rvaprices in Settings › Price Lists for the negotiated rates."
+    },
+    { "id": "azureModel", "type": "choice", "group": "Pricing", "label": "Azure pricing model", "options": ["Pay-as-you-go", "1-year reserved", "3-year reserved"], "default": 0 },
+    { "id": "awsDiscount", "type": "number", "group": "Pricing", "label": "AWS commitment discount", "default": 0, "min": 0, "max": 80, "unit": "%" },
+    {
+      "id": "byol", "type": "toggle", "group": "Pricing", "label": "Bring your own Windows Server licences", "default": false,
+      "help": "Azure Hybrid Benefit / AWS BYOL: Windows VMs are priced at the Linux rate."
+    },
+    {
+      "id": "rightsize", "type": "toggle", "group": "Right-sizing", "label": "Right-size from observed usage", "default": false,
+      "help": "Uses CPU and consumed memory from the export plus the buffer. RVTools is a point-in-time snapshot — validate with performance history."
+    },
+    { "id": "buffer", "type": "number", "group": "Right-sizing", "label": "Buffer", "default": 25, "min": 0, "max": 200, "unit": "%" },
+    { "id": "disk", "type": "choice", "group": "Storage", "label": "Disk tier", "options": ["SSD (Premium SSD / gp3)", "HDD (Standard HDD / st1)"], "default": 0 }
+  ]
+}

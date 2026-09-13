@@ -2,6 +2,7 @@ import Foundation
 import RVToolsCore
 
 // Headless runner: rvtools-cli <export.xlsx | csv-folder> [more exports...] [--export <dir>]
+// Custom solutions: --list-solutions, --validate-solution <pack> [export], --solutions <dir>, --price-list <file>
 
 var args = Array(CommandLine.arguments.dropFirst())
 var exportDir: String?
@@ -71,6 +72,76 @@ while let i = args.firstIndex(of: "--set"), i + 1 < args.count {
     args.removeSubrange(i...(i + 1))
 }
 
+// --solutions <dir> (repeatable): load custom solution packs from this folder too (or a single pack folder).
+var solutionDirs: [URL] = []
+while let i = args.firstIndex(of: "--solutions"), i + 1 < args.count {
+    solutionDirs.append(URL(fileURLWithPath: args[i + 1]))
+    args.removeSubrange(i...(i + 1))
+}
+// --price-list <file.rvaprices> (repeatable): use this price list without installing it.
+var priceListFiles: [URL] = []
+while let i = args.firstIndex(of: "--price-list"), i + 1 < args.count {
+    priceListFiles.append(URL(fileURLWithPath: args[i + 1]))
+    args.removeSubrange(i...(i + 1))
+}
+// --validate-solution <pack>: check a pack; with an export, also run it and print its console output.
+var validatePack: URL?
+if let i = args.firstIndex(of: "--validate-solution"), i + 1 < args.count {
+    validatePack = URL(fileURLWithPath: args[i + 1])
+    args.removeSubrange(i...(i + 1))
+}
+var listSolutions = false
+if let i = args.firstIndex(of: "--list-solutions") {
+    listSolutions = true
+    args.remove(at: i)
+}
+SolutionLibrary.shared.extraDirectories = (validatePack.map { [$0] } ?? []) + solutionDirs
+PriceLibrary.shared.extraFiles = priceListFiles
+SolutionLibrary.shared.reload()
+
+func stderr(_ s: String) { FileHandle.standardError.write((s + "\n").data(using: .utf8)!) }
+
+if listSolutions {
+    print("Built-in solutions:")
+    for s in SolutionCatalog.builtIn { print("  \(s.id.padding(toLength: 22, withPad: " ", startingAt: 0)) \(s.title)") }
+    print("\nCustom solutions (searched: \(SolutionLibrary.shared.searchDirectories.map(\.path).joined(separator: ", "))):")
+    for s in SolutionLibrary.shared.solutions {
+        print("  \(s.id.padding(toLength: 22, withPad: " ", startingAt: 0)) \(s.title) \(s.version) — \(s.packURL.path)")
+    }
+    for issue in SolutionLibrary.shared.issues { print("  ! \(issue.path): \(issue.message)") }
+    print("\nPrice lists (\(PriceLibrary.directory.path)):")
+    for p in CloudProvider.allCases { print("  \(p.rawValue.padding(toLength: 22, withPad: " ", startingAt: 0)) \(p.name) list prices — cached regions: \(PriceStore.shared.availableRegions(p).joined(separator: " "))") }
+    for e in PriceLibrary.shared.all {
+        print("  \(e.list.id.padding(toLength: 22, withPad: " ", startingAt: 0)) \(e.list.name) (\(e.list.currencyCode)\(e.list.basedOn.map { ", based on \($0)" } ?? "")) — \(e.origin.label)")
+    }
+    for issue in PriceLibrary.shared.issues { print("  ! \(issue.path): \(issue.message)") }
+    exit(0)
+}
+
+/// The pack being validated (used instead of an installed solution with the same id).
+var validated: ScriptedSolution?
+if let pack = validatePack {
+    do {
+        let s = try SolutionLibrary.loadPack(pack)
+        validated = s
+        print("✓ \(s.title) (\(s.id)\(s.version.isEmpty ? "" : " " + s.version)) — apiVersion \(s.manifest.apiVersion), \(s.parameters.count) parameters")
+        if SolutionCatalog.isBuiltIn(s.id) { print("  ! id “\(s.id)” belongs to a built-in solution — the app won't load this pack") }
+        if let installed = SolutionLibrary.shared.solutions.first(where: { $0.id == s.id }), installed.packURL.standardizedFileURL != pack.standardizedFileURL {
+            print("  · an installed pack uses the same id: \(installed.packURL.path)")
+        }
+        for provider in s.providers {
+            let info = PriceLibrary.shared.info(provider)
+            print("  · prices “\(provider)”: " + (info.installed ? "\(info.name) — \(info.regions.count) regions available now" : "not installed"))
+        }
+        for issue in PriceLibrary.shared.issues { print("  ! \(issue.path): \(issue.message)") }
+        if args.isEmpty { exit(0) }
+        solutionID = s.id
+    } catch {
+        print("✗ \(pack.path): \(error.localizedDescription)")
+        exit(1)
+    }
+}
+
 func paramValues(_ s: any Solution) -> ParamValues {
     var v = project?.solutionParams[s.id] ?? ParamValues()
     for (name, raw) in overrides {
@@ -105,7 +176,9 @@ if let i = args.firstIndex(of: "--prices"), i + 1 < args.count {
 }
 
 guard !args.isEmpty else {
-    print("usage: rvtools-cli <RVTools export .xlsx | folder of RVTools_tab*.csv> [...] [--export <dir>]")
+    print("usage: rvtools-cli <RVTools export .xlsx | folder of RVTools_tab*.csv | project.rvaproj> [...] [--export <dir>]")
+    print("       [--solution <id>] [--set name=value ...] [--save-project <path>] [--trend]")
+    print("       --list-solutions | --validate-solution <pack> [export] | --solutions <dir> | --price-list <file> | --prices azure|aws")
     exit(1)
 }
 
@@ -141,6 +214,7 @@ do {
         project = opened.project
         inputs = opened.sources
         PriceStore.shared.importSnapshots(opened.prices)
+        PriceLibrary.shared.setProjectLists(opened.priceLists)
         print("Project:      \(opened.project.name) (saved \(Fmt.dateTime(opened.project.modified)))")
     }
     let ds = try Dataset.load(inputs)
@@ -162,7 +236,7 @@ do {
     }
 
     if let sid = solutionID {
-        guard let s = SolutionCatalog.solution(id: sid) else {
+        guard let s = validated ?? SolutionCatalog.solution(id: sid) else {
             print("unknown solution '\(sid)'; available: " + SolutionCatalog.all.map(\.id).joined(separator: ", "))
             exit(1)
         }
@@ -177,9 +251,23 @@ do {
             }
         }
         let selected = project?.solutionSelections[s.id].map { Set($0) } ?? s.defaultSelection(r.inventory)
+        if let scripted = s as? ScriptedSolution {
+            // Custom solutions never download: they read cached, project or price-list prices.
+            for sel in scripted.regionSelections(Params(scripted.parameters, paramValues(scripted))) {
+                guard let provider = CloudProvider(rawValue: sel.provider) else { continue }
+                let missing = PriceStore.shared.loadFromDisk(provider, regions: sel.regions)
+                if !missing.isEmpty { stderr("No cached \(provider.name) prices for \(missing.joined(separator: ", ")) — run `rvtools-cli --prices \(provider.rawValue)` or use Download Prices in the app.") }
+            }
+        }
+        let started = Date()
         let result = s.run(vms: r.inventory.vms.filter { selected.contains($0.id) }, inventory: r.inventory, values: paramValues(s))
         print(result.markdown(title: s.title, subtitle: "\(ds.sources.map(\.lastPathComponent).joined(separator: ", ")) · exported \(Fmt.dateTime(ds.reportDate))"))
-        exit(0)
+        if s is ScriptedSolution {
+            stderr("── \(s.title): \(String(format: "%.0f ms", Date().timeIntervalSince(started) * 1000)), \(result.log.count) console lines, prices read: "
+                + (result.priceRefs.isEmpty ? "none" : result.priceRefs.map { "\($0.provider)/\($0.region)" }.joined(separator: " ")))
+            result.log.forEach { stderr("  " + $0) }
+        }
+        exit(result.failed ? 3 : 0)
     }
 
     print("Sources:      \(ds.sources.map(\.lastPathComponent).joined(separator: ", "))")

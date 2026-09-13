@@ -61,7 +61,10 @@ struct SolutionView: View {
             HStack(alignment: .center, spacing: 12) {
                 Image(systemName: solution.symbol).font(.system(size: 26)).foregroundStyle(Palette.primary)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(solution.title).font(.title3.weight(.semibold))
+                    HStack(spacing: 6) {
+                        Text(solution.title).font(.title3.weight(.semibold))
+                        if let custom = solution as? ScriptedSolution { CustomBadge(solution: custom) }
+                    }
                     Text(solution.summary).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                 }
                 Spacer()
@@ -73,10 +76,14 @@ struct SolutionView: View {
                 }
                 Button { model.exportSolution(solution) } label: { Label("Export Report…", systemImage: "square.and.arrow.up") }
                     .disabled(inScope == 0)
+                if let custom = solution as? ScriptedSolution { CustomSolutionMenu(solution: custom) }
             }
             .padding(.horizontal, 20).padding(.vertical, 12)
             if let priced = solution as? any PricedSolution {
                 PriceBar(solution: priced)
+            }
+            if let custom = solution as? ScriptedSolution, !custom.providers.isEmpty {
+                CustomPriceBar(solution: custom)
             }
             Picker("Step", selection: tab) {
                 Text("1 · Select VMs").tag(0)
@@ -92,8 +99,16 @@ struct SolutionView: View {
                 AssumptionsForm(solutionID: solution.id, parameters: solution.parameters, values: values)
             default:
                 let _ = model.priceVersion
+                let _ = model.scriptRunVersion
+                let _ = model.extensionsVersion
                 if let result = model.result(for: solution) {
                     SolutionResultView(result: result)
+                } else if let previous = model.latestScriptResults[solution.id] {
+                    SolutionResultView(result: previous)
+                        .opacity(0.5)
+                        .overlay { ProgressView("Updating…").padding(16).background(RoundedRectangle(cornerRadius: 10).fill(.regularMaterial)) }
+                } else if solution is ScriptedSolution {
+                    ProgressView("Running \(solution.title)…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
         }
@@ -133,6 +148,108 @@ private struct PriceBar: View {
         .background(Palette.track.opacity(0.5))
         .onAppear { model.loadCachedPrices(solution) }
         .onChange(of: regions) { model.loadCachedPrices(solution) }
+    }
+}
+
+/// Marks a solution that comes from a pack rather than the app.
+private struct CustomBadge: View {
+    let solution: ScriptedSolution
+
+    var body: some View {
+        Text("Custom")
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(Capsule().fill(Palette.primary.opacity(0.15)))
+            .foregroundStyle(Palette.primary)
+            .help("Custom solution\(solution.version.isEmpty ? "" : " " + solution.version)\(solution.author.isEmpty ? "" : " by " + solution.author) — \(solution.packURL.path)")
+    }
+}
+
+private struct CustomSolutionMenu: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.openSettings) private var openSettings
+    let solution: ScriptedSolution
+
+    var body: some View {
+        Menu {
+            Button("Reload Custom Solutions") { model.reloadExtensions() }
+            Button("Open \(solution.scriptURL.lastPathComponent)") { model.openFile(solution.scriptURL) }
+            Button("Show in Finder") { model.showInFinder(solution.packURL) }
+            Divider()
+            Button("Manage Solutions…") {
+                UserDefaults.standard.set("solutions", forKey: "settingsTab")
+                openSettings()
+            }
+        } label: {
+            Image(systemName: "puzzlepiece.extension")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Custom solution")
+    }
+}
+
+/// Price status for custom solutions: the providers they read, and downloads for the built-in list prices they need.
+private struct CustomPriceBar: View {
+    @Environment(AppModel.self) private var model
+    let solution: ScriptedSolution
+
+    var body: some View {
+        let _ = model.priceVersion
+        let _ = model.extensionsVersion
+        let params = Params(solution.parameters, model.solutionParams[solution.id] ?? ParamValues())
+        let requests = downloads(params)
+        let missing = requests.reduce(0) { total, r in
+            let available = Set(PriceStore.shared.availableRegions(r.provider))
+            return total + r.regions.filter { !available.contains($0) }.count
+        }
+        let text = summary(params)
+        HStack(spacing: 10) {
+            Image(systemName: "dollarsign.circle").foregroundStyle(Palette.primary)
+            if model.priceLoading {
+                ProgressView().controlSize(.small)
+                Text(model.priceStatus)
+            } else {
+                Text(text).lineLimit(1).help(text)
+                if let error = model.priceError {
+                    Text(error).foregroundStyle(Palette.critical).lineLimit(1).help(error)
+                }
+            }
+            Spacer()
+            if solution.allowsDownload && !requests.isEmpty {
+                Text("Only public price lists are downloaded — no inventory data is sent.").font(.caption).foregroundStyle(.secondary)
+                Button(missing > 0 ? "Download Prices" : "Refresh Prices") {
+                    model.downloadPrices(requests, force: missing == 0)
+                }
+                .disabled(model.priceLoading)
+            } else {
+                Text("Reads prices already on this Mac — nothing is downloaded.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .font(.callout)
+        .padding(.horizontal, 20).padding(.vertical, 7)
+        .background(Palette.track.opacity(0.5))
+    }
+
+    /// Built-in list prices the chosen regions need, including price lists based on Azure / AWS prices.
+    private func downloads(_ params: Params) -> [(provider: CloudProvider, regions: [String])] {
+        var byProvider: [CloudProvider: [String]] = [:]
+        for sel in solution.regionSelections(params) {
+            guard let base = CloudProvider(rawValue: sel.provider) ?? PriceLibrary.shared.entry(sel.provider)?.list.baseProvider else { continue }
+            for region in sel.regions where !(byProvider[base]?.contains(region) ?? false) { byProvider[base, default: []].append(region) }
+        }
+        return CloudProvider.allCases.compactMap { p in byProvider[p].map { (p, $0) } }
+    }
+
+    private func summary(_ params: Params) -> String {
+        let selections = solution.regionSelections(params)
+        return solution.providers.map { id -> String in
+            let info = PriceLibrary.shared.info(id)
+            guard info.installed else { return "\(id): not installed" }
+            let chosen = Array(Set(selections.filter { $0.provider == id }.flatMap(\.regions)))
+            if chosen.isEmpty { return "\(info.name): \(info.regions.count) region\(info.regions.count == 1 ? "" : "s")" }
+            return "\(info.name): \(chosen.filter(info.regions.contains).count) of \(chosen.count) regions"
+        }.joined(separator: " · ")
     }
 }
 

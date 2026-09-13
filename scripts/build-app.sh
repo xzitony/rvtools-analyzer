@@ -27,6 +27,11 @@ if ls samples/series/RVTools_export_all_*.xlsx >/dev/null 2>&1; then
   cp samples/series/RVTools_export_all_*.xlsx "$APP/Contents/Resources/RVTools_sample_series/"
 fi
 
+# Custom solution examples and the authoring guide (Solutions menu › Install Examples / Authoring Guide)
+mkdir -p "$APP/Contents/Resources/Examples"
+cp -R examples/solutions examples/price-lists "$APP/Contents/Resources/Examples/"
+cp docs/SOLUTIONS.md "$APP/Contents/Resources/SOLUTIONS.md"
+
 if [ ! -f build/AppIcon.icns ] || [ scripts/make_icon.swift -nt build/AppIcon.icns ]; then
   echo "▸ Rendering icon…"
   swift scripts/make_icon.swift build/AppIcon.icns
@@ -58,6 +63,18 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
       <key>UTTypeConformsTo</key><array><string>com.apple.package</string><string>public.composite-content</string></array>
       <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>rvaproj</string></array></dict>
     </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>local.rvtools-analyzer.solution</string>
+      <key>UTTypeDescription</key><string>RVTools Analyzer Custom Solution</string>
+      <key>UTTypeConformsTo</key><array><string>public.folder</string></array>
+      <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>rvasolution</string></array></dict>
+    </dict>
+    <dict>
+      <key>UTTypeIdentifier</key><string>local.rvtools-analyzer.prices</string>
+      <key>UTTypeDescription</key><string>RVTools Analyzer Price List</string>
+      <key>UTTypeConformsTo</key><array><string>public.json</string></array>
+      <key>UTTypeTagSpecification</key><dict><key>public.filename-extension</key><array><string>rvaprices</string></array></dict>
+    </dict>
   </array>
   <key>CFBundleDocumentTypes</key>
   <array>
@@ -67,6 +84,12 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
       <key>LSHandlerRank</key><string>Owner</string>
       <key>LSTypeIsPackage</key><true/>
       <key>LSItemContentTypes</key><array><string>local.rvtools-analyzer.project</string></array>
+    </dict>
+    <dict>
+      <key>CFBundleTypeName</key><string>RVTools Analyzer Custom Solution</string>
+      <key>CFBundleTypeRole</key><string>Viewer</string>
+      <key>LSHandlerRank</key><string>Owner</string>
+      <key>LSItemContentTypes</key><array><string>local.rvtools-analyzer.solution</string><string>local.rvtools-analyzer.prices</string></array>
     </dict>
     <dict>
       <key>CFBundleTypeName</key><string>RVTools Excel export</string>

@@ -1,0 +1,28 @@
+{
+  "formatVersion": 1,
+  "id": "example-private-cloud",
+  "name": "Example private cloud rate card",
+  "currency": "USD",
+  "source": "Illustrative figures only — replace with a real rate card",
+  "effective": "2026-09-01",
+  "notes": "Bundled with the Cloud Cost Compare example to show a price list that isn't based on Azure or AWS. Storage is per GiB-month.",
+  "regions": [
+    {
+      "region": "dc-east",
+      "name": "Private DC East",
+      "instances": [
+        { "name": "pc.small", "family": "pc", "category": "General purpose", "vcpu": 2, "memoryGiB": 8, "linuxHourly": 0.06, "windowsHourly": 0.10 },
+        { "name": "pc.medium", "family": "pc", "category": "General purpose", "vcpu": 4, "memoryGiB": 16, "linuxHourly": 0.12, "windowsHourly": 0.20 },
+        { "name": "pc.large", "family": "pc", "category": "General purpose", "vcpu": 8, "memoryGiB": 32, "linuxHourly": 0.24, "windowsHourly": 0.40 },
+        { "name": "pc.xlarge", "family": "pc", "category": "General purpose", "vcpu": 16, "memoryGiB": 64, "linuxHourly": 0.48, "windowsHourly": 0.80 },
+        { "name": "pc.2xlarge", "family": "pc", "category": "General purpose", "vcpu": 32, "memoryGiB": 128, "linuxHourly": 0.96, "windowsHourly": 1.60 },
+        { "name": "pc.mem.large", "family": "pc.mem", "category": "Memory optimized", "vcpu": 8, "memoryGiB": 64, "linuxHourly": 0.34, "windowsHourly": 0.50 },
+        { "name": "pc.mem.xlarge", "family": "pc.mem", "category": "Memory optimized", "vcpu": 16, "memoryGiB": 128, "linuxHourly": 0.68, "windowsHourly": 1.00 },
+        { "name": "pc.mem.2xlarge", "family": "pc.mem", "category": "Memory optimized", "vcpu": 32, "memoryGiB": 256, "linuxHourly": 1.36, "windowsHourly": 2.00 },
+        { "name": "pc.mem.4xlarge", "family": "pc.mem", "category": "Memory optimized", "vcpu": 64, "memoryGiB": 512, "linuxHourly": 2.72, "windowsHourly": 4.00 }
+      ],
+      "storage": { "ssdGiBMonth": 0.08, "hddGiBMonth": 0.03 },
+      "extra": { "backupGiBMonth": 0.02 }
+    }
+  ]
+}

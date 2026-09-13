@@ -2,6 +2,25 @@ import RVToolsCore
 import SwiftUI
 
 struct SettingsView: View {
+    @AppStorage("settingsTab") private var tab = "findings"
+
+    var body: some View {
+        TabView(selection: $tab) {
+            FindingsSettingsView()
+                .tabItem { Label("Findings", systemImage: "exclamationmark.triangle") }
+                .tag("findings")
+            SolutionsSettingsView()
+                .tabItem { Label("Solutions", systemImage: "puzzlepiece.extension") }
+                .tag("solutions")
+            PriceListsSettingsView()
+                .tabItem { Label("Price Lists", systemImage: "dollarsign.circle") }
+                .tag("prices")
+        }
+        .frame(width: 640, height: 600)
+    }
+}
+
+private struct FindingsSettingsView: View {
     @Environment(AppModel.self) private var model
 
     var body: some View {
@@ -35,7 +54,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 480, height: 600)
     }
 
     private func field(_ label: String, _ value: Binding<Double>, _ unit: String) -> some View {

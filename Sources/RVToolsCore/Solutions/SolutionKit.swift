@@ -1,8 +1,11 @@
 import Foundation
 
 // A "solution" turns a selection of VMs plus a set of assumptions into a report (sizing, readiness, ...).
-// To add one: create a type conforming to `Solution` and append it to `SolutionCatalog.all`. The app
-// renders its parameters, VM selection and results generically, and exports them to Markdown + CSV.
+// The app renders its parameters, VM selection and results generically, and exports them to Markdown + CSV.
+//
+// Built-in solutions are Swift types listed in `SolutionCatalog.builtIn` (locked at v1.0; their ids are reserved).
+// Everyone else adds solutions without rebuilding the app: a pack folder with a manifest and a JavaScript file,
+// loaded by `SolutionLibrary` and run by `ScriptedSolution`. See docs/SOLUTIONS.md.
 
 public protocol Solution: Sendable {
     var id: String { get }
@@ -26,8 +29,14 @@ public extension Solution {
 }
 
 public enum SolutionCatalog {
-    public static let all: [any Solution] = [BackupSizing(), DisasterRecoverySizing(), VCF9Readiness(), CloudMigration(.azure), CloudMigration(.aws)]
-    public static func solution(id: String) -> (any Solution)? { all.first { $0.id == id } }
+    /// The solutions that ship with the app.
+    public static let builtIn: [any Solution] = [BackupSizing(), DisasterRecoverySizing(), VCF9Readiness(), CloudMigration(.azure), CloudMigration(.aws)]
+    /// Enabled custom solutions, in title order.
+    public static var custom: [ScriptedSolution] { SolutionLibrary.shared.enabled }
+    /// Built-in solutions followed by enabled custom solutions.
+    public static var all: [any Solution] { builtIn + custom.map { $0 as any Solution } }
+    public static func solution(id: String) -> (any Solution)? { builtIn.first { $0.id == id } ?? custom.first { $0.id == id } }
+    public static func isBuiltIn(_ id: String) -> Bool { builtIn.contains { $0.id == id } }
 }
 
 // MARK: - Parameters
@@ -186,6 +195,10 @@ public struct SolutionResult {
     public var sections: [SolutionSection]
     public var assumptions: [(String, String)] = []
     public var vmCount = 0
+    /// Custom solutions: console output, the price sheets read, and whether the script failed.
+    public var log: [String] = []
+    public var priceRefs: [PriceRef] = []
+    public var failed = false
 
     public init(headline: String, sections: [SolutionSection]) {
         self.headline = headline

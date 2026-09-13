@@ -1,0 +1,18 @@
+{
+  "formatVersion": 1,
+  "id": "example-azure-ea",
+  "name": "Example Azure negotiated rates",
+  "currency": "USD",
+  "source": "Illustrative discounts only — replace with your agreement's rates",
+  "effective": "2026-09-01",
+  "notes": "Starts from the downloaded Azure list prices and takes 12% off compute and 5% off managed disks; East US 2 and West Europe have their own discounts.",
+  "basedOn": "azure",
+  "discountPct": 12,
+  "storageDiscountPct": 5,
+  "regions": [
+    { "region": "eastus" },
+    { "region": "eastus2", "discountPct": 15 },
+    { "region": "centralus" },
+    { "region": "westeurope", "discountPct": 10 }
+  ]
+}

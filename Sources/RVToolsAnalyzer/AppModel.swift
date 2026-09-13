@@ -42,6 +42,11 @@ struct SidebarItem: Hashable, Identifiable {
     static func solution(_ s: any Solution) -> SidebarItem {
         SidebarItem(id: "solution:" + s.id, title: s.title, symbol: s.symbol)
     }
+
+    /// A custom solution the open project uses that isn't installed or is turned off.
+    static func missingSolution(_ id: String) -> SidebarItem {
+        SidebarItem(id: "solution:" + id, title: id, symbol: "puzzlepiece.extension")
+    }
 }
 
 struct ScopeOption: Identifiable, Hashable {
@@ -160,6 +165,21 @@ final class AppModel {
     var priceError: String?
     @ObservationIgnored private var solutionCache: [String: SolutionResult] = [:]
 
+    // Custom solutions (script packs) and price lists — see SolutionLibrary and PriceLibrary.
+    private(set) var extensionsVersion = 0
+    /// Bumped when a custom solution finishes running in the background.
+    private(set) var scriptRunVersion = 0
+    /// The last finished result of each custom solution, shown while a new run is in progress.
+    private(set) var latestScriptResults: [String: SolutionResult] = [:]
+    /// Custom solutions the open project has settings for.
+    private(set) var projectSolutionIDs: Set<String> = []
+    @ObservationIgnored private var runningScripts: Set<String> = []
+    @ObservationIgnored private var lastPriceRefs: [String: [PriceRef]] = [:]
+    @ObservationIgnored private var projectPriceRefs: Set<PriceRef> = []
+    @ObservationIgnored private var projectListIDs: Set<String> = []
+    @ObservationIgnored private var extensionWatcher: ExtensionWatcher?
+    @ObservationIgnored private var reloadTask: Task<Void, Never>?
+
     // Projects: saved sessions (.rvaproj). Once saved, changes autosave.
     var projectURL: URL?
     var projectName = "" { didSet { if oldValue != projectName { noteChange() } } }
@@ -182,6 +202,10 @@ final class AppModel {
     }
 
     private var generation = 0
+
+    private init() {
+        startExtensions()
+    }
 
     private static func loadThresholds() -> Thresholds {
         guard let data = UserDefaults.standard.data(forKey: "thresholds"), let t = try? JSONDecoder().decode(Thresholds.self, from: data) else { return Thresholds() }
@@ -215,14 +239,20 @@ final class AppModel {
 
     /// Opens exports or a saved project (.rvaproj), offering to save a customized session first.
     func open(_ urls: [URL]) {
+        // Solution packs and price lists dropped on the app are installed, not opened.
+        let extensions = urls.filter(AppModel.isExtensionFile)
+        if !extensions.isEmpty && extensions.count == urls.count {
+            installExtensions(extensions)
+            return
+        }
         guard !urls.isEmpty, confirmDiscardChanges() else { return }
         if let url = urls.first(where: ProjectFile.isProject) {
             do {
                 let opened = try ProjectFile.read(url)
                 if opened.project.isTrend {
-                    loadTrend(groups: opened.project.sourceGroups(in: url), urls: nil, project: (opened.project, url, opened.prices))
+                    loadTrend(groups: opened.project.sourceGroups(in: url), urls: nil, project: (opened.project, url, opened.prices, opened.priceLists))
                 } else {
-                    load(opened.sources, project: (opened.project, url, opened.prices))
+                    load(opened.sources, project: (opened.project, url, opened.prices, opened.priceLists))
                 }
             } catch {
                 errorMessage = error.localizedDescription
@@ -232,7 +262,7 @@ final class AppModel {
         load(urls, project: nil)
     }
 
-    private func load(_ urls: [URL], project: (file: ProjectFile, url: URL, prices: [RegionPrices])?) {
+    private func load(_ urls: [URL], project: (file: ProjectFile, url: URL, prices: [RegionPrices], lists: [PriceList])?) {
         let scoped = urls.filter { $0.startAccessingSecurityScopedResource() }
         isLoading = true
         errorMessage = nil
@@ -247,7 +277,7 @@ final class AppModel {
                 await MainActor.run {
                     scoped.forEach { $0.stopAccessingSecurityScopedResource() }
                     self.apply(ds, inv, report)
-                    if let project { self.restore(project.file, url: project.url, prices: project.prices) }
+                    if let project { self.restore(project.file, url: project.url, prices: project.prices, lists: project.lists) }
                     DebugSnapshot.runIfRequested(self)
                 }
             } catch {
@@ -283,7 +313,7 @@ final class AppModel {
         loadTrend(groups: nil, urls: urls, project: nil)
     }
 
-    private func loadTrend(groups: [[URL]]?, urls: [URL]?, project: (file: ProjectFile, url: URL, prices: [RegionPrices])?) {
+    private func loadTrend(groups: [[URL]]?, urls: [URL]?, project: (file: ProjectFile, url: URL, prices: [RegionPrices], lists: [PriceList])?) {
         let all = urls ?? groups?.flatMap { $0 } ?? []
         let scoped = all.filter { $0.startAccessingSecurityScopedResource() }
         isLoading = true
@@ -303,7 +333,7 @@ final class AppModel {
                 await MainActor.run {
                     scoped.forEach { $0.stopAccessingSecurityScopedResource() }
                     self.apply(latest.dataset, latest.inventory, report, trend: trend)
-                    if let project { self.restore(project.file, url: project.url, prices: project.prices) }
+                    if let project { self.restore(project.file, url: project.url, prices: project.prices, lists: project.lists) }
                     DebugSnapshot.runIfRequested(self)
                 }
             } catch {
@@ -424,6 +454,11 @@ final class AppModel {
         lookup = Lookup(r.inventory)
         reportVersion += 1
         solutionSelections = Dictionary(uniqueKeysWithValues: SolutionCatalog.all.map { ($0.id, $0.defaultSelection(inv)) })
+        latestScriptResults = [:]
+        projectSolutionIDs = []
+        projectPriceRefs = []
+        projectListIDs = []
+        PriceLibrary.shared.setProjectLists([])
         selectedVMID = nil
         selectedHostID = nil
         selectedDatastoreID = nil
@@ -441,7 +476,7 @@ final class AppModel {
     }
 
     /// Re-applies a saved project's settings on top of its freshly analysed export.
-    private func restore(_ p: ProjectFile, url: URL, prices: [RegionPrices]) {
+    private func restore(_ p: ProjectFile, url: URL, prices: [RegionPrices], lists: [PriceList]) {
         restoring = true
         defer {
             restoring = false
@@ -456,6 +491,10 @@ final class AppModel {
             PriceStore.shared.importSnapshots(prices)
             priceVersion += 1
         }
+        projectPriceRefs = Set(prices.map { PriceRef(provider: $0.provider.rawValue, region: $0.region) })
+        projectListIDs = Set(lists.map(\.id))
+        PriceLibrary.shared.setProjectLists(lists)
+        projectSolutionIDs = Set(p.solutionSelections.keys).union(p.solutionParams.keys).filter { !SolutionCatalog.isBuiltIn($0) }
         thresholds = p.thresholds
         let valid = Set(fullInventory?.vms.map(\.id) ?? [])
         for (id, ids) in p.solutionSelections { solutionSelections[id] = Set(ids).intersection(valid) }
@@ -463,6 +502,7 @@ final class AppModel {
         solutionTab = p.solutionTabs
         if scopes.contains(where: { $0.id == p.scopeID }) { scopeID = p.scopeID }
         let pages = SidebarItem.allCases + SidebarItem.trendPages + SolutionCatalog.all.map { SidebarItem.solution($0) }
+            + missingSolutionIDs.map(SidebarItem.missingSolution)
         if let page = p.page, let item = pages.first(where: { $0.id == page }) { sidebar = item }
         addRecent(url)
     }
@@ -476,6 +516,9 @@ final class AppModel {
         trend = nil
         trendVMKey = nil
         sources = []
+        latestScriptResults = [:]
+        projectSolutionIDs = []
+        PriceLibrary.shared.setProjectLists([])
         scopes = []
         restoring = true
         projectURL = nil
@@ -526,11 +569,38 @@ final class AppModel {
         return p
     }
 
-    /// Price snapshots behind the cloud estimates, stored with the project so they can be reproduced.
+    /// Price snapshots behind the cloud estimates, stored with the project so they can be reproduced: the built-in
+    /// solutions' regions, what custom solutions read (or chose), and what the project already carried.
     private func projectPrices() -> [RegionPrices] {
-        SolutionCatalog.all.compactMap { $0 as? any PricedSolution }.flatMap { s in
-            s.regions(Params(s.parameters, solutionParams[s.id] ?? ParamValues())).compactMap { PriceStore.shared.prices(s.provider, $0) }
+        var seen = Set<String>()
+        var out: [RegionPrices] = []
+        func add(_ p: CloudProvider, _ region: String) {
+            guard seen.insert(p.rawValue + "|" + region).inserted, let rp = PriceStore.shared.prices(p, region) else { return }
+            out.append(rp)
         }
+        for s in SolutionCatalog.builtIn.compactMap({ $0 as? any PricedSolution }) {
+            for region in s.regions(Params(s.parameters, solutionParams[s.id] ?? ParamValues())) { add(s.provider, region) }
+        }
+        for s in SolutionCatalog.custom {
+            var refs = lastPriceRefs[s.id] ?? []
+            for sel in s.regionSelections(Params(s.parameters, solutionParams[s.id] ?? ParamValues())) {
+                refs += sel.regions.map { PriceRef(provider: sel.provider, region: $0) }
+            }
+            for ref in refs {
+                if let p = CloudProvider(rawValue: ref.provider) ?? PriceLibrary.shared.entry(ref.provider)?.list.baseProvider { add(p, ref.region) }
+            }
+        }
+        for ref in projectPriceRefs {
+            if let p = CloudProvider(rawValue: ref.provider) { add(p, ref.region) }
+        }
+        return out
+    }
+
+    /// Custom price lists the project's custom solutions can read, so the project opens with the same rates elsewhere.
+    private func projectPriceLists() -> [PriceList] {
+        var ids = projectListIDs
+        for s in SolutionCatalog.custom { ids.formUnion(s.providers.filter { CloudProvider(rawValue: $0) == nil }) }
+        return ids.sorted().compactMap { PriceLibrary.shared.entry($0)?.list }
     }
 
     func saveProject() {
@@ -552,9 +622,9 @@ final class AppModel {
         do {
             let saved: ProjectFile
             if let t = trend {
-                saved = try ProjectFile.write(p, to: url, copyGroups: t.snapshots.map(\.sources), prices: projectPrices())
+                saved = try ProjectFile.write(p, to: url, copyGroups: t.snapshots.map(\.sources), prices: projectPrices(), priceLists: projectPriceLists())
             } else {
-                saved = try ProjectFile.write(p, to: url, copySources: ds.sources, prices: projectPrices())
+                saved = try ProjectFile.write(p, to: url, copySources: ds.sources, prices: projectPrices(), priceLists: projectPriceLists())
             }
             finishSave(saved, url)
             addRecent(url)
@@ -567,7 +637,7 @@ final class AppModel {
     func writeProject() {
         guard let url = projectURL else { return }
         do {
-            finishSave(try ProjectFile.write(snapshot(), to: url, copySources: nil, prices: projectPrices()), url)
+            finishSave(try ProjectFile.write(snapshot(), to: url, copySources: nil, prices: projectPrices(), priceLists: projectPriceLists()), url)
         } catch {
             errorMessage = "Couldn't save the project: \(error.localizedDescription)"
         }
@@ -717,17 +787,38 @@ final class AppModel {
         return v
     }
 
-    /// Result for the current selection / assumptions / scope, cached until any of them change.
+    /// Result for the current selection / assumptions / scope, cached until any of them change. Custom solutions run
+    /// in the background: nil while running (see `latestScriptResults`), then `scriptRunVersion` changes.
     func result(for s: any Solution) -> SolutionResult? {
         guard let r = report else { return nil }
         let selection = solutionSelections[s.id] ?? []
         let values = solutionParams[s.id] ?? ParamValues()
-        let key = "\(s.id)|\(reportVersion)|\(PriceStore.shared.version)|\(selection.hashValue)|\(values.hashValue)"
+        let custom = s is ScriptedSolution
+        let prices = custom ? "\(priceVersion).\(PriceLibrary.shared.version).\(extensionsVersion)" : "\(PriceStore.shared.version)"
+        let key = "\(s.id)|\(reportVersion)|\(prices)|\(selection.hashValue)|\(values.hashValue)"
         if let cached = solutionCache[key] { return cached }
-        let result = s.run(vms: r.inventory.vms.filter { selection.contains($0.id) }, inventory: r.inventory, values: values)
-        if solutionCache.count > 16 { solutionCache.removeAll() }
-        solutionCache[key] = result
-        return result
+        let vms = r.inventory.vms.filter { selection.contains($0.id) }
+        guard custom else {
+            let result = s.run(vms: vms, inventory: r.inventory, values: values)
+            if solutionCache.count > 16 { solutionCache.removeAll() }
+            solutionCache[key] = result
+            return result
+        }
+        if runningScripts.insert(key).inserted {
+            let inventory = r.inventory
+            Task.detached(priority: .userInitiated) {
+                let result = s.run(vms: vms, inventory: inventory, values: values)
+                await MainActor.run {
+                    self.runningScripts.remove(key)
+                    if self.solutionCache.count > 16 { self.solutionCache.removeAll() }
+                    self.solutionCache[key] = result
+                    self.lastPriceRefs[s.id] = result.priceRefs
+                    self.latestScriptResults[s.id] = result
+                    self.scriptRunVersion += 1
+                }
+            }
+        }
+        return nil
     }
 
     /// Loads cached price files for the solution's regions (no network).
@@ -740,21 +831,32 @@ final class AppModel {
 
     /// Downloads public list prices for the solution's regions (only when the user asks).
     func downloadPrices(_ s: any PricedSolution, force: Bool) {
-        let provider = s.provider
-        let regions = s.regions(Params(s.parameters, solutionParams[s.id] ?? ParamValues()))
-        let needed = force ? regions : regions.filter { PriceStore.shared.prices(provider, $0) == nil }
+        downloadPrices([(s.provider, s.regions(Params(s.parameters, solutionParams[s.id] ?? ParamValues())))], force: force)
+    }
+
+    /// Downloads public list prices for regions of one or more providers (only when the user asks).
+    func downloadPrices(_ requests: [(provider: CloudProvider, regions: [String])], force: Bool) {
+        let needed = requests.map { r in (r.provider, force ? r.regions : r.regions.filter { PriceStore.shared.cachedPrices(r.provider, $0) == nil }) }
+            .filter { !$0.1.isEmpty }
         guard !needed.isEmpty else { return }
+        let count = needed.reduce(0) { $0 + $1.1.count }
         priceLoading = true
         priceError = nil
-        priceStatus = "Downloading \(provider.name) prices for \(needed.count) region\(needed.count == 1 ? "" : "s")…"
+        priceStatus = "Downloading \(needed.map(\.0.name).joined(separator: " and ")) prices for \(count) region\(count == 1 ? "" : "s")…"
         Task.detached {
-            let errors = await PriceStore.shared.download(provider, regions: needed)
+            var errors: [String: String] = [:]
+            for (provider, regions) in needed {
+                for (region, error) in await PriceStore.shared.download(provider, regions: regions) {
+                    errors[needed.count > 1 ? "\(provider.name) \(region)" : region] = error
+                }
+            }
+            let failures = errors
             await MainActor.run {
                 self.priceLoading = false
                 self.priceVersion += 1
                 self.noteChange()   // new price snapshots belong in the project
-                self.priceError = errors.isEmpty ? nil
-                    : "Failed: " + errors.sorted { $0.key < $1.key }.map { "\($0.key) (\($0.value))" }.joined(separator: ", ")
+                self.priceError = failures.isEmpty ? nil
+                    : "Failed: " + failures.sorted { $0.key < $1.key }.map { "\($0.key) (\($0.value))" }.joined(separator: ", ")
             }
         }
     }
@@ -798,6 +900,159 @@ final class AppModel {
         case .cluster: computeTab = 0; sidebar = .compute
         default: break
         }
+    }
+
+    // MARK: Custom solutions and price lists
+
+    static func isExtensionFile(_ url: URL) -> Bool {
+        let ext = url.pathExtension.lowercased()
+        return ext == PriceList.fileExtension || ext == SolutionLibrary.packExtension
+            || FileManager.default.fileExists(atPath: url.appendingPathComponent("manifest.json").path)
+    }
+
+    /// Custom solutions the open project has settings for that aren't installed or are turned off.
+    var missingSolutionIDs: [String] {
+        let _ = extensionsVersion
+        return projectSolutionIDs.subtracting(SolutionCatalog.all.map(\.id)).sorted()
+    }
+
+    var bundledExamplesURL: URL? { Bundle.main.url(forResource: "Examples", withExtension: nil) }
+    var authoringGuideURL: URL? { Bundle.main.url(forResource: "SOLUTIONS", withExtension: "md") }
+
+    private func startExtensions() {
+        SolutionLibrary.shared.disabled = Set(UserDefaults.standard.stringArray(forKey: "disabledSolutions") ?? [])
+        let fm = FileManager.default
+        try? fm.createDirectory(at: SolutionLibrary.directory, withIntermediateDirectories: true)
+        try? fm.createDirectory(at: PriceLibrary.directory, withIntermediateDirectories: true)
+        SolutionLibrary.shared.reload()
+        // Edits to packs and price lists (including a solution.js being written) reload automatically.
+        let paths = SolutionLibrary.shared.searchDirectories.map(\.path) + [PriceLibrary.directory.path]
+        extensionWatcher = ExtensionWatcher(paths: paths) {
+            Task { @MainActor in AppModel.shared.scheduleExtensionReload() }
+        }
+    }
+
+    func scheduleExtensionReload() {
+        reloadTask?.cancel()
+        reloadTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            guard !Task.isCancelled else { return }
+            self?.reloadExtensions()
+        }
+    }
+
+    func reloadExtensions() {
+        SolutionLibrary.shared.reload()
+        extensionsChanged()
+    }
+
+    private func extensionsChanged() {
+        solutionCache = solutionCache.filter { SolutionCatalog.isBuiltIn(String($0.key.prefix { $0 != "|" })) }
+        if let inv = fullInventory {
+            let wasRestoring = restoring
+            restoring = true
+            for s in SolutionCatalog.custom where solutionSelections[s.id] == nil { solutionSelections[s.id] = s.defaultSelection(inv) }
+            restoring = wasRestoring
+        }
+        extensionsVersion += 1
+    }
+
+    func isSolutionEnabled(_ id: String) -> Bool { !SolutionLibrary.shared.disabled.contains(id) }
+
+    func setSolutionEnabled(_ id: String, _ enabled: Bool) {
+        var disabled = SolutionLibrary.shared.disabled
+        if enabled { disabled.remove(id) } else { disabled.insert(id) }
+        SolutionLibrary.shared.disabled = disabled
+        UserDefaults.standard.set(disabled.sorted(), forKey: "disabledSolutions")
+        extensionsChanged()
+    }
+
+    func presentInstallPanel() {
+        let panel = NSOpenPanel()
+        panel.title = "Install Solution or Price List"
+        panel.message = "Choose custom solution folders (.rvasolution, with a manifest.json inside) or price lists (.rvaprices)."
+        panel.prompt = "Install"
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.folder, UTType(filenameExtension: PriceList.fileExtension)].compactMap { $0 }
+        if panel.runModal() == .OK { installExtensions(panel.urls) }
+    }
+
+    /// Copies solution packs into the Solutions folder and price lists into the Price Lists folder.
+    func installExtensions(_ urls: [URL]) {
+        var installed: [String] = []
+        var failed: [String] = []
+        var newSolution: String?
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+            do {
+                if url.pathExtension.lowercased() == PriceList.fileExtension {
+                    installed.append("the price list “\(try PriceLibrary.shared.install(url).name)”")
+                } else {
+                    let s = try SolutionLibrary.shared.install(url)
+                    installed.append("“\(s.title)”")
+                    newSolution = s.id
+                }
+            } catch {
+                failed.append("\(url.lastPathComponent): \(error.localizedDescription)")
+            }
+        }
+        reloadExtensions()
+        if let id = newSolution, !isSolutionEnabled(id) { newSolution = nil }
+        let alert = NSAlert()
+        if failed.isEmpty {
+            alert.messageText = "Installed " + ListFormatter.localizedString(byJoining: installed)
+            alert.informativeText = newSolution != nil && report != nil ? "Find it under Custom Solutions in the sidebar." : "Custom solutions appear in the sidebar once an export is open."
+        } else {
+            alert.alertStyle = .warning
+            alert.messageText = installed.isEmpty ? "Nothing was installed" : "Installed " + ListFormatter.localizedString(byJoining: installed) + ", with problems"
+            alert.informativeText = failed.joined(separator: "\n\n")
+        }
+        alert.runModal()
+        if let id = newSolution, report != nil, let s = SolutionCatalog.solution(id: id) { sidebar = .solution(s) }
+    }
+
+    /// Copies the example solutions and price lists bundled with the app.
+    func installExamples() {
+        guard let root = bundledExamplesURL else { return }
+        let fm = FileManager.default
+        func items(_ folder: String, _ ext: String) -> [URL] {
+            ((try? fm.contentsOfDirectory(at: root.appendingPathComponent(folder), includingPropertiesForKeys: nil)) ?? [])
+                .filter { $0.pathExtension == ext }.sorted { $0.lastPathComponent < $1.lastPathComponent }
+        }
+        installExtensions(items("solutions", SolutionLibrary.packExtension) + items("price-lists", PriceList.fileExtension))
+    }
+
+    func removeSolution(_ s: ScriptedSolution) {
+        guard confirmTrash("Move “\(s.title)” to the Trash?", "Projects keep its VM selection and assumptions, so reinstalling it brings the results back.") else { return }
+        do { try SolutionLibrary.shared.remove(s.id) } catch { errorMessage = error.localizedDescription }
+        reloadExtensions()
+    }
+
+    func removePriceList(_ entry: PriceLibrary.Entry) {
+        guard confirmTrash("Move “\(entry.list.name)” to the Trash?", "Solutions that read it will report it as not installed.") else { return }
+        do { try PriceLibrary.shared.remove(entry.id) } catch { errorMessage = error.localizedDescription }
+        reloadExtensions()
+    }
+
+    private func confirmTrash(_ title: String, _ detail: String) -> Bool {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = detail
+        alert.addButton(withTitle: "Move to Trash")
+        alert.addButton(withTitle: "Cancel")
+        return alert.runModal() == .alertFirstButtonReturn
+    }
+
+    func showInFinder(_ url: URL) { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+    func openFile(_ url: URL) { NSWorkspace.shared.open(url) }
+    func openAuthoringGuide() { if let url = authoringGuideURL { NSWorkspace.shared.open(url) } }
+
+    func openFolder(_ url: URL) {
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        NSWorkspace.shared.open(url)
     }
 
     // MARK: Export

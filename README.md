@@ -2,7 +2,7 @@
 
 A native macOS app (SwiftUI + Swift Charts) that ingests an **RVTools** export and correlates every tab into one object model of the vSphere estate. It then rolls the data up into dashboards for counts, capacity, utilization, configuration, lifecycle and health.
 
-Everything runs locally and your RVTools data never leaves the Mac. The only network access is the optional download of public cloud price lists (see Solutions). There are no third-party dependencies: the `.xlsx` reader (ZIP + XML) is built in.
+Everything runs locally and your RVTools data never leaves the Mac. The only network access is the optional download of public cloud price lists (see Solutions). There are no third-party dependencies: the `.xlsx` reader (ZIP + XML) is built in. You can add your own solutions without rebuilding the app (see [Custom solutions](#custom-solutions)).
 
 ## Build & run
 
@@ -35,7 +35,7 @@ To open an export you can:
 - a copy of the export(s)
 - your settings: thresholds, scope, each solution's VM selection and assumptions, and the open page
 - project notes
-- the cloud price lists behind any estimates, so they can be reproduced later
+- the cloud price lists behind any estimates, so they can be reproduced later, and copies of the custom price lists your custom solutions use
 
 After the first save, changes save automatically. If you've customized an unsaved session, the app offers to save it before you quit or open something else. Open projects like exports (⌘O, drag and drop, or double-click in Finder). Recent projects are on the start screen and under File › Open Recent Project.
 
@@ -95,7 +95,18 @@ The **Solutions** section of the sidebar turns a chosen set of VMs and editable 
 
 **Cloud prices.** The Azure and AWS solutions use public list prices (USD), downloaded only when you click **Download Prices**. They're cached for 7 days in `~/Library/Caches/RVToolsAnalyzer/pricing`. Only the price lists are fetched; no inventory data is sent. Azure prices come from the [Azure Retail Prices API](https://prices.azure.com/api/retail/prices) (pay-as-you-go, reservations, managed disks). AWS prices come from the public price files behind the aws.amazon.com pricing pages (on-demand EC2 Linux/Windows and EBS). AWS doesn't publish Savings Plan or Reserved Instance prices in a lightweight file, so enter your expected commitment discount. `rvtools-cli --prices azure|aws` downloads every region and reports what it found. Not included: egress, backup, monitoring, OS subscriptions (RHEL/SLES), SQL and other application licences, support and negotiated discounts.
 
-The rules and defaults are built in; confirm them against current vendor documentation. VCF 9 upgrade paths and CPU support are the ones most likely to need checking. To add a solution, create a type conforming to `Solution` in `Sources/RVToolsCore/Solutions/` and add it to `SolutionCatalog.all`. The app renders its parameters, selection and results automatically. `rvtools-cli <export> --solution backup|dr|vcf9` prints a report from the terminal.
+The rules and defaults are built in; confirm them against current vendor documentation. VCF 9 upgrade paths and CPU support are the ones most likely to need checking. `rvtools-cli <export> --solution backup|dr|vcf9|azure|aws` prints a report from the terminal.
+
+### Custom solutions
+
+Anyone can add a solution to a packaged copy of the app, without Xcode or a rebuild: a folder (`Name.rvasolution`) with a `manifest.json` that declares its assumptions and a JavaScript file whose `run(vms, inventory, params, context)` returns the results. Custom solutions appear under **Custom Solutions** in the sidebar and get the same VM selection, assumptions form, results, export and project saving as the built-in ones. The built-in solutions are fixed as of v1.0, and their ids are reserved.
+
+- **Safe to share.** Scripts run in a sandboxed JavaScriptCore context: no network, files or processes, and a time limit. A shared solution can't send customer data anywhere.
+- **Prices without internet access.** A solution can read the Azure and AWS list prices the app has already downloaded, and use the same right-sizing and best-fit code as the built-in migration solutions (`rva.cloud`). It can also read **price lists** (`.rvaprices`): negotiated discounts on the list prices, or complete private-cloud or partner rate cards.
+- **Installing.** Drop a pack or price list on the app, or use the **Solutions** menu or **Settings › Solutions / Price Lists**. Packs live in `~/Library/Application Support/RVTools Analyzer/` and reload automatically when edited.
+- **Examples.** **Solutions › Install Examples** installs *Storage Refresh* and *Cloud Cost Compare* (Azure vs AWS vs a negotiated-rate list and a private cloud rate card) from `examples/`.
+
+The authoring guide, with the manifest, inventory, results, helpers and price list format, is [docs/SOLUTIONS.md](docs/SOLUTIONS.md) (also under **Solutions › Authoring Guide**). To test a pack: `rvtools-cli --validate-solution my.rvasolution export.xlsx`.
 
 The **Scope** picker in the toolbar limits every page to one vCenter, datacenter or cluster. Datastores and networks follow the hosts and VMs in scope.
 
@@ -123,6 +134,8 @@ swift build -c release --product rvtools-cli
 
 This prints the inventory, cluster headroom, join coverage, consistency checks, findings and distributions. With `--export` it also writes the CSVs.
 
+Custom solutions: `--list-solutions` shows installed packs, price lists and cached prices; `--validate-solution <pack> [export]` checks a pack and runs it with its console output; `--solutions <dir>` and `--price-list <file>` load packs and price lists without installing them. See [docs/SOLUTIONS.md](docs/SOLUTIONS.md#testing-from-the-command-line).
+
 `rvtools-cli --trend <exports or folder…> [--save-project <path>]` prints the trend analysis (metrics, growth, changes per interval, top-growing VMs, datastore forecast, infrastructure and VM changes) and can save it as a trend project; opening a trend project with `rvtools-cli <project>` prints the same.
 
 ## Sample data
@@ -145,10 +158,14 @@ Add `--env RVTA_APPEARANCE=dark` to capture in dark mode.
 ## Project layout
 
 ```
-Sources/RVToolsCore/      parsing (Zip, XLSX, CSV, Dataset), Correlate, Rules, Analysis, Lifecycle, Export
-Sources/RVToolsAnalyzer/  SwiftUI app (one file per page + shared components/theme)
-Sources/rvtools-cli/      headless runner
-scripts/                  build-app.sh, make_icon.swift, generate_sample.py
+Sources/RVToolsCore/          parsing (Zip, XLSX, CSV, Dataset), Correlate, Rules, Analysis, Lifecycle, Export
+Sources/RVToolsCore/Solutions built-in solutions, SolutionKit (parameters/results), cloud pricing and sizing
+Sources/RVToolsCore/Custom    custom solutions: pack loading, JavaScript runtime and helpers, inventory API, price lists
+Sources/RVToolsAnalyzer/      SwiftUI app (one file per page + shared components/theme)
+Sources/rvtools-cli/          headless runner
+docs/SOLUTIONS.md             custom solution authoring guide
+examples/                     example solution packs and price lists (bundled into the app)
+scripts/                      build-app.sh, make_icon.swift, generate_sample.py
 ```
 
 End-of-support dates for Windows, RHEL/CentOS, Ubuntu, Debian, SLES, ESXi and vCenter are built into `Sources/RVToolsCore/Lifecycle.swift`. Thresholds for the rules live in `Thresholds` (`Rules.swift`) and are editable in Settings.
