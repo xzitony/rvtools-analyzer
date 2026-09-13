@@ -485,6 +485,10 @@ public struct License: Identifiable, Sendable {
 public extension License {
     var isEvaluation: Bool { expirationRaw.lowercased().contains("eval") || name.lowercased().contains("evaluation") }
 
+    /// The date license renewals are measured from: today, or the export date if that's later. Renewals are about what
+    /// the customer must buy now, so an older export is still measured from today (unlike support end dates).
+    static func renewalReference(exportDate: Date) -> Date { max(exportDate, Date()) }
+
     /// Days from `date` until the license expires (zero or negative once it has); nil when it doesn't expire.
     func daysToExpiry(from date: Date) -> Double? { expiration.map { $0.timeIntervalSince(date) / 86_400 } }
 }

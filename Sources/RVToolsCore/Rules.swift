@@ -510,12 +510,13 @@ enum Rules {
                 else if eol <= yearAhead { e.add("vc.eolsoon", .vcenter, vc.id, vc.server, "", "vCenter \(v) — support ends \(Fmt.date(eol))") }
             }
         }
+        let renewalDate = License.renewalReference(exportDate: now)
         for l in inv.licenses {
             let quantity = l.total > 0 ? "\(Fmt.num(l.total, 0)) \(l.costUnit)" : l.costUnit
-            if let exp = l.expiration, let days = l.daysToExpiry(from: now), days <= 0 {
+            if let exp = l.expiration, let days = l.daysToExpiry(from: renewalDate), days <= 0 {
                 e.add("lic.expired", .vcenter, l.vcenter.lowercased(), l.name, l.vcenter, "\(l.keyMasked) · \(quantity) · expired \(Fmt.date(exp))")
-            } else if let exp = l.expiration, let days = l.daysToExpiry(from: now), days <= t.licenseExpiryDays {
-                e.add("lic.expiring", .vcenter, l.vcenter.lowercased(), l.name, l.vcenter, "\(l.keyMasked) · \(quantity) · expires \(Fmt.date(exp)) (\(Int(days.rounded(.up))) days)")
+            } else if let exp = l.expiration, let days = l.daysToExpiry(from: renewalDate), days <= t.licenseExpiryDays {
+                e.add("lic.expiring", .vcenter, l.vcenter.lowercased(), l.name, l.vcenter, "\(l.keyMasked) · \(quantity) · expires \(Fmt.date(exp)) (\(Int(days.rounded(.up))) days from \(Fmt.date(renewalDate)))")
             } else if l.isEvaluation {
                 e.add("lic.expiring", .vcenter, l.vcenter.lowercased(), l.name, l.vcenter, "\(l.keyMasked) · evaluation license")
             }
