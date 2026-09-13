@@ -10,6 +10,8 @@ A custom solution gets the same treatment as a built-in one:
 
 It can also read the Azure and AWS prices the app already has, and your own price lists.
 
+![Results of the Cloud Cost Compare example](images/custom-solution-results.png)
+
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
 - [The pack](#the-pack)
@@ -93,6 +95,8 @@ my-solution.rvasolution/     any folder name works; .rvasolution is the conventi
 | `parameters` | | The Assumptions step. See [Parameters](#parameters). |
 
 ## Parameters
+
+![The Assumptions step, built from the manifest's parameters](images/custom-solution-assumptions.png)
 
 Every parameter has an `id`, a `type` and a `label`, plus optional `group` (the section heading, default "Assumptions"), `help` and `default`. The user's values are saved and reused for every export, and **Restore Defaults** resets them.
 

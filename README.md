@@ -2,6 +2,8 @@
 
 A native macOS app (SwiftUI + Swift Charts) that ingests an **RVTools** export and correlates every tab into one object model of the vSphere estate. It then rolls the data up into dashboards for counts, capacity, utilization, configuration, lifecycle and health.
 
+![Overview dashboard](docs/images/overview.png)
+
 Everything runs locally and your RVTools data never leaves the Mac. The only network access is the optional download of public cloud price lists (see Solutions). There are no third-party dependencies: the `.xlsx` reader (ZIP + XML) is built in. You can add your own solutions without rebuilding the app (see [Custom solutions](#custom-solutions)).
 
 ## Build & run
@@ -19,6 +21,7 @@ Drag the app to `/Applications` if you like. It is ad-hoc signed, so the first l
 
 - **`scripts/install-app.sh`** builds the release app, runs `scripts/check-solutions.sh`, and copies the app to `/Applications/RVTools Analyzer.app`. The check runs every installed custom solution against the sample exports; if one fails, the install stops (`--force` installs anyway).
 - **`scripts/build-app.sh dev`** (or `debug`) builds **RVTools Analyzer Dev.app** for development. It has its own bundle id, so settings, recent projects and saved assumptions are separate. It also has its own `~/Library/Application Support/RVTools Analyzer Dev/` folder, so it never loads the solutions and price lists of the copy you use for real. The two copies share only the public cloud price cache.
+- **Telling the copies apart.** The Dev build has an orange **DEV** band on its icon and a "Dev build" label in the sidebar and on the start screen. **About** in either copy shows the commit it was built from (`git describe`, with `-dirty` for uncommitted changes) and when it was built.
 - **Private solutions can live in a synced folder** such as a company OneDrive. Make `~/Library/Application Support/RVTools Analyzer/Solutions` and `…/Price Lists` symlinks to that folder. Installs from the app then land there, and edits there reload automatically.
 
 ## Opening data
@@ -43,7 +46,7 @@ To open an export you can:
 - project notes
 - the cloud price lists behind any estimates, so they can be reproduced later, and copies of the custom price lists your custom solutions use
 
-After the first save, changes save automatically. If you've customized an unsaved session, the app offers to save it before you quit or open something else. Open projects like exports (⌘O, drag and drop, or double-click in Finder). Recent projects are on the start screen and under File › Open Recent Project.
+After the first save, changes save automatically. If you've customized an unsaved session, the app offers to save it before you close the window, quit or open something else. Open projects like exports (⌘O, drag and drop, or double-click in Finder). Recent projects are on the start screen and under File › Open Recent Project.
 
 Projects are ordinary files, so they can sit next to the customer's exports in OneDrive or SharePoint, or in iCloud Drive to sync across your Macs. The app doesn't use iCloud directly: that would need an Apple Developer membership and a provisioned, signed build, and it would move customer data out of company storage. `rvtools-cli Customer.rvaproj --solution azure` runs a solution with the project's saved selection and assumptions, and `--save-project <path>` creates a project from the CLI.
 
@@ -54,6 +57,8 @@ Opening several exports normally *merges* them into one view of several vCenters
 - Each export is one point in time, ordered by its export timestamp. Exports of *different* vCenters taken within 12 hours are combined into one snapshot, so a multi-vCenter estate can be trended too. A folder containing several exports can be chosen directly.
 - VMs are matched across snapshots by vCenter + VM UUID (then VM ID, then name), so renames are recognised as renames rather than remove + add.
 
+![Trend Summary](docs/images/trend-summary.png)
+
 The **Trends** section of the sidebar adds:
 
 | Page | What it shows |
@@ -62,6 +67,8 @@ The **Trends** section of the sidebar adds:
 | **Changes** | Every VM add, remove, rename, vCPU/memory resize, disk change, cluster/host/datastore move, power change, upgrade (HW version, Tools, guest OS), network change and snapshot change — plus infrastructure changes (hosts added/removed/updated, datastores added/expanded, cluster HA/DRS changes, vCenter updates). DRS/vMotion host moves are hidden unless you ask. Selecting a VM shows its full history. |
 | **Growth** | Observed growth (net and for VMs present throughout) of data, provisioned storage, datastore use, VMs, vCPU and vRAM, per month and annualised, with per-VM growth. **Apply** puts the observed annual growth into the Backup and DR sizing assumptions. |
 | **Capacity Forecast** | Days until each datastore is full at its observed rate, aggregate runway, and cluster changes. |
+
+![Changes between snapshots](docs/images/trend-changes.png)
 
 Below the Trends section, the normal dashboards and solutions work on one snapshot at a time — the latest by default; switch with the **Snapshot** picker in the toolbar. The VM inspector gains a history across snapshots. **Export › Trend Report to Folder…** writes the metrics, changes, growth and datastore forecast as CSV, and **Save Project** keeps every snapshot (`sources/snapshot-N/`) in the project.
 
@@ -84,13 +91,22 @@ Ages are measured from the export timestamp in `vMetaData` or the file name, not
 | **Correlations** | The entity graph, what each cross-tab relationship reveals, join coverage per tab, and consistency checks (RVTools' own counts vs the counts derived from other tabs). |
 | **Raw Tabs** | Every tab exactly as loaded, including custom-attribute columns, in a fast sortable and filterable grid. |
 
+| | |
+|---|---|
+| ![Issues](docs/images/issues.png) | ![Compute](docs/images/compute.png) |
+| **Issues** — checks grouped by rule, with the affected objects | **Compute** — cluster capacity, consolidation and N+1 headroom |
+| ![Virtual Machines](docs/images/virtual-machines.png) | ![Storage](docs/images/storage.png) |
+| **Virtual Machines** — inventory with the VM inspector | **Storage** — capacity, overcommit and reclaim opportunities |
+
 ## Solutions
 
 The **Solutions** section of the sidebar turns a chosen set of VMs and editable assumptions into a report. Each solution has three steps:
 
-1. **Select VMs** — filter by name, cluster, power state or OS family, then add or remove the shown or highlighted VMs, or tick them one by one. Each solution keeps its own selection.
+1. **Select VMs** — filter by name, cluster, power state or OS family, then add or remove the shown or highlighted VMs, or tick them one by one. Each solution keeps its own selection. A solution can also ask for several selections (for example *DR scope* and *Pilot light*): a picker above the list chooses which one the checkboxes edit, and VMs show a badge for the other selections they're in.
 2. **Assumptions** — change rates, retention, host specs and so on. They are saved and reused for every export you open.
 3. **Results** — headline figures, sizing tables, a checklist with the affected objects, and a per-VM breakdown. **Export Report…** writes a Markdown report plus CSV tables and the list of selected VMs.
+
+![Azure Migration results](docs/images/azure-migration.png)
 
 | Solution | What it produces |
 |---|---|
@@ -100,6 +116,8 @@ The **Solutions** section of the sidebar turns a chosen set of VMs and editable 
 | **VCF 9 Readiness** | Checks on the clusters, hosts and vCenters behind the selected VMs: upgrade path, CPU generation, NTP, DNS, certificates, uplinks, cluster size, DRS/HA and host-evacuation headroom. Also vDS vs standard switches, datastore types, VM live-migration blockers, and VCF core licensing. |
 
 **Cloud prices.** The Azure and AWS solutions use public list prices (USD), downloaded only when you click **Download Prices**. They're cached for 7 days in `~/Library/Caches/RVToolsAnalyzer/pricing`. Only the price lists are fetched; no inventory data is sent. Azure prices come from the [Azure Retail Prices API](https://prices.azure.com/api/retail/prices) (pay-as-you-go, reservations, managed disks). AWS prices come from the public price files behind the aws.amazon.com pricing pages (on-demand EC2 Linux/Windows and EBS). AWS doesn't publish Savings Plan or Reserved Instance prices in a lightweight file, so enter your expected commitment discount. `rvtools-cli --prices azure|aws` downloads every region and reports what it found. Not included: egress, backup, monitoring, OS subscriptions (RHEL/SLES), SQL and other application licences, support and negotiated discounts.
+
+![Backup Sizing results](docs/images/backup-sizing.png)
 
 The rules and defaults are built in; confirm them against current vendor documentation. VCF 9 upgrade paths and CPU support are the ones most likely to need checking. `rvtools-cli <export> --solution backup|dr|vcf9|azure|aws` prints a report from the terminal.
 
@@ -111,6 +129,8 @@ Anyone can add a solution to a packaged copy of the app, without Xcode or a rebu
 - **Prices without internet access.** A solution can read the Azure and AWS list prices the app has already downloaded, and use the same right-sizing and best-fit code as the built-in migration solutions (`rva.cloud`). It can also read **price lists** (`.rvaprices`): negotiated discounts on the list prices, or complete private-cloud or partner rate cards.
 - **Installing.** Drop a pack or price list on the app, or use the **Solutions** menu or **Settings › Solutions / Price Lists**. Packs live in `~/Library/Application Support/RVTools Analyzer/` and reload automatically when edited.
 - **Examples.** **Solutions › Install Examples** installs *Storage Refresh* and *Cloud Cost Compare* (Azure vs AWS vs a negotiated-rate list and a private cloud rate card) from `examples/`.
+
+![A custom solution: Cloud Cost Compare](docs/images/custom-solution-results.png)
 
 The authoring guide, with the manifest, inventory, results, helpers and price list format, is [docs/SOLUTIONS.md](docs/SOLUTIONS.md) (also under **Solutions › Authoring Guide**). To test a pack: `rvtools-cli --validate-solution my.rvasolution export.xlsx`.
 
@@ -140,6 +160,8 @@ swift build -c release --product rvtools-cli
 
 This prints the inventory, cluster headroom, join coverage, consistency checks, findings and distributions. With `--export` it also writes the CSVs.
 
+`rvtools-cli <export or project> --solution <id>` prints a solution's report. `--set name=value` overrides an assumption, and `--select <selection>=<all|vms|poweredOn|none|VM names>` overrides a VM selection; both are also applied by `--save-project <path>`.
+
 Custom solutions: `--list-solutions` shows installed packs, price lists and cached prices; `--validate-solution <pack> [export]` checks a pack and runs it with its console output; `--solutions <dir>` and `--price-list <file>` load packs and price lists without installing them. See [docs/SOLUTIONS.md](docs/SOLUTIONS.md#testing-from-the-command-line).
 
 `rvtools-cli --trend <exports or folder…> [--save-project <path>]` prints the trend analysis (metrics, growth, changes per interval, top-growing VMs, datastore forecast, infrastructure and VM changes) and can save it as a trend project; opening a trend project with `rvtools-cli <project>` prints the same.
@@ -148,7 +170,7 @@ Custom solutions: `--list-solutions` shows installed packs, price lists and cach
 
 `python3 scripts/generate_sample.py` (requires `openpyxl`) regenerates a fictional environment in `samples/`, as both an `.xlsx` and a CSV folder. It contains deliberate issues for every dashboard to show. The build script bundles the `.xlsx` into the app as the **Try Sample Data** file.
 
-`python3 scripts/generate_series.py` derives four monthly exports of the same environment from it in `samples/series/`, with known adds, removals, resizes, moves, upgrades, a rename, data growth, a new host, an ESXi update and a datastore expansion. It's bundled as **Try Sample Trend**, and `RVToolsAnalyzer --trend <paths>` opens trend mode from a shell (used with `RVTA_SNAPSHOT_DIR` for trend screenshots).
+`python3 scripts/generate_series.py` derives four monthly exports of the same environment from it in `samples/series/`, with known adds, removals, resizes, moves, upgrades, a rename, data growth, a new host, an ESXi update and a datastore expansion. It's bundled as **Try Sample Trend**, and `rvtools-cli --trend <exports> --save-project <path>` saves it as a trend project to open in the app.
 
 ## Screenshots for review
 
@@ -161,6 +183,8 @@ open -W -n --env RVTA_SNAPSHOT_DIR=/tmp/shots --env RVTA_SNAPSHOT_QUIT=1 \
 
 Add `--env RVTA_APPEARANCE=dark` to capture in dark mode.
 
+**`scripts/docs-screenshots.sh`** regenerates the images in `docs/images` that this README and the authoring guide use. It captures the sample data and the example solutions with the Dev build, with its markings hidden (`RVTA_HIDE_DEV_BADGE=1`) and a throwaway support folder (`RVTA_SUPPORT_FOLDER`), so installed solutions, price lists and settings never appear in them.
+
 ## Project layout
 
 ```
@@ -170,8 +194,9 @@ Sources/RVToolsCore/Custom    custom solutions: pack loading, JavaScript runtime
 Sources/RVToolsAnalyzer/      SwiftUI app (one file per page + shared components/theme)
 Sources/rvtools-cli/          headless runner
 docs/SOLUTIONS.md             custom solution authoring guide
+docs/images/                  screenshots (scripts/docs-screenshots.sh)
 examples/                     example solution packs and price lists (bundled into the app)
-scripts/                      build-app.sh, make_icon.swift, generate_sample.py
+scripts/                      build-app.sh, install-app.sh, check-solutions.sh, docs-screenshots.sh, make_icon.swift, generate_sample.py, generate_series.py
 ```
 
 End-of-support dates for Windows, RHEL/CentOS, Ubuntu, Debian, SLES, ESXi and vCenter are built into `Sources/RVToolsCore/Lifecycle.swift`. Thresholds for the rules live in `Thresholds` (`Rules.swift`) and are editable in Settings.

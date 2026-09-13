@@ -126,7 +126,8 @@ enum BuildInfo {
 
     static let name = info("CFBundleName") ?? "RVTools Analyzer"
     /// A Dev build (`scripts/build-app.sh dev`): separate settings and custom solutions.
-    static let isDev = info("RVTABuildVariant") == "dev"
+    /// `RVTA_HIDE_DEV_BADGE=1` hides the Dev markings in the window (used for documentation screenshots).
+    static let isDev = info("RVTABuildVariant") == "dev" && ProcessInfo.processInfo.environment["RVTA_HIDE_DEV_BADGE"] != "1"
     /// `git describe` of the source, e.g. "v1.0-3-g1a2b3c4"; "-dirty" means built with uncommitted changes.
     static let build = info("RVTABuild")
 
