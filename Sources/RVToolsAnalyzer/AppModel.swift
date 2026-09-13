@@ -403,15 +403,15 @@ final class AppModel {
 
     /// What the loaded trend measured for an assumption, shown beside it on the Assumptions step.
     func observedRate(_ solutionID: String, _ paramID: String) -> ObservedRate? {
-        guard let t = trend, solutionID == "backup" || solutionID == "dr" else { return nil }
+        guard let t = trend, let kind = observedKind(solutionID, paramID) else { return nil }
         let period = "\(t.snapshots.count) snapshots over \(Fmt.int(Int(t.spanDays.rounded()))) days"
-        switch paramID {
-        case "growth":
+        switch kind {
+        case "annualGrowth":
             guard let pct = t.suggestedGrowthPct else { return nil }
             let organic = t.organicGrowthPct.map { ", existing VMs only \(Fmt.num($0, 1))%" } ?? ""
             return ObservedRate(text: "Measured across \(period): \(Fmt.num(pct, 1))% a year\(organic).",
                                 value: min(100, max(0, (pct * 2).rounded() / 2)), unit: "%")
-        case "change":
+        case "dailyChangeFloor":
             guard let daily = t.netDailyGrowthPct else { return nil }
             return ObservedRate(text: "Across \(period), existing VMs grew by a net \(Fmt.num(daily, 3))% a day. That's a floor for the change rate, not a measurement of it — rewritten blocks change without adding capacity.",
                                 value: nil, unit: "%")
@@ -420,12 +420,21 @@ final class AppModel {
         }
     }
 
-    /// Sets the annual growth assumption of the Backup and DR solutions to an observed rate.
+    /// Which trend rate an assumption offers: Backup and DR growth / change, or a custom parameter's `observed`.
+    private func observedKind(_ solutionID: String, _ paramID: String) -> String? {
+        if solutionID == "backup" || solutionID == "dr" { return ["growth": "annualGrowth", "change": "dailyChangeFloor"][paramID] }
+        return SolutionCatalog.custom.first { $0.id == solutionID }?.parameters.first { $0.id == paramID }?.observed
+    }
+
+    /// Sets every annual growth assumption that offers the observed rate (Backup, DR and custom solutions) to it.
     func applyObservedGrowth(_ pct: Double) {
-        for id in ["backup", "dr"] {
-            var v = solutionParams[id] ?? ParamValues()
-            v.values["growth"] = .number(pct)
-            solutionParams[id] = v
+        for s in SolutionCatalog.all {
+            for p in s.parameters where observedKind(s.id, p.id) == "annualGrowth" {
+                guard case .number(let lo, let hi, _, _) = p.kind else { continue }
+                var v = solutionParams[s.id] ?? ParamValues()
+                v.values[p.id] = .number(min(hi, max(lo, pct)))
+                solutionParams[s.id] = v
+            }
         }
     }
 
@@ -849,7 +858,8 @@ final class AppModel {
         let values = solutionParams[s.id] ?? ParamValues()
         let custom = s is ScriptedSolution
         let prices = custom ? "\(priceVersion).\(PriceLibrary.shared.version).\(extensionsVersion)" : "\(PriceStore.shared.version)"
-        let key = "\(s.id)|\(reportVersion)|\(prices)|\(sets.map { String($0.hashValue) }.joined(separator: ","))|\(values.hashValue)"
+        let rates = custom ? trend?.rates : nil
+        let key = "\(s.id)|\(reportVersion)|\(prices)|\(sets.map { String($0.hashValue) }.joined(separator: ","))|\(values.hashValue)|\(rates?.hashValue ?? 0)"
         if let cached = solutionCache[key] { return cached }
         var selected: [String: [VM]] = [:]
         for (sel, ids) in zip(s.selections, sets) { selected[sel.id] = r.inventory.vms.filter { ids.contains($0.id) } }
@@ -862,8 +872,13 @@ final class AppModel {
         }
         if runningScripts.insert(key).inserted {
             let inventory = r.inventory
+            let runnable: any Solution = {
+                guard var scripted = s as? ScriptedSolution else { return s }
+                scripted.trend = rates
+                return scripted
+            }()
             Task.detached(priority: .userInitiated) {
-                let result = s.run(vms: vms, selections: selected, inventory: inventory, values: values)
+                let result = runnable.run(vms: vms, selections: selected, inventory: inventory, values: values)
                 await MainActor.run {
                     self.runningScripts.remove(key)
                     if self.solutionCache.count > 16 { self.solutionCache.removeAll() }

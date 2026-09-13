@@ -10,6 +10,8 @@ public struct ScriptedSolution: Solution {
     public let packURL: URL
     public let scriptURL: URL
     public let script: String
+    /// Rates of the loaded trend, passed to the script as `context.trend` (nil outside trend mode).
+    public var trend: TrendRates? = nil
 
     public var id: String { manifest.id }
     public var title: String { manifest.title }
@@ -29,7 +31,9 @@ public struct ScriptedSolution: Solution {
         switch p.type {
         case "number":
             let lo = p.min ?? 0, hi = p.max ?? 1_000_000_000
-            return .number(p.id, group, p.label, p.default?.number ?? lo, min: lo, max: hi, step: p.step ?? 1, unit: p.unit ?? "", help: help)
+            var spec = SolutionParameter.number(p.id, group, p.label, p.default?.number ?? lo, min: lo, max: hi, step: p.step ?? 1, unit: p.unit ?? "", help: help)
+            spec.observed = p.observed
+            return spec
         case "choice":
             let options = p.options ?? []
             return .choice(p.id, group, p.label, options, selected: index(p.default, options) ?? 0, help: help)
@@ -130,6 +134,12 @@ final class ScriptRuntime {
                 "selectedCount": selected.count,
                 "reportDate": SolutionAPI.date(inventory.reportDate),
                 "now": SolutionAPI.date(Date()),
+                "trend": solution.trend.map { t -> Any in
+                    let rate = { (v: Double?) -> Any in v ?? NSNull() }
+                    return ["snapshots": t.snapshots, "from": SolutionAPI.date(t.from), "to": SolutionAPI.date(t.to), "spanDays": t.spanDays,
+                            "annualGrowthPct": rate(t.annualGrowthPct), "organicGrowthPct": rate(t.organicGrowthPct),
+                            "netDailyGrowthPct": rate(t.netDailyGrowthPct)] as [String: Any]
+                } ?? NSNull(),
             ]
             // Every declared selection, by id (the primary one is also `vms`).
             var selectionIDs: [String: [String]] = [:]

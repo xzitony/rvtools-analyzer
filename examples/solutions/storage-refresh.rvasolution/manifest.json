@@ -19,7 +19,7 @@
       "help": "Guest used space comes from vPartition and needs VMware Tools. Provisioned size is the worst case for thick-provisioned targets."
     },
     { "id": "snapshots", "type": "toggle", "group": "Source data", "label": "Include snapshot space", "default": false },
-    { "id": "growth", "type": "number", "group": "Growth", "label": "Annual data growth", "default": 15, "min": 0, "max": 200, "unit": "%" },
+    { "id": "growth", "type": "number", "group": "Growth", "label": "Annual data growth", "default": 15, "min": 0, "max": 200, "unit": "%", "observed": "annualGrowth" },
     { "id": "years", "type": "number", "group": "Growth", "label": "Sizing horizon", "default": 5, "min": 1, "max": 10, "unit": "years" },
     {
       "id": "reduction", "type": "number", "group": "Target array", "label": "Data reduction (compression + dedupe)",

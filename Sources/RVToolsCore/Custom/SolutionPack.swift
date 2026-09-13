@@ -51,10 +51,15 @@ public struct SolutionManifest: Codable, Sendable {
         public var options: [String]?
         /// regions: the price provider whose regions are offered.
         public var provider: String?
+        /// number: the trend rate shown beside it when a trend is loaded (see `observedKinds`).
+        public var observed: String?
     }
 
     public static let selectionModes = ["vms", "poweredOn", "all", "none"]
     public static let parameterTypes = ["number", "choice", "toggle", "multi", "regions"]
+    /// `annualGrowth` offers the measured annual growth (%); `dailyChangeFloor` shows the net daily growth (%) as a
+    /// lower bound for a daily change rate, without offering to apply it.
+    public static let observedKinds = ["annualGrowth", "dailyChangeFloor"]
 
     /// Problems that stop the pack from loading (empty when valid).
     public var problems: [String] {
@@ -107,6 +112,13 @@ public struct SolutionManifest: Codable, Sendable {
                 if let d = prm.default, d.array == nil { p.append("\(name): default must be a list of region codes") }
             default:
                 p.append("\(name): type must be one of \(Self.parameterTypes.joined(separator: ", "))")
+            }
+            if let o = prm.observed {
+                if prm.type != "number" {
+                    p.append("\(name): observed only applies to number parameters")
+                } else if !Self.observedKinds.contains(o) {
+                    p.append("\(name): observed must be one of \(Self.observedKinds.joined(separator: ", "))")
+                }
             }
         }
         return p

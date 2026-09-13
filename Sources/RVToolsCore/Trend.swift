@@ -323,6 +323,26 @@ public struct TrendReport: Sendable {
         guard spanDays >= 1, let g = growth.first(where: { $0.label == TrendAnalyzer.organicDataLabel }), g.last > 0 else { return nil }
         return g.perDay / g.last * 100
     }
+
+    /// The measured rates, as custom solutions receive them (`context.trend`).
+    public var rates: TrendRates {
+        TrendRates(snapshots: snapshots.count, from: first.date, to: last.date, spanDays: spanDays,
+                   annualGrowthPct: suggestedGrowthPct, organicGrowthPct: organicGrowthPct, netDailyGrowthPct: netDailyGrowthPct)
+    }
+}
+
+/// Rates measured across a trend's snapshots. Each is nil when the trend is too short to measure it.
+public struct TrendRates: Hashable, Sendable {
+    public let snapshots: Int
+    public let from: Date
+    public let to: Date
+    public let spanDays: Double
+    /// Net annual growth of VM data in use (`TrendReport.suggestedGrowthPct`).
+    public let annualGrowthPct: Double?
+    /// Annual growth of data on VMs present in every snapshot.
+    public let organicGrowthPct: Double?
+    /// Net daily growth of existing VMs' data: a lower bound for the daily change rate, not a measurement of it.
+    public let netDailyGrowthPct: Double?
 }
 
 // MARK: - Analyzer
