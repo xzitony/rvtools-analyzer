@@ -49,6 +49,81 @@ struct ConfigurationView: View {
     }
 }
 
+/// Licenses that have expired or expire within the renewal window (Settings › Findings), at the top of Lifecycle.
+struct LicenseRenewalsCard: View {
+    @Environment(AppModel.self) private var model
+    let report: Report
+
+    var body: some View {
+        let now = report.inventory.reportDate
+        let window = report.thresholds.licenseExpiryDays
+        let due = report.inventory.licenses.filter { l in
+            if let days = l.daysToExpiry(from: now) { return days <= window }
+            return l.isEvaluation
+        }
+        .sorted { ($0.expiration ?? .distantFuture, $0.name) < ($1.expiration ?? .distantFuture, $1.name) }
+        if !due.isEmpty {
+            let expired = due.filter { ($0.daysToExpiry(from: now) ?? 1) <= 0 }.count
+            Card("License renewals", subtitle: "Expired, or expiring within \(Fmt.num(window, 0)) days of the export date (\(Fmt.date(now))) — change the window in Settings › Findings") {
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Image(systemName: expired > 0 ? Severity.critical.symbol : Severity.warning.symbol)
+                            .foregroundStyle(expired > 0 ? Palette.critical : Palette.warning)
+                        Text(headline(due.count, expired: expired, window: window)).font(.callout.weight(.medium))
+                        Spacer()
+                        Button("Show in Issues") { model.showIssues(rule: expired > 0 ? "lic.expired" : "lic.expiring") }.controlSize(.small)
+                    }
+                    Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                        GridRow { Text("Status"); Text("Product"); Text("vCenter"); Text("Key"); Text("Used / total"); Text("Expires") }
+                            .font(.caption).foregroundStyle(.secondary)
+                        ForEach(due) { l in
+                            GridRow {
+                                LicenseStatus(license: l, now: now, window: window)
+                                Text(l.name)
+                                Text(l.vcenter).foregroundStyle(.secondary)
+                                Text(l.keyMasked).tabular().foregroundStyle(.secondary)
+                                Text(l.total > 0 ? "\(Fmt.num(l.used, 0)) / \(Fmt.num(l.total, 0)) \(l.costUnit)" : l.costUnit).tabular()
+                                Text(l.expiration.map { Fmt.date($0) } ?? l.expirationRaw).tabular()
+                            }
+                        }
+                    }
+                    .font(.callout)
+                }
+            }
+        }
+    }
+
+    private func headline(_ count: Int, expired: Int, window: Double) -> String {
+        let s = count == 1 ? "" : "s"
+        if expired == count { return "\(count) license\(s) expired — renewal needed" }
+        if expired > 0 { return "\(expired) expired and \(count - expired) more due within \(Fmt.num(window, 0)) days — a renewal opportunity" }
+        return "\(count) license\(s) due for renewal within \(Fmt.num(window, 0)) days — a renewal opportunity"
+    }
+}
+
+/// Expired / days left / evaluation / active, for one license at the export date.
+struct LicenseStatus: View {
+    let license: License
+    let now: Date
+    let window: Double
+
+    var body: some View {
+        if let days = license.daysToExpiry(from: now) {
+            if days <= 0 {
+                Label("Expired", systemImage: Severity.critical.symbol).foregroundStyle(Palette.critical)
+            } else if days <= window {
+                Label("\(Int(days.rounded(.up))) days", systemImage: Severity.warning.symbol).foregroundStyle(Palette.warning)
+            } else {
+                Label("Active", systemImage: "checkmark.circle.fill").foregroundStyle(Palette.good)
+            }
+        } else if license.isEvaluation {
+            Label("Evaluation", systemImage: Severity.warning.symbol).foregroundStyle(Palette.warning)
+        } else {
+            Label("No expiry", systemImage: "checkmark.circle.fill").foregroundStyle(Palette.good)
+        }
+    }
+}
+
 struct LifecycleView: View {
     let report: Report
 
@@ -65,6 +140,7 @@ struct LifecycleView: View {
             .sorted { $0.version > $1.version }
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                LicenseRenewalsCard(report: report)
                 Card("Guest OS support status", subtitle: "Based on built-in vendor end-of-support dates, evaluated at the export date (\(Fmt.date(now)))") {
                     PartBar(parts: report.dist.osLifecycle.map { PartBar.Part(label: $0.label, value: Double($0.count), color: lifecycleColors[$0.label] ?? Palette.neutral) })
                 }
@@ -129,9 +205,10 @@ struct LifecycleView: View {
                 if !inv.licenses.isEmpty {
                     Card("Licenses", subtitle: "From vLicense") {
                         Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
-                            GridRow { Text("Product"); Text("Key"); Text("Used / total"); Text("Expires") }.font(.caption).foregroundStyle(.secondary)
+                            GridRow { Text("Status"); Text("Product"); Text("Key"); Text("Used / total"); Text("Expires") }.font(.caption).foregroundStyle(.secondary)
                             ForEach(inv.licenses) { l in
                                 GridRow {
+                                    LicenseStatus(license: l, now: now, window: report.thresholds.licenseExpiryDays)
                                     Text(l.name)
                                     Text(l.keyMasked).tabular().foregroundStyle(.secondary)
                                     HStack(spacing: 4) {

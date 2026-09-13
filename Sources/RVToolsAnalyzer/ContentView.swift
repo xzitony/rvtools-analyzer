@@ -189,7 +189,7 @@ struct MainView: View {
                 }
                 Section("Analysis") {
                     row(.configuration)
-                    row(.lifecycle)
+                    row(.lifecycle, badge: report.groups.filter { $0.rule == "lic.expired" || $0.rule == "lic.expiring" }.reduce(0) { $0 + $1.count })
                     row(.correlations)
                 }
                 Section("Solutions") {
