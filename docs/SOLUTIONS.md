@@ -451,6 +451,8 @@ There are two kinds.
 - **Settings › Solutions** lists every pack. From there you can turn a pack off (it stays installed and keeps its settings), show it in Finder, move it to the Trash, or see why a pack couldn't load.
 - **Projects** keep each custom solution's selection and assumptions. On a Mac without that solution, the project still opens: the solution appears greyed out under **Custom Solutions**, and its settings are kept for when it's installed.
 - **Price lists** install to `~/Library/Application Support/RVTools Analyzer/Price Lists/`.
+- **Keeping solutions somewhere else**, such as a synced company folder: replace the `Solutions` and `Price Lists` folders with symlinks to it. Installs, removals and automatic reloads then work on the synced folder. Dev builds (`scripts/build-app.sh dev`) use `~/Library/Application Support/RVTools Analyzer Dev/` instead, so they don't see these.
+- **Before updating the app**, `scripts/check-solutions.sh [folder…]` runs every pack against the sample exports with the new code. `scripts/install-app.sh` runs this check before installing.
 
 ## Testing from the command line
 

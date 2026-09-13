@@ -1,8 +1,11 @@
 // Renders the app icon (stacked layers + bar chart) to an .icns file.
-// usage: swift scripts/make_icon.swift <output.icns>
+// usage: swift scripts/make_icon.swift <output.icns> [--dev]
+//   --dev adds an orange "DEV" band, so the Dev build is easy to tell apart in the Dock and app switcher.
 import AppKit
 
-let out = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "AppIcon.icns"
+let args = CommandLine.arguments.dropFirst()
+let dev = args.contains("--dev")
+let out = args.first { !$0.hasPrefix("--") } ?? "AppIcon.icns"
 let iconset = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("AppIcon-\(getpid()).iconset")
 try? FileManager.default.removeItem(at: iconset)
 try FileManager.default.createDirectory(at: iconset, withIntermediateDirectories: true)
@@ -41,6 +44,22 @@ func render(_ px: Int) -> Data {
         let r = NSRect(x: s * (0.64 + CGFloat(i) * 0.075), y: s * 0.25, width: s * 0.052, height: s * h)
         (i == 2 ? color(0xFAB219) : color(0xFFFFFF, 0.9)).setFill()
         NSBezierPath(roundedRect: r, xRadius: s * 0.012, yRadius: s * 0.012).fill()
+    }
+
+    // Dev build: an orange band across the bottom of the tile, labelled DEV where it's large enough to read.
+    if dev {
+        NSGraphicsContext.saveGraphicsState()
+        bg.addClip()
+        let band = NSRect(x: inset, y: inset, width: s - 2 * inset, height: s * 0.2)
+        color(0xE8590C).setFill()
+        band.fill()
+        if px >= 32 {
+            let font = NSFont.systemFont(ofSize: s * 0.13, weight: .heavy)
+            let text = NSAttributedString(string: "DEV", attributes: [.font: font, .foregroundColor: NSColor.white, .kern: s * 0.01])
+            let size = text.size()
+            text.draw(at: NSPoint(x: band.midX - size.width / 2, y: band.midY - size.height / 2 + s * 0.004))
+        }
+        NSGraphicsContext.restoreGraphicsState()
     }
     NSGraphicsContext.restoreGraphicsState()
     return rep.representation(using: .png, properties: [:])!

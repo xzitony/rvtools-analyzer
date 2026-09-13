@@ -49,6 +49,7 @@ struct WelcomeView: View {
                 .foregroundStyle(Palette.primary)
             VStack(spacing: 6) {
                 Text("RVTools Analyzer").font(.largeTitle.weight(.semibold))
+                DevBuildBadge()
                 Text("Correlates every RVTools tab into one model of your vSphere estate and rolls it up into\ncapacity, utilization, configuration, lifecycle and health dashboards.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
@@ -216,6 +217,7 @@ struct MainView: View {
             .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 280)
             .safeAreaInset(edge: .bottom) {
                 VStack(alignment: .leading, spacing: 2) {
+                    DevBuildBadge()
                     Button { model.showProjectInfo = true } label: {
                         Label(model.projectTitle, systemImage: model.projectURL == nil ? "doc.badge.plus" : "doc.text")
                             .font(.caption.weight(.semibold)).lineLimit(1)

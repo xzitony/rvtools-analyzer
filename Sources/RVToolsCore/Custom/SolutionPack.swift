@@ -102,8 +102,13 @@ public final class SolutionLibrary: @unchecked Sendable {
     public static let shared = SolutionLibrary()
     public static let packExtension = "rvasolution"
 
+    /// `~/Library/Application Support/<folder>`: "RVTools Analyzer", the build's `RVTASupportFolder` (Dev builds use
+    /// their own folder, so work in progress never sees your real solutions), or `RVTA_SUPPORT_FOLDER` from the environment.
+    /// The Solutions and Price Lists folders inside may be symlinks to a synced folder.
     public static var supportDirectory: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("RVTools Analyzer", isDirectory: true)
+        let folder = ProcessInfo.processInfo.environment["RVTA_SUPPORT_FOLDER"]
+            ?? (Bundle.main.object(forInfoDictionaryKey: "RVTASupportFolder") as? String) ?? "RVTools Analyzer"
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent(folder, isDirectory: true)
     }
     public static var directory: URL { supportDirectory.appendingPathComponent("Solutions", isDirectory: true) }
 

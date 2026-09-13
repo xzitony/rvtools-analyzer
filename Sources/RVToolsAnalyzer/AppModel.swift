@@ -926,7 +926,8 @@ final class AppModel {
         try? fm.createDirectory(at: PriceLibrary.directory, withIntermediateDirectories: true)
         SolutionLibrary.shared.reload()
         // Edits to packs and price lists (including a solution.js being written) reload automatically.
-        let paths = SolutionLibrary.shared.searchDirectories.map(\.path) + [PriceLibrary.directory.path]
+        // FSEvents doesn't follow symlinks, so watch where symlinked folders (e.g. on OneDrive) really are.
+        let paths = (SolutionLibrary.shared.searchDirectories + [PriceLibrary.directory]).map { $0.resolvingSymlinksInPath().path }
         extensionWatcher = ExtensionWatcher(paths: paths) {
             Task { @MainActor in AppModel.shared.scheduleExtensionReload() }
         }
