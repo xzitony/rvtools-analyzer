@@ -359,6 +359,11 @@ public struct Datastore: Identifiable, Sendable {
     public var clusterList: String { clusters.joined(separator: ", ") }
 }
 
+public extension Datastore {
+    /// A host-local datastore with no VM, template or VM disk on it — typically an ESXi boot or scratch device.
+    var isUnusedLocal: Bool { isLocal && vmIDs.isEmpty && (vmTotalReported ?? 0) == 0 && vmDiskMiB == 0 }
+}
+
 public struct PortGroup: Identifiable, Sendable {
     public let id: String
     public var name = ""
@@ -541,6 +546,24 @@ public struct Inventory: Sendable {
     public var checks: [ConsistencyCheck] = []
 
     public var datacenterCount: Int { Set(hosts.map { key($0.vcenter, $0.datacenter) } + vms.map { key($0.vcenter, $0.datacenter) }).count }
+
+    /// Host-local datastores that no VM uses (see `Datastore.isUnusedLocal`).
+    public var unusedLocalDatastores: [Datastore] { datastores.filter(\.isUnusedLocal) }
+
+    /// The inventory without these datastores; host and cluster datastore counts and vHealth messages follow.
+    public func removingDatastores(_ ids: Set<String>) -> Inventory {
+        guard !ids.isEmpty else { return self }
+        var s = self
+        let hostIndex = Dictionary(hosts.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let clusterIndex = Dictionary(clusters.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { a, _ in a })
+        for d in datastores where ids.contains(d.id) {
+            for h in Set(d.hostKeys) { if let i = hostIndex[h] { s.hosts[i].datastoreCount = max(0, s.hosts[i].datastoreCount - 1) } }
+            for c in Set(d.clusterKeys) { if let i = clusterIndex[c] { s.clusters[i].datastoreCount = max(0, s.clusters[i].datastoreCount - 1) } }
+        }
+        s.datastores = datastores.filter { !ids.contains($0.id) }
+        s.health = health.filter { !ids.contains($0.objectID) }
+        return s
+    }
     /// Restricts the inventory to a set of clusters (by cluster id). Datastores, networks and host
     /// children follow the hosts/VMs that remain in scope.
     public func scoped(to clusterIDs: Set<String>) -> Inventory {

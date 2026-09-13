@@ -15,7 +15,34 @@ struct StorageView: View {
             }
             .pickerStyle(.segmented).labelsHidden().frame(width: 240).padding(.vertical, 10)
             Divider()
+            UnusedLocalDatastoresNotice(report: report).padding(.horizontal, 16).padding(.top, 10)
             if model.storageTab == 0 { StorageOverview(report: report) } else { DatastoresPane(report: report) }
+        }
+    }
+}
+
+/// Says when host-local datastores with no VM files are left out (or could be), with a one-click switch.
+struct UnusedLocalDatastoresNotice: View {
+    @Environment(AppModel.self) private var model
+    let report: Report
+
+    var body: some View {
+        let unused = report.unusedLocalDatastores
+        if !unused.isEmpty {
+            let left = report.thresholds.ignoreUnusedLocalDatastores
+            let n = unused.count
+            let what = "\(n) local datastore\(n == 1 ? "" : "s") with no VM files (\(Fmt.capacity(mib: unused.reduce(0) { $0 + $1.capacityMiB })))"
+            HStack(spacing: 10) {
+                Image(systemName: left ? "eye.slash" : "eye").foregroundStyle(Palette.primary)
+                Text(left ? "\(what) \(n == 1 ? "is" : "are") left out of totals, findings and charts." : "\(what) \(n == 1 ? "is" : "are") included in totals, findings and charts.")
+                    .font(.callout)
+                    .help(unused.map(\.name).sorted().joined(separator: ", "))
+                Spacer()
+                Button(left ? "Include Them" : "Leave Them Out") { model.thresholds.ignoreUnusedLocalDatastores.toggle() }
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Palette.track.opacity(0.5)))
         }
     }
 }

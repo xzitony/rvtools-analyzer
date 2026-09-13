@@ -197,6 +197,13 @@ final class AppModel {
             guard thresholds != oldValue else { return }
             if let data = try? JSONEncoder().encode(thresholds) { UserDefaults.standard.set(data, forKey: "thresholds") }
             recompute()
+            if thresholds.ignoreUnusedLocalDatastores != oldValue.ignoreUnusedLocalDatastores, let t = trend {
+                let snapshots = t.snapshots, ignore = thresholds.ignoreUnusedLocalDatastores
+                Task.detached(priority: .userInitiated) {
+                    let updated = TrendAnalyzer.run(snapshots, ignoreUnusedLocalDatastores: ignore)
+                    await MainActor.run { if self.trend?.snapshots.count == snapshots.count { self.trend = updated } }
+                }
+            }
             noteChange()
         }
     }
@@ -327,7 +334,7 @@ final class AppModel {
                     throw RVToolsError.unreadable("Compare Snapshots needs exports of the same environment taken at different times, but these files form a single snapshot. To combine several vCenters into one view, use Open… instead.")
                 }
                 await MainActor.run { self.loadingMessage = "Comparing \(snapshots.count) snapshots…" }
-                let trend = TrendAnalyzer.run(snapshots)
+                let trend = TrendAnalyzer.run(snapshots, ignoreUnusedLocalDatastores: t.ignoreUnusedLocalDatastores)
                 let latest = snapshots[snapshots.count - 1]
                 let report = Analyzer.run(latest.inventory, thresholds: t)
                 await MainActor.run {

@@ -221,7 +221,8 @@ do {
     let t0 = Date()
     var inputs = args.map { URL(fileURLWithPath: $0) }
     if inputs.count == 1, ProjectFile.isProject(inputs[0]), let opened = try? ProjectFile.read(inputs[0]), opened.project.isTrend {
-        printTrend(TrendAnalyzer.run(try TrendLoader.load(groups: opened.project.sourceGroups(in: inputs[0]))))
+        printTrend(TrendAnalyzer.run(try TrendLoader.load(groups: opened.project.sourceGroups(in: inputs[0])),
+                                     ignoreUnusedLocalDatastores: opened.project.thresholds.ignoreUnusedLocalDatastores))
         exit(0)
     }
     if trendMode {
@@ -325,6 +326,10 @@ do {
     print("VMs \(t.vms): on \(t.vmsOn), off \(t.vmsOff), suspended \(t.vmsSuspended) · templates \(t.templates)")
     print("Compute: \(t.sockets) sockets, \(t.cores) cores, \(Fmt.capacity(mib: t.physMemMiB)) RAM · vCPU on \(t.vcpuOn) (\(Fmt.ratio(t.vcpuPerCore))) · vRAM on \(Fmt.capacity(mib: t.vramOnMiB))")
     print("Utilisation: CPU \(Fmt.pct(t.cpuUsagePct)) · memory \(Fmt.pct(t.memUsagePct))")
+    if !r.unusedLocalDatastores.isEmpty {
+        print("Local datastores with no VM files (\(r.thresholds.ignoreUnusedLocalDatastores ? "left out of the figures below" : "included")): "
+            + r.unusedLocalDatastores.map(\.name).sorted().joined(separator: ", "))
+    }
     print("Storage: \(t.datastores) datastores, \(Fmt.capacity(mib: t.dsCapacityMiB)) capacity, \(Fmt.pct(t.dsUsedPct)) used · VM provisioned \(Fmt.capacity(mib: t.vmProvisionedMiB)), in use \(Fmt.capacity(mib: t.vmInUseMiB))")
     print("Snapshots \(t.snapshots) (\(Fmt.capacity(mib: t.snapshotMiB))) · port groups \(t.portGroups) · VLANs \(t.vlans)")
 

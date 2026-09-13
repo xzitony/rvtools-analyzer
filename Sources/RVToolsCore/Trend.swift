@@ -394,8 +394,16 @@ public enum TrendAnalyzer {
         return out
     }
 
-    public static func run(_ snapshots: [TrendSnapshot]) -> TrendReport {
+    public static func run(_ snapshots: [TrendSnapshot], ignoreUnusedLocalDatastores: Bool = true) -> TrendReport {
         precondition(!snapshots.isEmpty)
+        // As in the dashboards, host-local datastores that no VM used in any snapshot are left out.
+        var unusedLocal = Set<String>(), used = Set<String>()
+        for s in snapshots {
+            for d in s.inventory.datastores {
+                if d.isUnusedLocal { unusedLocal.insert(d.id) } else { used.insert(d.id) }
+            }
+        }
+        let hiddenDatastores = ignoreUnusedLocalDatastores ? unusedLocal.subtracting(used) : []
         var warnings: [String] = []
         var nameKeyed = 0
 
@@ -410,7 +418,7 @@ public enum TrendAnalyzer {
             }
             return map
         }
-        let totals = snapshots.map { Analyzer.totals($0.inventory, []) }
+        let totals = snapshots.map { Analyzer.totals($0.inventory.removingDatastores(hiddenDatastores), []) }
         let dataTotals = snapshots.map { s in s.inventory.vms.filter(\.isVM).reduce(0) { $0 + data($1) } }
         let days = snapshots.map { $0.date.timeIntervalSince(snapshots[0].date) / 86_400 }
 
@@ -515,7 +523,9 @@ public enum TrendAnalyzer {
         }.sorted { $0.deltaMiB > $1.deltaMiB }
 
         // Datastores: growth and days-to-full at the observed rate
-        let dsIndex = snapshots.map { s in Dictionary(s.inventory.datastores.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) }
+        let dsIndex = snapshots.map { s in
+            Dictionary(s.inventory.datastores.filter { !hiddenDatastores.contains($0.id) }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        }
         let lastDate = snapshots.last!.date
         let datastores: [DatastoreTrend] = (dsIndex.last ?? [:]).values.compactMap { d in
             let ys = dsIndex.indices.compactMap { i in dsIndex[i][d.id].map { (days[i], $0.capacityMiB - $0.freeMiB) } }

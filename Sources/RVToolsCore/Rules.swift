@@ -61,7 +61,28 @@ public struct Thresholds: Codable, Equatable, Sendable {
     public var guestFreeWarnPct = 10.0
     public var hostUptimeDays = 365.0
     public var certExpiryDays = 90.0
+    /// Leave host-local datastores with no VM files (boot / scratch devices) out of every dashboard, finding and solution.
+    public var ignoreUnusedLocalDatastores = true
+
     public init() {}
+
+    /// Settings and projects saved before a field existed keep their other values.
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let d = Thresholds()
+        snapshotAgeDays = try c.decodeIfPresent(Double.self, forKey: .snapshotAgeDays) ?? d.snapshotAgeDays
+        snapshotSizeGiB = try c.decodeIfPresent(Double.self, forKey: .snapshotSizeGiB) ?? d.snapshotSizeGiB
+        datastoreFreeWarnPct = try c.decodeIfPresent(Double.self, forKey: .datastoreFreeWarnPct) ?? d.datastoreFreeWarnPct
+        datastoreFreeCritPct = try c.decodeIfPresent(Double.self, forKey: .datastoreFreeCritPct) ?? d.datastoreFreeCritPct
+        datastoreOvercommitPct = try c.decodeIfPresent(Double.self, forKey: .datastoreOvercommitPct) ?? d.datastoreOvercommitPct
+        hostCPUWarnPct = try c.decodeIfPresent(Double.self, forKey: .hostCPUWarnPct) ?? d.hostCPUWarnPct
+        hostMemWarnPct = try c.decodeIfPresent(Double.self, forKey: .hostMemWarnPct) ?? d.hostMemWarnPct
+        vcpuPerCoreWarn = try c.decodeIfPresent(Double.self, forKey: .vcpuPerCoreWarn) ?? d.vcpuPerCoreWarn
+        guestFreeWarnPct = try c.decodeIfPresent(Double.self, forKey: .guestFreeWarnPct) ?? d.guestFreeWarnPct
+        hostUptimeDays = try c.decodeIfPresent(Double.self, forKey: .hostUptimeDays) ?? d.hostUptimeDays
+        certExpiryDays = try c.decodeIfPresent(Double.self, forKey: .certExpiryDays) ?? d.certExpiryDays
+        ignoreUnusedLocalDatastores = try c.decodeIfPresent(Bool.self, forKey: .ignoreUnusedLocalDatastores) ?? d.ignoreUnusedLocalDatastores
+    }
 }
 
 struct RuleDef {

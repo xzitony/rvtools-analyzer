@@ -287,6 +287,8 @@ Unknown values are `null`. Fields are only ever added within an API version.
 
 ### Datastore
 
+Unless the user turns it off in Settings, host-local datastores with no VM files (boot or scratch devices) aren't in `inventory.datastores`, just as they're left out of the dashboards.
+
 `id`, `name`, `vcenter`, `type`, `capacityMiB`, `provisionedMiB`, `inUseMiB`, `freeMiB`, `freePct`, `accessible`, `isLocal`, `datastoreCluster`, `majorVersion`, `hostIds`, `vmIds`, `clusterIds`, `clusters`, `vmDiskMiB`
 
 A VM's `datastores` are names. Match on `vcenter` + `name`:
