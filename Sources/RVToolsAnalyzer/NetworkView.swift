@@ -44,18 +44,27 @@ struct PortGroupsPane: View {
     var body: some View {
         @Bindable var model = model
         let rows = report.inventory.portGroups.filter { !$0.isUplink }.sorted(using: sortOrder)
-        VSplitView {
-            HStack(alignment: .top, spacing: 16) {
-                Card("Most-used networks", subtitle: "VMs per port group") { BarListChart(items: report.dist.topNetworks) }
-                Card("VM network adapter types") { BarListChart(items: report.dist.nicAdapter) }
+        // A VStack rather than VSplitView: next to the inspector, the split view's minimum-size updates loop on macOS 27 and
+        // AppKit terminates the app ("more Update Constraints in Window passes than there are views").
+        VStack(spacing: 0) {
+            ScrollView {
+                HStack(alignment: .top, spacing: 16) {
+                    Card("Most-used networks", subtitle: "VMs per port group") { BarListChart(items: report.dist.topNetworks) }
+                    Card("VM network adapter types") { BarListChart(items: report.dist.nicAdapter) }
+                }
+                .padding(16)
             }
-            .padding(16)
-            .frame(minHeight: 180, idealHeight: 330)
+            .frame(height: 300)
+            Divider()
             Table(rows, selection: $model.selectedPortGroupID, sortOrder: $sortOrder) {
                 TableColumn("Port group", value: \.name)
                 TableColumn("Type", value: \.kind).width(110)
                 TableColumn("Switch", value: \.switchName)
                 TableColumn("VLAN", value: \.vlanList).width(90)
+                TableColumn("Observed subnets", value: \.subnetList) { p in
+                    Text(p.subnetList).tabular().help(p.observedSubnets.map { "\($0.cidr): \($0.range) · \($0.vms) VMs" }.joined(separator: "\n"))
+                }
+                .width(min: 110, ideal: 150)
                 TableColumn("Hosts", value: \.hostCount) { Text("\($0.hostCount)").tabular() }.width(50)
                 TableColumn("VMs", value: \.vmCount) { Text("\($0.vmCount)").tabular() }.width(50)
                 TableColumn("NICs connected", value: \.connectedNics) { Text("\($0.connectedNics) / \($0.nicCount)").tabular() }.width(100)
@@ -98,6 +107,30 @@ struct PortGroupDetail: View {
                     ("NICs", "\(p.connectedNics) connected of \(p.nicCount)"),
                     ("Security", [p.promiscuous ? "Promiscuous" : nil, p.macChanges ? "MAC changes" : nil, p.forgedTransmits ? "Forged transmits" : nil].compactMap { $0 }.joined(separator: ", ")),
                 ])
+                if !p.observedSubnets.isEmpty {
+                    DetailSection("Observed subnets", count: p.observedSubnets.count) {
+                        VStack(alignment: .leading, spacing: 6) {
+                            ForEach(p.observedSubnets, id: \.cidr) { s in
+                                let others = report.inventory.portGroups.filter { o in o.id != p.id && o.observedSubnets.contains { $0.cidr.overlaps(s.cidr) } }
+                                VStack(alignment: .leading, spacing: 1) {
+                                    HStack {
+                                        Text(s.cidr.description).font(.callout.weight(.medium)).tabular().textSelection(.enabled)
+                                        Spacer()
+                                        Text("\(s.addresses) IP\(s.addresses == 1 ? "" : "s") · \(s.vms) VM\(s.vms == 1 ? "" : "s")").font(.caption).foregroundStyle(.secondary).tabular()
+                                    }
+                                    Text(s.range).font(.caption).foregroundStyle(.secondary).tabular().textSelection(.enabled)
+                                    if !others.isEmpty {
+                                        Label("Also seen on " + others.map(\.name).joined(separator: ", "), systemImage: Severity.warning.symbol)
+                                            .font(.caption).foregroundStyle(Palette.warning)
+                                            .help("The same addresses on more than one port group: multi-homed VMs, a VLAN carried by two port groups, or overlapping networks")
+                                    }
+                                }
+                            }
+                            Text("Inferred from the guest IPv4 addresses VMware Tools reports on this port group's VM NICs, grouped into /24 blocks and merged where neighbouring blocks are all in use. RVTools doesn't record VM netmasks, so the real subnet can be larger or smaller.")
+                                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                }
                 DetailSection("Hosts", count: p.hostKeys.count) {
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(p.hostKeys, id: \.self) { hk in
@@ -144,6 +177,10 @@ struct SwitchesPane: View {
                     TableColumn("VMs") { Text("\($0.vmCount)").tabular() }.width(50)
                     TableColumn("Max MTU") { Text("\($0.maxMTU)").tabular() }.width(70)
                     TableColumn("LACP") { Text($0.lacp) }
+                    TableColumn("Observed subnets") { s in
+                        let subnets = inv.portGroups.filter { $0.kind == "Distributed" && $0.vcenter == s.vcenter && $0.switchName == s.name }.flatMap(\.observedSubnets)
+                        Text(Set(subnets.map(\.cidr)).sorted().map(\.description).joined(separator: ", ")).tabular()
+                    }
                 }
             }
             .frame(minHeight: 150)
@@ -175,6 +212,7 @@ struct VMKernelPane: View {
             TableColumn("Port group") { Text($0.portGroup) }
             TableColumn("IP address") { Text($0.ip).tabular() }
             TableColumn("Subnet") { Text($0.subnet).tabular() }
+            TableColumn("CIDR") { Text($0.cidr).tabular() }
             TableColumn("Gateway") { Text($0.gateway).tabular() }
             TableColumn("MTU") { Text("\($0.mtu)").tabular() }.width(60)
             TableColumn("DHCP") { Text($0.dhcp ? "Yes" : "No") }.width(50)

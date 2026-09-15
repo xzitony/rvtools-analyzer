@@ -616,6 +616,16 @@ private final class Builder {
                 }
             }
         }
+        // Observed subnets: RVTools has no netmasks for VM NICs, so networks are inferred from the guest IPs on each port group.
+        var pgAddresses: [Int: [(ip: IPv4, owner: String)]] = [:]
+        for vm in inv.vms {
+            for n in vm.nics where !n.network.isEmpty {
+                guard let i = pgIndex[key(vm.vcenter, n.network)] else { continue }
+                for text in n.ipv4 { if let ip = IPv4(text) { pgAddresses[i, default: []].append((ip, vm.id)) } }
+            }
+        }
+        for (i, addresses) in pgAddresses { inv.portGroups[i].observedSubnets = Subnets.observed(addresses) }
+
         if nicRefs > 0 {
             inv.joins.append(JoinStat(source: "vNetwork.Network", target: "Port group (vPort / dvPort)", keys: "VI SDK Server + network name",
                                       matched: nicMatched, total: nicRefs, note: "Unmatched networks are usually NSX segments / opaque networks"))
