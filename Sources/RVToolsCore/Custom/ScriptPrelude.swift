@@ -136,6 +136,23 @@ globalThis.rva = (() => {
   const datastoreRef = (ds, detail) => ref("datastore", ds, detail);
   const isWindows = (vm) => vm.os.family === "windowsServer" || vm.os.family === "windowsDesktop";
 
+  // vCenter custom attributes and vSphere tags (vm.customFields)
+  const customFields = (vm) => (vm && Array.isArray(vm.customFields) ? vm.customFields : []);
+  function fields(vm) {
+    const out = {};
+    for (const f of customFields(vm)) if (!(f.name in out)) out[f.name] = f.value;
+    return out;
+  }
+  // The first value whose name matches: a RegExp, or a string compared with the whole name, ignoring case.
+  function field(vm, pattern) {
+    const matches = pattern instanceof RegExp ? (n) => pattern.test(n) : (n) => n.toLowerCase() === String(pattern).toLowerCase();
+    const f = customFields(vm).find((x) => matches(x.name));
+    return f ? f.value : null;
+  }
+  // Name, notes and custom field values as one text, for keyword matching. Field names are left out: they're the
+  // same on every VM (e.g. a backup product's attribute), so they'd match everything.
+  const hints = (vm) => [vm.name, vm.annotation].concat(customFields(vm).map((f) => f.value)).filter(Boolean).join("\n");
+
   // Result sections
   const metric = (label, value, detail, symbol) => ({ label, value: String(value), detail: detail === undefined ? "" : String(detail), symbol });
   const metrics = (title, items) => ({ type: "metrics", title, items });
@@ -197,7 +214,7 @@ globalThis.rva = (() => {
     apiVersion: 1,
     int, num, pct, capacity, memory, gib: (mib) => mib / 1024, money, mbps, rate, units, duration, date, daysBetween,
     sum, groupBy, countBy, sortBy, uniq, index,
-    ref, vmRef, hostRef, clusterRef, datastoreRef, isWindows,
+    ref, vmRef, hostRef, clusterRef, datastoreRef, isWindows, fields, field, hints,
     metric, metrics, table, bars, notes, checks,
     cloud,
   };

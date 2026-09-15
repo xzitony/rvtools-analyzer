@@ -239,6 +239,7 @@ private final class Builder {
         let cOSConf = t.col("OS according to the configuration file", "OS"), cOSTools = t.col("OS according to the VMware Tools")
         let cVMID = t.col("VM ID"), cUUID = t.col("VM UUID", "UUID"), cReady = t.col("Overall Cpu Readiness")
         let cNets = (1...8).map { t.col("Network #\($0)") }
+        let cCustom = t.customColumns.sorted()
 
         for (ri, r) in t.rows.enumerated() {
             let server = r.s(cServer), name = r.s(cVM)
@@ -292,6 +293,10 @@ private final class Builder {
             vm.cbt = cCBT == nil ? nil : (r.b(cCBT) ?? false)
             vm.vmxPath = r.s(cPath)
             vm.annotation = r.s(cNote)
+            for c in cCustom {
+                let value = r.s(c).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !value.isEmpty { vm.customFields.append(VCustomField(name: t.headers[c], value: value)) }
+            }
             vm.osConfig = r.s(cOSConf)
             vm.osTools = r.s(cOSTools)
             vm.os = Lifecycle.classify(config: vm.osConfig, tools: vm.osTools)

@@ -275,7 +275,8 @@ Unknown values are `null`. Fields are only ever added within an API version.
 | `cpuUsageMHz`, `cpuReadinessPct`, `memConsumedMiB`, `memActiveMiB`, `memBalloonedMiB`, `memSwappedMiB` | usage at export time |
 | `cpuReservationMHz`, `cpuLimitMHz`, `memReservationMiB`, `memLimitMiB`, `cpuHotAdd`, `memHotAdd` | limits are `null` when unlimited |
 | `hwVersion`, `firmware`, `secureBoot`, `cbt`, `ftState`, `haRestartPriority`, `latencySensitivity` | |
-| `created`, `poweredOnAt`, `primaryIP`, `ips`, `dnsName`, `annotation` | |
+| `created`, `poweredOnAt`, `primaryIP`, `ips`, `dnsName`, `annotation` | `annotation` is the VM's Notes |
+| `customFields` | `{ name, value }` for each vCenter custom attribute and vSphere tag category that has a value, in export order. RVTools writes them between Annotation and Datacenter on vInfo. Tags need RVTools 4.4.1 or later, and RVTools only reads them when it logs in with a user name and password (not SSO) |
 | `tools` | `{ status, rawStatus, version, upgradeable }`. `status` is the app's label ("Current", "Not running", …) |
 | `disks` | `{ label, capacityMiB, provisioning, thin, mode, independent, sharing, sharedWriter, rdm, controller, datastore, path }` |
 | `partitions` | `{ disk, capacityMiB, consumedMiB, freeMiB, freePct }` |
@@ -323,6 +324,7 @@ const first = byName.get(vm.vcenter + "|" + vm.datastores[0]);
 | `rva.gib(mib)` | MiB → GiB |
 | `rva.sum(list, key or fn)`, `rva.groupBy(list, key or fn)`, `rva.countBy`, `rva.sortBy(list, key or fn, descending?)`, `rva.uniq`, `rva.index(list)` | `index` builds a `Map` by `id` |
 | `rva.isWindows(vm)` | |
+| `rva.fields(vm)`, `rva.field(vm, name)`, `rva.hints(vm)` | Custom attributes and tags. `fields` returns them as an object by name. `field` returns the first value whose name matches (a `RegExp`, or a string compared with the whole name, ignoring case), or `null`. `hints` joins the VM's name, Notes and custom field values into one text for keyword matching, e.g. `/\bpci\b/i.test(rva.hints(vm))` |
 | `rva.vmRef(vm, detail?)`, `rva.hostRef`, `rva.clusterRef`, `rva.datastoreRef`, `rva.ref(kind, obj, detail?)` | affected objects and row links |
 | `rva.metric`, `rva.metrics`, `rva.table`, `rva.bars`, `rva.notes`, `rva.checks()` | result builders |
 | `rva.cloud.*` | cloud sizing, see [Prices](#prices) |

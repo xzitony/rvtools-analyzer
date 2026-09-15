@@ -37,6 +37,7 @@ struct VMsView: View {
         parts.append(contentsOf: vm.ips)
         parts.append(contentsOf: vm.networks)
         parts.append(contentsOf: vm.datastores)
+        parts.append(contentsOf: vm.customFields.map { "\($0.name) \($0.value)" })
         return parts.joined(separator: "\n").lowercased()
     }
 
@@ -297,6 +298,11 @@ struct VMDetail: View {
                 }
                 if !vm.annotation.isEmpty {
                     DetailSection("Notes") { Text(vm.annotation).font(.callout).textSelection(.enabled) }
+                }
+                if !vm.customFields.isEmpty {
+                    DetailSection("Custom attributes and tags", count: vm.customFields.count) {
+                        KeyValueGrid(rows: vm.customFields.map { ($0.name, $0.value) })
+                    }
                 }
             }
             .padding(16)

@@ -6,13 +6,23 @@ public final class Table: @unchecked Sendable {
     public let name: String
     public private(set) var headers: [String]
     public private(set) var rows: [[String]]
+    /// Columns RVTools writes between "Annotation" and "Datacenter" on VM tabs: vCenter custom attributes and, since
+    /// RVTools 4.4.1, vSphere tags (one column per category). Tracked per export, so merged tables keep them.
+    public private(set) var customColumns: Set<Int> = []
     private var lookup: [String: Int] = [:]
 
     init(raw: RawTable) {
         name = raw.name
         headers = raw.headers
         rows = raw.rows
+        customColumns = Set(Table.customRange(raw.headers))
         rebuildLookup()
+    }
+
+    static func customRange(_ headers: [String]) -> Range<Int> {
+        let names = headers.map(normalize)
+        guard let a = names.firstIndex(of: "annotation"), let d = names.firstIndex(of: "datacenter"), d > a + 1 else { return 0..<0 }
+        return (a + 1)..<d
     }
 
     static func normalize(_ s: String) -> String {
@@ -47,6 +57,7 @@ public final class Table: @unchecked Sendable {
                 for r in rows.indices { rows[r].append("") }
             }
         }
+        for j in Table.customRange(other.headers) where j < mapping.count { customColumns.insert(mapping[j]) }
         let width = headers.count
         for r in other.rows {
             var out = Array(repeating: "", count: width)
