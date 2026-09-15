@@ -24,6 +24,15 @@ enum DebugSnapshot {
 
         Task { @MainActor in
             log("windows: " + NSApp.windows.map { "\($0.className) visible=\($0.isVisible) \(Int($0.frame.width))x\(Int($0.frame.height)) delegate=\($0.delegate.map { String(describing: type(of: $0)) } ?? "nil")" }.joined(separator: "; "))
+            for menu in NSApp.mainMenu?.items ?? [] where menu.title == "File" {
+                let items = menu.submenu?.items.map { item -> String in
+                    guard !item.isSeparatorItem else { return "—" }
+                    let m = item.keyEquivalentModifierMask
+                    let keys = (m.contains(.shift) ? "⇧" : "") + (m.contains(.option) ? "⌥" : "") + (m.contains(.command) ? "⌘" : "") + item.keyEquivalent.uppercased()
+                    return item.title + (item.keyEquivalent.isEmpty ? "" : " [\(keys)]")
+                } ?? []
+                log("File menu: " + items.joined(separator: " | "))
+            }
             if let w = mainWindow() {
                 w.setContentSize(NSSize(width: 1500, height: 960))
                 w.center()
