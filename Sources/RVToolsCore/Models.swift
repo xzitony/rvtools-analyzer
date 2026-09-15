@@ -382,8 +382,11 @@ public struct PortGroup: Identifiable, Sendable {
     public var forgedTransmits = false
     public var isVMkernel = false
     public var isUplink = false
+    /// Networks in use, inferred from the guest IPv4 addresses of the VM NICs on this port group (see `Subnets`).
+    public var observedSubnets: [ObservedSubnet] = []
 
     public var vlanList: String { vlans.isEmpty ? "—" : vlans.joined(separator: ", ") }
+    public var subnetList: String { Subnets.list(observedSubnets) }
     public var vmCount: Int { vmIDs.count }
     public var hostCount: Int { hostKeys.count }
 }

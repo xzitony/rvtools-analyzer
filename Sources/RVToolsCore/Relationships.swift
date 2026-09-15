@@ -237,7 +237,9 @@ private struct MapBuilder {
     func node(_ p: PortGroup) -> RelNode {
         let flags = [p.promiscuous ? "promiscuous mode" : nil, p.macChanges ? "MAC changes" : nil, p.forgedTransmits ? "forged transmits" : nil].compactMap { $0 }
         return RelNode(id: "pg:" + p.id, kind: .portGroup, name: p.name,
-                       detail: "VLAN \(p.vlanList)" + (p.switchName.isEmpty ? "" : " · \(p.switchName)"),
+                       detail: "VLAN \(p.vlanList)" + (p.switchName.isEmpty ? "" : " · \(p.switchName)")
+                           + (p.observedSubnets.isEmpty ? "" : " · " + p.observedSubnets.prefix(2).map(\.cidr.description).joined(separator: ", ")
+                              + (p.observedSubnets.count > 2 ? " +\(p.observedSubnets.count - 2)" : "")),
                        focus: .portGroup(p.id), alert: flags.isEmpty ? nil : "Allows " + flags.joined(separator: ", "))
     }
 
@@ -571,13 +573,15 @@ extension CSVExport {
             let nics = v.nics.isEmpty ? v.networks.map { VNic(network: $0, connected: true) } : v.nics
             for n in nics where !n.network.isEmpty {
                 let pg = pgs[key(v.vcenter, n.network)]
+                let ips = n.ipv4.compactMap(IPv4.init)
+                let subnets = (pg?.observedSubnets ?? []).filter { s in ips.contains { s.cidr.contains($0) } }
                 rows.append([n.network, pg?.vlanList ?? "", pg?.switchName ?? n.switchName, pg?.kind ?? "",
                              v.name, v.powerLabel, v.vcenter, v.datacenter, v.cluster, v.host,
-                             n.label, n.adapter, n.connected ? "Yes" : "No", n.mac, n.ipv4.joined(separator: " ")])
+                             n.label, n.adapter, n.connected ? "Yes" : "No", n.mac, n.ipv4.joined(separator: " "), Subnets.list(subnets)])
             }
         }
         return build(["Network", "VLAN", "Switch", "Network type", "VM", "Power", "vCenter", "Datacenter", "Cluster", "Host",
-                      "NIC", "Adapter", "Connected", "MAC", "IPv4"], rows)
+                      "NIC", "Adapter", "Connected", "MAC", "IPv4", "Observed subnet"], rows)
     }
 
     /// Every VM and datastore it has files on, with the disks there.
@@ -637,9 +641,11 @@ extension CSVExport {
                 rows.append([pg.name, pg.vlanList, pg.switchName, pg.kind, h.name, h.cluster, h.vcenter,
                              uplinks.map { "\($0.device) (\($0.speedMbps == 0 ? "link down" : "\($0.speedMbps) Mb/s"))" }.joined(separator: " "),
                              adapters.map { [$0.device, $0.ip].filter { !$0.isEmpty }.joined(separator: " ") }.joined(separator: "; "),
-                             "\(pg.vmIDs.filter { vmHost[$0] == h.id }.count)"])
+                             "\(pg.vmIDs.filter { vmHost[$0] == h.id }.count)", pg.subnetList,
+                             adapters.map(\.cidr).filter { !$0.isEmpty }.joined(separator: " ")])
             }
         }
-        return build(["Network", "VLAN", "Switch", "Network type", "Host", "Cluster", "vCenter", "Uplinks", "VMkernel adapters", "VMs on this host"], rows)
+        return build(["Network", "VLAN", "Switch", "Network type", "Host", "Cluster", "vCenter", "Uplinks", "VMkernel adapters", "VMs on this host",
+                      "Observed VM subnets", "VMkernel CIDRs"], rows)
     }
 }

@@ -8,6 +8,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# The Command Line Tools can lack the SwiftUI macro plugins (e.g. right after a macOS upgrade), which breaks @State and
+# friends. When they're the active developer directory and Xcode is installed, build with Xcode's toolchain instead.
+if [ -z "${DEVELOPER_DIR:-}" ] && [ "$(xcode-select -p 2>/dev/null)" = "/Library/Developer/CommandLineTools" ] && [ -d /Applications/Xcode.app/Contents/Developer ]; then
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+  echo "▸ Using Xcode's toolchain (the Command Line Tools are selected)"
+fi
+
 MODE="${1:-release}"
 case "$MODE" in
   release)

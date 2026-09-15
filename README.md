@@ -17,6 +17,8 @@ open "build/RVTools Analyzer.app"
 
 Drag the app to `/Applications` if you like. It is ad-hoc signed, so the first launch may need right-click › **Open**.
 
+If the Command Line Tools are the active developer directory (`xcode-select -p`) and Xcode is installed, the build scripts use Xcode's toolchain: the Command Line Tools can lack the SwiftUI macro plugins, for example right after a macOS upgrade.
+
 ### Everyday use alongside development
 
 - **`scripts/install-app.sh`** builds the release app, runs `scripts/check-solutions.sh`, and copies the app to `/Applications/RVTools Analyzer.app`. The check runs every installed custom solution against the sample exports; if one fails, the install stops (`--force` installs anyway).
@@ -87,7 +89,7 @@ Ages are measured from the export timestamp in `vMetaData` or the file name, not
 | **Storage** | Capacity, used, provisioned (overcommit), thin vs thick, reclaim opportunities (powered-off VMs, snapshots, templates, guest free space, empty datastores, zombie files) and snapshot age. The datastores table has an inspector listing each datastore's VMs and hosts. |
 
 **Local datastores with no VM files.** Host-local datastores that hold no VMs, templates or VM disks, usually ESXi boot or scratch devices, are left out by default. They don't count in capacity totals, findings (such as low free space or "datastore with no VMs"), charts, trends, exports or solutions. A datastore counts as local when exactly one host mounts it and it isn't vSAN or NFS. Local datastores that VMs use always count. When any are left out, the Storage page says how many, with a button to include them; the same switch is in **Settings › Findings**, and projects save it.
-| **Network** | Port groups with VLANs, the switch they're on, host and VM counts, and security policy. Also distributed and standard switches, VMkernel adapters, physical NICs, and adapter types. |
+| **Network** | Port groups with VLANs, observed subnets, the switch they're on, host and VM counts, and security policy. RVTools doesn't record VM netmasks, so observed subnets are inferred from the guest IPv4 addresses on each port group's VM NICs: grouped into /24 blocks, merged where neighbouring blocks are all in use, with a warning when the same range shows up on another port group. VMkernel adapters show their exact CIDR from the reported mask. Also distributed and standard switches, VMkernel adapters, physical NICs, and adapter types. |
 | **Configuration** | Distributions: guest OS, vCPU and memory sizes, firmware/Secure Boot, disk controllers, NIC types, resource controls, CPU models, hardware, link speeds. |
 | **Lifecycle** | **License renewals** at the top: licenses that have expired or expire within 90 days of today (adjustable in Settings; unlike support dates, renewals are measured from today even for an older export), plus evaluation licenses, with quantities and days left; the sidebar badge counts them. Also guest OS end-of-support status, ESXi and vCenter support dates, virtual hardware versions, VMware Tools status, VM creation by year, host uptime, and every license with its status. |
 | **Correlations** | The entity graph, what each cross-tab relationship reveals, join coverage per tab, and consistency checks (RVTools' own counts vs the counts derived from other tabs). |

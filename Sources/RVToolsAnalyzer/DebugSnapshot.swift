@@ -48,7 +48,11 @@ enum DebugSnapshot {
                 ("05-vms", { model.selectedVMID = worstVM; model.sidebar = .vms }),
                 ("06-storage", { model.storageTab = 0; model.sidebar = .storage }),
                 ("07-datastores", { model.selectedDatastoreID = fullestDS; model.storageTab = 1; model.sidebar = .storage }),
-                ("08-network", { model.networkTab = 0; model.sidebar = .network }),
+                ("08-network", {
+                    model.selectedPortGroupID = inv?.portGroups.max { $0.vmCount < $1.vmCount }?.id
+                    model.networkTab = 0
+                    model.sidebar = .network
+                }),
                 ("09-configuration", { model.sidebar = .configuration }),
                 ("10-lifecycle", { model.sidebar = .lifecycle }),
                 ("11-correlations", { model.sidebar = .correlations }),
