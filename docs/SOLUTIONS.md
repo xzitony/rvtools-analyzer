@@ -185,8 +185,8 @@ If `run` throws, the Results step shows the error with its line number.
 ### metrics: headline tiles
 
 ```js
-{ type: "metrics", title: "Summary", items: [ { label: "Data today", value: "123.7 TB", detail: "guest used", symbol: "internaldrive" } ] }
-// rva.metrics("Summary", [rva.metric("Data today", "123.7 TB", "guest used", "internaldrive")])
+{ type: "metrics", title: "Summary", items: [ { label: "Data today", value: "123.7 TiB", detail: "guest used", symbol: "internaldrive" } ] }
+// rva.metrics("Summary", [rva.metric("Data today", "123.7 TiB", "guest used", "internaldrive")])
 ```
 
 ### checks: a readiness or considerations checklist
@@ -195,7 +195,7 @@ If `run` throws, the Results step shows the error with its line number.
 { type: "checks", title: "Considerations", checks: [
   { id: "rdm", area: "Scope", title: "Raw device mappings", status: "warning",
     summary: "3 VMs have RDMs", remediation: "Size RDM LUNs separately.",
-    affected: [ { kind: "vm", id: vm.id, name: vm.name, detail: "2 TB" } ] }
+    affected: [ { kind: "vm", id: vm.id, name: vm.name, detail: "2 TiB" } ] }
 ] }
 ```
 
@@ -210,7 +210,7 @@ rva.table({
   id: "per-vm", title: "Per-VM sizing", subtitle: "optional",
   columns: ["VM", "Cluster", "Data"],
   numeric: [2],                         // right-aligned columns (indices or names)
-  rows: [["web01", "Prod", "120 GB"]],
+  rows: [["web01", "Prod", "120 GiB"]],
   rowRefs: [rva.vmRef(vm)],             // optional: makes the first column a link, one per row
   emphasized: [0],                      // optional: bold rows (totals)
 })
@@ -313,10 +313,13 @@ const first = byName.get(vm.vcenter + "|" + vm.datastores[0]);
 
 | Helper | |
 |---|---|
-| `rva.capacity(mib)` | "512 MB", "12.5 GB", "3.2 TB", "1.05 PB" (binary units, as vSphere shows them) |
+| `rva.capacity(mib)` | Storage in the units chosen in Settings › Units: "512 MiB", "12.5 GiB", "3.2 TiB" (binary, the default) or "537 MB", "13.4 GB", "3.5 TB" (decimal) |
+| `rva.memory(mib)` | Memory, always binary: "512 MiB", "16.0 GiB" |
+| `rva.rate(megabits)` | A network rate in the chosen units: "940 Mbps", "10 Gbps" (default) or "118 MB/s", "1.25 GB/s". `rva.mbps` is the same function |
+| `rva.units` | `{ storage: "binary" \| "decimal", rate: "bits" \| "bytes" }`, for scripts that label their own figures |
 | `rva.int(v)`, `rva.num(v, digits?)`, `rva.pct(v, digits?)` | thousands separators; `num` picks sensible digits when omitted |
 | `rva.money(v, currency?)` | "$12,345", "€1.23M" |
-| `rva.mbps(megabits)`, `rva.duration(hours)`, `rva.date(iso)`, `rva.daysBetween(a, b?)` | |
+| `rva.duration(hours)`, `rva.date(iso)`, `rva.daysBetween(a, b?)` | |
 | `rva.gib(mib)` | MiB → GiB |
 | `rva.sum(list, key or fn)`, `rva.groupBy(list, key or fn)`, `rva.countBy`, `rva.sortBy(list, key or fn, descending?)`, `rva.uniq`, `rva.index(list)` | `index` builds a `Map` by `id` |
 | `rva.isWindows(vm)` | |

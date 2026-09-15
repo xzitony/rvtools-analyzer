@@ -31,6 +31,14 @@ if let i = args.firstIndex(of: "--save-project"), i + 1 < args.count {
 /// Set when the input is a .rvaproj project: its thresholds, selections and assumptions are used.
 var project: ProjectFile?
 
+// --units binary|decimal, --rate bits|bytes: how storage capacities and network rates are shown (memory is always binary).
+for (flag, apply) in [("--units", { (v: String) in StorageUnits(rawValue: v).map { Units.storage = $0 } != nil }),
+                      ("--rate", { (v: String) in RateUnits(rawValue: v).map { Units.rate = $0 } != nil })] {
+    guard let i = args.firstIndex(of: flag), i + 1 < args.count else { continue }
+    if !apply(args[i + 1]) { FileHandle.standardError.write("\(flag): unknown value “\(args[i + 1])”\n".data(using: .utf8)!); exit(1) }
+    args.removeSubrange(i...(i + 1))
+}
+
 // --trend: treat the inputs as snapshots of one environment over time and print the trend analysis.
 var trendMode = false
 if let i = args.firstIndex(of: "--trend") {
@@ -214,7 +222,7 @@ if let i = args.firstIndex(of: "--prices"), i + 1 < args.count {
 
 guard !args.isEmpty else {
     print("usage: rvtools-cli <RVTools export .xlsx | folder of RVTools_tab*.csv | project.rvaproj> [...] [--export <dir>]")
-    print("       [--solution <id>] [--set name=value ...] [--select selection=vms ...] [--save-project <path>] [--trend] [--map kind:name]")
+    print("       [--solution <id>] [--set name=value ...] [--select selection=vms ...] [--save-project <path>] [--trend] [--map kind:name] [--units binary|decimal] [--rate bits|bytes]")
     print("       --list-solutions | --validate-solution <pack> [export] | --solutions <dir> | --price-list <file> | --prices azure|aws")
     exit(1)
 }
@@ -365,7 +373,7 @@ do {
     print("\n== Inventory")
     print("vCenters \(t.vcenters) · datacenters \(t.datacenters) · clusters \(t.clusters) · hosts \(t.hosts) (\(t.hostsInMaintenance) in maintenance)")
     print("VMs \(t.vms): on \(t.vmsOn), off \(t.vmsOff), suspended \(t.vmsSuspended) · templates \(t.templates)")
-    print("Compute: \(t.sockets) sockets, \(t.cores) cores, \(Fmt.capacity(mib: t.physMemMiB)) RAM · vCPU on \(t.vcpuOn) (\(Fmt.ratio(t.vcpuPerCore))) · vRAM on \(Fmt.capacity(mib: t.vramOnMiB))")
+    print("Compute: \(t.sockets) sockets, \(t.cores) cores, \(Fmt.memory(mib: t.physMemMiB)) RAM · vCPU on \(t.vcpuOn) (\(Fmt.ratio(t.vcpuPerCore))) · vRAM on \(Fmt.memory(mib: t.vramOnMiB))")
     print("Utilisation: CPU \(Fmt.pct(t.cpuUsagePct)) · memory \(Fmt.pct(t.memUsagePct))")
     if !r.unusedLocalDatastores.isEmpty {
         print("Local datastores with no VM files (\(r.thresholds.ignoreUnusedLocalDatastores ? "left out of the figures below" : "included")): "

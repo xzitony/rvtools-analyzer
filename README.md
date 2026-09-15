@@ -160,7 +160,7 @@ The authoring guide, with the manifest, inventory, results, helpers and price li
 
 The **Scope** picker in the toolbar limits every page to one vCenter, datacenter or cluster. Datastores and networks follow the hosts and VMs in scope.
 
-**Export** writes CSVs of the findings, the correlated VM inventory, hosts, clusters and datastores. **Settings** (⌘,) holds the thresholds and whether local datastores with no VM files are left out; findings recalculate immediately when you change them.
+**Export** writes CSVs of the findings, the correlated VM inventory, hosts, clusters and datastores. **Settings** (⌘,) holds the thresholds and whether local datastores with no VM files are left out; findings recalculate immediately when you change them. **Settings › Units** chooses how storage is shown, in binary units (MiB, GiB, TiB, the default, as vSphere calculates capacity) or decimal units (MB, GB, TB), and network rates in bits (Mbps, Gbps, the default) or bytes (MB/s, GB/s). The choice applies to the dashboards, findings, solution results, relationship maps and CSV exports. Memory is always shown in binary units, because RAM is sized in powers of two.
 
 ## How tabs are correlated
 
@@ -183,6 +183,8 @@ swift build -c release --product rvtools-cli
 ```
 
 This prints the inventory, cluster headroom, join coverage, consistency checks, findings and distributions. With `--export` it also writes the CSVs, including the four relationship exports.
+
+`--units binary|decimal` and `--rate bits|bytes` choose the display units, as in Settings › Units.
 
 `--map vm:NAME` (or `host:`, `cluster:`, `datastore:`, `portgroup:`) prints an object's relationship map as text; with `--export <dir>` it also writes the map's CSV.
 

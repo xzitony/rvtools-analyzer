@@ -215,18 +215,46 @@ final class AppModel {
         }
     }
 
+    /// Display units (a preference, not saved in projects). Changing them recalculates, so findings and results use them too.
+    var storageUnits: StorageUnits = AppModel.loadPreference("storageUnits", StorageUnits.binary) {
+        didSet {
+            guard storageUnits != oldValue else { return }
+            UserDefaults.standard.set(storageUnits.rawValue, forKey: "storageUnits")
+            Units.storage = storageUnits
+            recompute()
+            refreshTrend()
+        }
+    }
+    var rateUnits: RateUnits = AppModel.loadPreference("rateUnits", RateUnits.bits) {
+        didSet {
+            guard rateUnits != oldValue else { return }
+            UserDefaults.standard.set(rateUnits.rawValue, forKey: "rateUnits")
+            Units.rate = rateUnits
+            recompute()
+            refreshTrend()
+        }
+    }
+
+    /// Re-runs the loaded trend (its change descriptions and figures depend on the settings).
+    private func refreshTrend() {
+        guard let t = trend else { return }
+        let snapshots = t.snapshots, ignore = thresholds.ignoreUnusedLocalDatastores
+        Task.detached(priority: .userInitiated) {
+            let updated = TrendAnalyzer.run(snapshots, ignoreUnusedLocalDatastores: ignore)
+            await MainActor.run { if self.trend?.snapshots.count == snapshots.count { self.trend = updated } }
+        }
+    }
+
+    private static func loadPreference<T: RawRepresentable>(_ key: String, _ fallback: T) -> T where T.RawValue == String {
+        UserDefaults.standard.string(forKey: key).flatMap(T.init(rawValue:)) ?? fallback
+    }
+
     var thresholds: Thresholds = AppModel.loadThresholds() {
         didSet {
             guard thresholds != oldValue else { return }
             if let data = try? JSONEncoder().encode(thresholds) { UserDefaults.standard.set(data, forKey: "thresholds") }
             recompute()
-            if thresholds.ignoreUnusedLocalDatastores != oldValue.ignoreUnusedLocalDatastores, let t = trend {
-                let snapshots = t.snapshots, ignore = thresholds.ignoreUnusedLocalDatastores
-                Task.detached(priority: .userInitiated) {
-                    let updated = TrendAnalyzer.run(snapshots, ignoreUnusedLocalDatastores: ignore)
-                    await MainActor.run { if self.trend?.snapshots.count == snapshots.count { self.trend = updated } }
-                }
-            }
+            if thresholds.ignoreUnusedLocalDatastores != oldValue.ignoreUnusedLocalDatastores { refreshTrend() }
             noteChange()
         }
     }
@@ -234,6 +262,8 @@ final class AppModel {
     private var generation = 0
 
     private init() {
+        Units.storage = storageUnits
+        Units.rate = rateUnits
         startExtensions()
     }
 

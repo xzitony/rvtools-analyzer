@@ -14,11 +14,11 @@ struct OverviewView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
                     KPITile(title: "Virtual machines", value: Fmt.int(t.vms), detail: "\(Fmt.int(t.vmsOn)) on · \(Fmt.int(t.vmsOff)) off · \(Fmt.int(t.templates)) templates", symbol: "desktopcomputer")
                     KPITile(title: "Hosts", value: Fmt.int(t.hosts), detail: "\(t.clusters) clusters · \(t.datacenters) datacenters · \(t.vcenters) vCenter\(t.vcenters == 1 ? "" : "s")", symbol: "server.rack")
-                    KPITile(title: "Physical compute", value: "\(Fmt.int(t.cores)) cores", detail: "\(t.sockets) sockets · \(Fmt.capacity(mib: t.physMemMiB)) RAM", symbol: "cpu")
+                    KPITile(title: "Physical compute", value: "\(Fmt.int(t.cores)) cores", detail: "\(t.sockets) sockets · \(Fmt.memory(mib: t.physMemMiB)) RAM", symbol: "cpu")
                     KPITile(title: "vCPU : core", value: Fmt.ratio(t.vcpuPerCore), detail: "\(Fmt.int(t.vcpuOn)) vCPU on running VMs", symbol: "square.stack.3d.up")
-                    KPITile(title: "vRAM : RAM", value: Fmt.pct(t.vramPerPhysical * 100), detail: "\(Fmt.capacity(mib: t.vramOnMiB)) assigned to running VMs", symbol: "memorychip")
+                    KPITile(title: "vRAM : RAM", value: Fmt.pct(t.vramPerPhysical * 100), detail: "\(Fmt.memory(mib: t.vramOnMiB)) assigned to running VMs", symbol: "memorychip")
                     KPITile(title: "CPU usage", value: Fmt.pct(t.cpuUsagePct), detail: "\(Fmt.ghz(t.cpuUsedMHz)) of \(Fmt.ghz(t.cpuMHz))", symbol: "speedometer")
-                    KPITile(title: "Memory usage", value: Fmt.pct(t.memUsagePct), detail: "\(Fmt.capacity(mib: t.memUsedMiB)) of \(Fmt.capacity(mib: t.physMemMiB))", symbol: "memorychip.fill")
+                    KPITile(title: "Memory usage", value: Fmt.pct(t.memUsagePct), detail: "\(Fmt.memory(mib: t.memUsedMiB)) of \(Fmt.memory(mib: t.physMemMiB))", symbol: "memorychip.fill")
                     KPITile(title: "Datastores", value: Fmt.capacity(mib: t.dsCapacityMiB), detail: "\(Fmt.pct(t.dsUsedPct)) used · \(Fmt.capacity(mib: t.dsFreeMiB)) free · \(t.datastores) datastores"
                             + (report.thresholds.ignoreUnusedLocalDatastores && !report.unusedLocalDatastores.isEmpty ? " (\(report.unusedLocalDatastores.count) unused local left out)" : ""),
                             symbol: "externaldrive")
@@ -75,7 +75,7 @@ struct OverviewView: View {
                 Text(name).foregroundStyle(.secondary)
                 Text(Fmt.int(vms.count)).tabular()
                 Text(Fmt.int(vms.reduce(0) { $0 + $1.cpus })).tabular()
-                Text(Fmt.capacity(mib: vms.reduce(0) { $0 + $1.memoryMiB })).tabular()
+                Text(Fmt.memory(mib: vms.reduce(0) { $0 + $1.memoryMiB })).tabular()
                 Text(Fmt.capacity(mib: vms.reduce(0) { $0 + $1.provisionedMiB })).tabular()
                 Text(Fmt.capacity(mib: vms.reduce(0) { $0 + $1.inUseMiB })).tabular()
             }

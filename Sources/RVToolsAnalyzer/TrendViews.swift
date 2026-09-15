@@ -468,7 +468,7 @@ struct VMHistoryGrid: View {
         Attribute(label: "Cluster", highlight: true) { $0.cluster.isEmpty ? "—" : $0.cluster },
         Attribute(label: "Host", highlight: false) { VMsView.shortHost($0) },
         Attribute(label: "vCPU", highlight: true) { "\($0.cpus)" },
-        Attribute(label: "Memory", highlight: true) { Fmt.capacity(mib: $0.memoryMiB) },
+        Attribute(label: "Memory", highlight: true) { Fmt.memory(mib: $0.memoryMiB) },
         Attribute(label: "Disks", highlight: true) { "\($0.disks.count) · \(Fmt.capacity(mib: $0.disks.isEmpty ? $0.provisionedMiB : $0.diskCapacityMiB))" },
         Attribute(label: "Data in use", highlight: false) { Fmt.capacity(mib: TrendAnalyzer.data($0)) },
         Attribute(label: "Datastores", highlight: true) { $0.datastoreList },
@@ -596,7 +596,7 @@ struct TrendGrowthView: View {
                 TableColumn("Per year", sortUsing: KeyPathComparator(\VMGrowth.annualSort)) { (g: VMGrowth) in Text(g.annualPct.map { signedPct($0) } ?? "—").tabular() }.width(70)
                 TableColumn("vCPU", sortUsing: KeyPathComparator(\VMGrowth.lastCPU)) { (g: VMGrowth) in Text(firstLast("\(g.firstCPU)", "\(g.lastCPU)")).tabular() }.width(60)
                 TableColumn("Memory", sortUsing: KeyPathComparator(\VMGrowth.lastMemMiB)) { (g: VMGrowth) in
-                    Text(firstLast(Fmt.capacity(mib: g.firstMemMiB), Fmt.capacity(mib: g.lastMemMiB))).tabular()
+                    Text(firstLast(Fmt.memory(mib: g.firstMemMiB), Fmt.memory(mib: g.lastMemMiB))).tabular()
                 }
                 .width(min: 70, ideal: 110)
                 TableColumn("Changes", sortUsing: KeyPathComparator(\VMGrowth.changes)) { (g: VMGrowth) in Text(g.changes > 0 ? "\(g.changes)" : "").tabular() }.width(60)

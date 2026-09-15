@@ -73,7 +73,7 @@ struct ClusterCard: View {
                 GridRow {
                     Stat(label: "Hosts", value: "\(c.hostCount)" + (c.hostsInMaintenance > 0 ? " (\(c.hostsInMaintenance) maint.)" : ""))
                     Stat(label: "Cores / threads", value: "\(Fmt.int(c.cores)) / \(Fmt.int(c.threads))")
-                    Stat(label: "Memory", value: Fmt.capacity(mib: c.memoryMiB))
+                    Stat(label: "Memory", value: Fmt.memory(mib: c.memoryMiB))
                     Stat(label: "Datastores", value: "\(c.datastoreCount)")
                 }
                 GridRow {
@@ -84,16 +84,16 @@ struct ClusterCard: View {
                 }
                 GridRow {
                     Stat(label: "vCPU (on)", value: Fmt.int(c.vcpuOn))
-                    Stat(label: "vRAM (on)", value: Fmt.capacity(mib: c.vramOnMiB))
+                    Stat(label: "vRAM (on)", value: Fmt.memory(mib: c.vramOnMiB))
                     Stat(label: "Provisioned", value: Fmt.capacity(mib: c.provisionedMiB))
                     Stat(label: "In use", value: Fmt.capacity(mib: c.inUseMiB))
                 }
             }
             LabeledMeter(label: "CPU used", pct: c.cpuUsagePct, detail: "\(Fmt.ghz(c.cpuUsedMHz)) of \(Fmt.ghz(c.cpuMHz))", warn: thresholds.hostCPUWarnPct, crit: 95)
-            LabeledMeter(label: "Memory used", pct: c.memUsagePct, detail: "\(Fmt.capacity(mib: c.memUsedMiB)) of \(Fmt.capacity(mib: c.memoryMiB))", warn: thresholds.hostMemWarnPct, crit: 95)
+            LabeledMeter(label: "Memory used", pct: c.memUsagePct, detail: "\(Fmt.memory(mib: c.memUsedMiB)) of \(Fmt.memory(mib: c.memoryMiB))", warn: thresholds.hostMemWarnPct, crit: 95)
             if c.hostCount > 1 {
                 LabeledMeter(label: "Memory if the largest host fails (N+1)", pct: c.memPctAfterHostLoss,
-                             detail: "\(Fmt.capacity(mib: c.memUsedMiB)) needed vs \(Fmt.capacity(mib: c.memoryMiB - c.largestHostMemMiB)) remaining", warn: 90, crit: 100)
+                             detail: "\(Fmt.memory(mib: c.memUsedMiB)) needed vs \(Fmt.memory(mib: c.memoryMiB - c.largestHostMemMiB)) remaining", warn: 90, crit: 100)
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text("ESXi: " + (c.esxVersions.isEmpty ? "—" : c.esxVersions.joined(separator: " · ")))
@@ -186,7 +186,7 @@ struct HostsPane: View {
                 TableColumn("Memory", sortUsing: KeyPathComparator(\ESXiHost.memUsagePct)) { (h: ESXiHost) in UsageMeter(pct: h.memUsagePct, warn: memWarn, crit: 95, width: 44) }
                     .width(min: 100, ideal: 110)
                 TableColumn("Cores", sortUsing: KeyPathComparator(\ESXiHost.cores)) { (h: ESXiHost) in Text("\(h.cores)").tabular() }.width(50)
-                TableColumn("RAM", sortUsing: KeyPathComparator(\ESXiHost.memoryMiB)) { (h: ESXiHost) in Text(Fmt.capacity(mib: h.memoryMiB)).tabular() }.width(70)
+                TableColumn("RAM", sortUsing: KeyPathComparator(\ESXiHost.memoryMiB)) { (h: ESXiHost) in Text(Fmt.memory(mib: h.memoryMiB)).tabular() }.width(70)
             }
             Group {
                 TableColumn("VMs on / total", sortUsing: KeyPathComparator(\ESXiHost.vmCount)) { (h: ESXiHost) in Text("\(h.vmsOn) / \(h.vmCount)").tabular() }.width(90)
@@ -238,7 +238,7 @@ struct HostDetail: View {
                 }
                 LabeledMeter(label: "CPU", pct: host.cpuUsagePct, detail: "\(Fmt.ghz(host.cpuUsedMHz)) of \(Fmt.ghz(host.cpuCapacityMHz)) · \(host.vcpuOn) vCPU on \(host.cores) cores (\(Fmt.ratio(host.vcpuPerCore)))",
                              warn: th.hostCPUWarnPct, crit: 95)
-                LabeledMeter(label: "Memory", pct: host.memUsagePct, detail: "\(Fmt.capacity(mib: host.memUsedMiB)) of \(Fmt.capacity(mib: host.memoryMiB)) · \(Fmt.capacity(mib: host.vramOnMiB)) vRAM on running VMs",
+                LabeledMeter(label: "Memory", pct: host.memUsagePct, detail: "\(Fmt.memory(mib: host.memUsedMiB)) of \(Fmt.memory(mib: host.memoryMiB)) · \(Fmt.memory(mib: host.vramOnMiB)) vRAM on running VMs",
                              warn: th.hostMemWarnPct, crit: 95)
                 Divider()
                 DetailSection("Findings", count: report.findingsByObject[host.id]?.count ?? 0) { ObjectFindings(findings: report.findingsByObject[host.id] ?? []) }
@@ -250,7 +250,7 @@ struct HostDetail: View {
                         ("CPU", host.cpuModel),
                         ("Topology", "\(host.sockets) × \(host.coresPerSocket) = \(host.cores) cores · HT \(host.htActive ? "active" : (host.htAvailable ? "available, off" : "n/a"))"),
                         ("Speed", "\(Fmt.int(Int(host.speedMHz))) MHz"),
-                        ("Memory", Fmt.capacity(mib: host.memoryMiB)),
+                        ("Memory", Fmt.memory(mib: host.memoryMiB)),
                         ("Serial", host.serial), ("BIOS", host.biosVersion), ("Power policy", host.powerPolicy),
                     ])
                 }
@@ -273,7 +273,7 @@ struct HostDetail: View {
                                     PowerIcon(vm: vm)
                                     Text(vm.name).lineLimit(1)
                                     Spacer()
-                                    Text("\(vm.cpus) vCPU · \(Fmt.capacity(mib: vm.memoryMiB))").font(.caption).foregroundStyle(.secondary).tabular()
+                                    Text("\(vm.cpus) vCPU · \(Fmt.memory(mib: vm.memoryMiB))").font(.caption).foregroundStyle(.secondary).tabular()
                                 }
                                 .contentShape(Rectangle())
                             }
@@ -299,7 +299,7 @@ struct HostDetail: View {
                 }
                 if !pnics.isEmpty {
                     DetailSection("Physical NICs", count: pnics.count) {
-                        KeyValueGrid(rows: pnics.map { ($0.device, "\($0.speedMbps == 0 ? "link down" : "\(Fmt.int($0.speedMbps)) Mb/s") · \($0.driver) · \($0.switchName.isEmpty ? "unassigned" : $0.switchName)") })
+                        KeyValueGrid(rows: pnics.map { ($0.device, "\($0.speedMbps == 0 ? "link down" : Fmt.rate(mbps: $0.speedMbps)) · \($0.driver) · \($0.switchName.isEmpty ? "unassigned" : $0.switchName)") })
                     }
                 }
                 if !vmks.isEmpty {

@@ -230,7 +230,7 @@ struct PhysicalNICPane: View {
                 if n.speedMbps == 0 {
                     Label("Link down", systemImage: Severity.warning.symbol).foregroundStyle(Palette.warning)
                 } else {
-                    Text("\(Fmt.int(n.speedMbps)) Mb/s").tabular()
+                    Text(Fmt.rate(mbps: n.speedMbps)).tabular()
                 }
             }
             .width(110)

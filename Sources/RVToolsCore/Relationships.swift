@@ -206,7 +206,7 @@ private struct MapBuilder {
 
     func node(_ vm: VM) -> RelNode {
         RelNode(id: "vm:" + vm.id, kind: .vm, name: vm.name,
-                detail: "\(vm.powerLabel) · \(vm.cpus) vCPU · \(Fmt.capacity(mib: vm.memoryMiB))",
+                detail: "\(vm.powerLabel) · \(vm.cpus) vCPU · \(Fmt.memory(mib: vm.memoryMiB))",
                 focus: .vm(vm.id), issues: vm.issueCount, muted: !vm.isRunning)
     }
 
@@ -266,7 +266,7 @@ private struct MapBuilder {
 
     func node(_ n: PhysicalNIC) -> RelNode {
         RelNode(id: "pnic:" + n.id, kind: .physicalNIC, name: "\(Self.short(n.host)) · \(n.device)",
-                detail: (n.speedMbps == 0 ? "Link down" : "\(Fmt.int(n.speedMbps)) Mb/s") + (n.driver.isEmpty ? "" : " · \(n.driver)"),
+                detail: (n.speedMbps == 0 ? "Link down" : Fmt.rate(mbps: n.speedMbps)) + (n.driver.isEmpty ? "" : " · \(n.driver)"),
                 alert: n.speedMbps == 0 ? "Link down" : nil)
     }
 
@@ -602,8 +602,8 @@ extension CSVExport {
                              "\(disks.count)", gb(disks.reduce(0) { $0 + $1.capacityMiB }), disks.map(\.provisioning).joined(separator: " ")])
             }
         }
-        return build(["Datastore", "Datastore type", "Datastore capacity GB", "Datastore free %", "Datastore clusters",
-                      "VM", "Power", "vCenter", "Cluster", "Host", "Disks", "Disk capacity GB", "Disk provisioning"], rows)
+        return build(["Datastore", "Datastore type", "Datastore capacity \(gbUnit)", "Datastore free %", "Datastore clusters",
+                      "VM", "Power", "vCenter", "Cluster", "Host", "Disks", "Disk capacity \(gbUnit)", "Disk provisioning"], rows)
     }
 
     /// Every host and datastore it mounts, with its storage paths and the VMs it runs there.
@@ -623,7 +623,7 @@ extension CSVExport {
                              paths.map { $0.displayName.isEmpty ? $0.disk : $0.displayName }.joined(separator: "; ")])
             }
         }
-        return build(["Datastore", "Type", "Capacity GB", "Free %", "Host", "Cluster", "vCenter", "VMs on this host", "VMs on datastore",
+        return build(["Datastore", "Type", "Capacity \(gbUnit)", "Free %", "Host", "Cluster", "vCenter", "VMs on this host", "VMs on datastore",
                       "Paths", "Dead paths", "Storage devices"], rows)
     }
 
@@ -639,7 +639,7 @@ extension CSVExport {
                 let uplinks = (pnics[h.id] ?? []).filter { !pg.switchName.isEmpty && $0.switchName.lowercased() == pg.switchName.lowercased() }
                 let adapters = (vmks[h.id] ?? []).filter { $0.portGroup.lowercased() == pg.name.lowercased() }
                 rows.append([pg.name, pg.vlanList, pg.switchName, pg.kind, h.name, h.cluster, h.vcenter,
-                             uplinks.map { "\($0.device) (\($0.speedMbps == 0 ? "link down" : "\($0.speedMbps) Mb/s"))" }.joined(separator: " "),
+                             uplinks.map { "\($0.device) (\($0.speedMbps == 0 ? "link down" : Fmt.rate(mbps: $0.speedMbps)))" }.joined(separator: " "),
                              adapters.map { [$0.device, $0.ip].filter { !$0.isEmpty }.joined(separator: " ") }.joined(separator: "; "),
                              "\(pg.vmIDs.filter { vmHost[$0] == h.id }.count)", pg.subnetList,
                              adapters.map(\.cidr).filter { !$0.isEmpty }.joined(separator: " ")])
