@@ -152,6 +152,7 @@ struct VMDetail: View {
                     if let e = vm.os.endOfSupport {
                         Tag(text: e <= reportDate ? "OS support ended \(Fmt.date(e))" : "OS support ends \(Fmt.date(e))")
                     }
+                    RelationshipMapButton(focus: .vm(vm.id)).padding(.top, 2)
                 }
                 if let trend = model.trend {
                     DetailSection("History across snapshots") {

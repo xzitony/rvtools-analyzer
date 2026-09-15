@@ -92,7 +92,13 @@ enum ExportKind: String, CaseIterable, Identifiable {
     case hosts = "Hosts"
     case clusters = "Clusters"
     case datastores = "Datastores"
+    case vmNetworks = "VM ↔ Networks"
+    case vmDatastores = "VM ↔ Datastores"
+    case hostNetworks = "Host ↔ Networks"
+    case hostDatastores = "Host ↔ Datastores"
     var id: String { rawValue }
+    /// One row per relationship, for planning in both directions.
+    static let relationships: [ExportKind] = [.vmNetworks, .vmDatastores, .hostNetworks, .hostDatastores]
     var fileSuffix: String {
         switch self {
         case .findings: return "findings"
@@ -100,6 +106,10 @@ enum ExportKind: String, CaseIterable, Identifiable {
         case .hosts: return "hosts"
         case .clusters: return "clusters"
         case .datastores: return "datastores"
+        case .vmNetworks: return "vm-networks"
+        case .vmDatastores: return "vm-datastores"
+        case .hostNetworks: return "host-networks"
+        case .hostDatastores: return "host-datastores"
         }
     }
 
@@ -110,6 +120,10 @@ enum ExportKind: String, CaseIterable, Identifiable {
         case .hosts: return CSVExport.hosts(r)
         case .clusters: return CSVExport.clusters(r)
         case .datastores: return CSVExport.datastores(r)
+        case .vmNetworks: return CSVExport.vmNetworks(r)
+        case .vmDatastores: return CSVExport.vmDatastores(r)
+        case .hostNetworks: return CSVExport.hostNetworks(r)
+        case .hostDatastores: return CSVExport.hostDatastores(r)
         }
     }
 }
@@ -1141,7 +1155,7 @@ final class AppModel {
 
     // MARK: Export
 
-    private var exportBaseName: String {
+    var exportBaseName: String {
         let base = sources.first?.deletingPathExtension().lastPathComponent ?? "RVTools"
         return scopeID == "all" ? base : base + "_" + scopeLabel.replacingOccurrences(of: " ", with: "_").replacingOccurrences(of: "/", with: "-")
     }

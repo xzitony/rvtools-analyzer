@@ -100,6 +100,26 @@ Ages are measured from the export timestamp in `vMetaData` or the file name, not
 | ![Virtual Machines](docs/images/virtual-machines.png) | ![Storage](docs/images/storage.png) |
 | **Virtual Machines** — inventory with the VM inspector | **Storage** — capacity, overcommit and reclaim opportunities |
 
+### Relationship maps
+
+Every VM, host, cluster, datastore and port group has a **Relationship Map** button (in its inspector, or on the cluster card). It opens a map in its own window with the object in the middle and everything RVTools links it to around it:
+
+![Relationship map of a host](docs/images/relationship-map.png)
+
+| Map | Shows |
+|---|---|
+| **VM** | Datacenter → cluster → host, folder / resource pool / vApp, then datastores (with the disks on each) → storage devices, and networks (NICs and IPs) → switches → the host's uplinks, and VLANs. |
+| **Host** | Datacenter → cluster, its VMs, datastores → storage devices, switches → port groups and physical NICs → VMkernel adapters. |
+| **Cluster** | Its hosts, datastores, port groups (→ switches and VLANs) and VMs. |
+| **Datastore** | Clusters → hosts that mount it, its storage devices (paths per host) and the VMs with files on it. |
+| **Port group** | Hosts and their uplinks → switch, then VLANs, VMkernel adapters and the VMs connected to it (with IPs). |
+
+Hover over an object to highlight what it's connected to (and details such as a VM's disks on a datastore). Click an object to centre the map on it, and use **Back** to return. Large groups show the first few objects and a **+N more** button. Warning icons mark things like maintenance mode, links down, datastores 90% full or more, dead storage paths and permissive port group security, and a count shows findings.
+
+**Export** on the map window writes the map's relationships as CSV (one row per connection) or the map as a PNG image. For planning across many objects, **Export › VM ↔ Networks, VM ↔ Datastores, Host ↔ Networks and Host ↔ Datastores** write one row per relationship, so one spreadsheet filter answers both directions: filter on networks to list the VMs using them, or on VMs to list their networks.
+
+The maps show infrastructure relationships only. RVTools doesn't see traffic between VMs, so they aren't application dependency maps.
+
 ## Solutions
 
 The **Solutions** section of the sidebar turns a chosen set of VMs and editable assumptions into a report. Each solution has three steps:
@@ -160,7 +180,9 @@ swift build -c release --product rvtools-cli
 .build/release/rvtools-cli <export.xlsx | csv-folder> [--export <dir>]
 ```
 
-This prints the inventory, cluster headroom, join coverage, consistency checks, findings and distributions. With `--export` it also writes the CSVs.
+This prints the inventory, cluster headroom, join coverage, consistency checks, findings and distributions. With `--export` it also writes the CSVs, including the four relationship exports.
+
+`--map vm:NAME` (or `host:`, `cluster:`, `datastore:`, `portgroup:`) prints an object's relationship map as text; with `--export <dir>` it also writes the map's CSV.
 
 `rvtools-cli <export or project> --solution <id>` prints a solution's report. `--set name=value` overrides an assumption, and `--select <selection>=<all|vms|poweredOn|none|VM names>` overrides a VM selection; both are also applied by `--save-project <path>`.
 

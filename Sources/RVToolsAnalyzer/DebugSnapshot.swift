@@ -85,6 +85,20 @@ enum DebugSnapshot {
                 try? await Task.sleep(nanoseconds: 1_500_000_000)
                 log("\(name): " + capture(to: base.appendingPathComponent(name + ".png")))
             }
+            // Relationship maps, rendered the way Export › This Map as an Image writes them.
+            if model.trend == nil, let inv = model.report?.inventory {
+                let busiestPG = inv.portGroups.max { $0.vmCount < $1.vmCount }?.id
+                let maps: [(String, RelFocus?)] = [
+                    ("50-map-vm", worstVM.map { .vm($0) }), ("51-map-host", busiestHost.map { .host($0) }),
+                    ("52-map-cluster", inv.clusters.first.map { .cluster($0.id) }), ("53-map-datastore", fullestDS.map { .datastore($0) }),
+                    ("54-map-portgroup", busiestPG.map { .portGroup($0) }),
+                ]
+                for (name, focus) in maps {
+                    guard let focus, let map = RelationshipBuilder.map(focus, in: inv), let png = RelationshipMapImage.png(map, subtitle: model.projectTitle) else { continue }
+                    try? png.write(to: base.appendingPathComponent(name + ".png"))
+                    log("\(name): \(map.focus.name), \(map.nodes.count) objects, \(map.links.count) links")
+                }
+            }
             if env["RVTA_SNAPSHOT_QUIT"] == "1" { NSApp.terminate(nil) }
         }
     }

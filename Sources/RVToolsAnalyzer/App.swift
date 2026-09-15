@@ -72,6 +72,13 @@ struct RVToolsAnalyzerApp: App {
             }
         }
 
+        WindowGroup("Relationship Map", id: RelationshipMapWindow.windowID, for: RelFocus.self) { $focus in
+            if let focus {
+                RelationshipMapWindow(focus: focus).environment(model)
+            }
+        }
+        .defaultSize(width: 1320, height: 840)
+
         Settings {
             SettingsView().environment(model)
         }
