@@ -92,6 +92,7 @@ struct PortGroupDetail: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 Text(p.name).font(.title3.weight(.semibold)).textSelection(.enabled)
+                RelationshipMapButton(focus: .portGroup(p.id))
                 KeyValueGrid(rows: [
                     ("Type", p.kind), ("Switch", p.switchName), ("VLAN", p.vlanList), ("vCenter", p.vcenter),
                     ("NICs", "\(p.connectedNics) connected of \(p.nicCount)"),

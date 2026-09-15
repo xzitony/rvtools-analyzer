@@ -199,6 +199,7 @@ struct DatastoreDetail: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(d.name).font(.title3.weight(.semibold)).textSelection(.enabled)
                     Text("\(d.type) · \(Fmt.capacity(mib: d.capacityMiB))" + (d.isLocal ? " · local to one host" : "")).foregroundStyle(.secondary)
+                    RelationshipMapButton(focus: .datastore(d.id)).padding(.top, 2)
                 }
                 LabeledMeter(label: "Used", pct: d.usedPct, detail: "\(Fmt.capacity(mib: d.capacityMiB - d.freeMiB)) used · \(Fmt.capacity(mib: d.freeMiB)) free",
                              warn: 100 - th.datastoreFreeWarnPct, crit: 100 - th.datastoreFreeCritPct)

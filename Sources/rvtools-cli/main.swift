@@ -16,6 +16,12 @@ if let i = args.firstIndex(of: "--solution"), i + 1 < args.count {
     solutionID = args[i + 1]
     args.removeSubrange(i...(i + 1))
 }
+// --map <kind>:<name>: print the relationship map of a vm, host, cluster, datastore or portgroup (with --export, also its CSV).
+var mapSpec: String?
+if let i = args.firstIndex(of: "--map"), i + 1 < args.count {
+    mapSpec = args[i + 1]
+    args.removeSubrange(i...(i + 1))
+}
 // --save-project <path>: save the loaded export (plus any --solution/--set assumptions) as a .rvaproj project.
 var saveProjectPath: String?
 if let i = args.firstIndex(of: "--save-project"), i + 1 < args.count {
@@ -208,7 +214,7 @@ if let i = args.firstIndex(of: "--prices"), i + 1 < args.count {
 
 guard !args.isEmpty else {
     print("usage: rvtools-cli <RVTools export .xlsx | folder of RVTools_tab*.csv | project.rvaproj> [...] [--export <dir>]")
-    print("       [--solution <id>] [--set name=value ...] [--select selection=vms ...] [--save-project <path>] [--trend]")
+    print("       [--solution <id>] [--set name=value ...] [--select selection=vms ...] [--save-project <path>] [--trend] [--map kind:name]")
     print("       --list-solutions | --validate-solution <pack> [export] | --solutions <dir> | --price-list <file> | --prices azure|aws")
     exit(1)
 }
@@ -290,6 +296,21 @@ do {
         if let sid = solutionID, let s = SolutionCatalog.solution(id: sid) { p.solutionParams[sid] = paramValues(s) }
         _ = try ProjectFile.write(p, to: url, copySources: ds.sources, prices: [])
         print("Saved project \(url.path)")
+    }
+
+    if let spec = mapSpec {
+        guard let focus = RelationshipBuilder.focus(spec, in: r.inventory), let map = RelationshipBuilder.map(focus, in: r.inventory) else {
+            stderr("--map: nothing matches “\(spec)” — use vm:, host:, cluster:, datastore: or portgroup: and a name")
+            exit(1)
+        }
+        print(map.outline())
+        if let dir = exportDir {
+            let url = URL(fileURLWithPath: dir).appendingPathComponent(map.focus.name.replacingOccurrences(of: "/", with: "-") + "_relationships.csv")
+            try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+            try map.csv().write(to: url, atomically: true, encoding: .utf8)
+            print("Wrote \(url.path)")
+        }
+        exit(0)
     }
 
     if let sid = solutionID {
@@ -392,6 +413,8 @@ do {
         let files: [(String, String)] = [
             ("findings.csv", CSVExport.findings(r)), ("vms.csv", CSVExport.vms(r)), ("hosts.csv", CSVExport.hosts(r)),
             ("clusters.csv", CSVExport.clusters(r)), ("datastores.csv", CSVExport.datastores(r)),
+            ("vm-networks.csv", CSVExport.vmNetworks(r)), ("vm-datastores.csv", CSVExport.vmDatastores(r)),
+            ("host-networks.csv", CSVExport.hostNetworks(r)), ("host-datastores.csv", CSVExport.hostDatastores(r)),
         ]
         for (name, content) in files { try content.write(to: base.appendingPathComponent(name), atomically: true, encoding: .utf8) }
         print("\nExported \(files.count) CSV files to \(base.path)")

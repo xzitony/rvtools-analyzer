@@ -38,6 +38,7 @@ main/22-backup-results.png backup-sizing.png
 main/31-azure-results.png azure-migration.png
 main/36-cloud-compare-assumptions.png custom-solution-assumptions.png
 main/37-cloud-compare-results.png custom-solution-results.png
+main/51-map-host.png relationship-map.png
 trend/30-trend-summary.png trend-summary.png
 trend/31-trend-changes.png trend-changes.png
 LIST

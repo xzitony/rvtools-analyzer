@@ -66,6 +66,7 @@ struct ClusterCard: View {
                     StateChip(label: "DRS", state: c.drsEnabled)
                 }
                 Spacer()
+                RelationshipMapButton(focus: .cluster(c.id), compact: true)
                 if c.issueCount > 0 { Button("\(c.issueCount) cluster finding\(c.issueCount == 1 ? "" : "s")") { model.showIssues() }.buttonStyle(.link).font(.caption) }
             }
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
@@ -233,6 +234,7 @@ struct HostDetail: View {
                         StateChip(label: host.maintenance ? "Maintenance mode" : "In service", state: !host.maintenance)
                         if !host.configStatus.isEmpty { Tag(text: "Status: \(host.configStatus)") }
                     }
+                    RelationshipMapButton(focus: .host(host.id)).padding(.top, 2)
                 }
                 LabeledMeter(label: "CPU", pct: host.cpuUsagePct, detail: "\(Fmt.ghz(host.cpuUsedMHz)) of \(Fmt.ghz(host.cpuCapacityMHz)) · \(host.vcpuOn) vCPU on \(host.cores) cores (\(Fmt.ratio(host.vcpuPerCore)))",
                              warn: th.hostCPUWarnPct, crit: 95)
