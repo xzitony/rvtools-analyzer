@@ -76,6 +76,12 @@ public struct VCDRom: Hashable, Sendable {
     public var deviceType = ""
 }
 
+/// A vCenter custom attribute, or a vSphere tag category, with its value on one VM.
+public struct VCustomField: Hashable, Sendable {
+    public var name = ""
+    public var value = ""
+}
+
 public struct HealthItem: Identifiable, Hashable, Sendable {
     public var id: Int
     public var vcenter = ""
@@ -132,6 +138,8 @@ public struct VM: Identifiable, Sendable {
     public var primaryIP = ""
     public var dnsName = ""
     public var annotation = ""
+    /// Custom attributes and tag categories that have a value, in export order.
+    public var customFields: [VCustomField] = []
     public var vmxPath = ""
     public var uuid = ""
     public var vmID = ""

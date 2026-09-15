@@ -99,6 +99,7 @@ public enum SolutionAPI {
             "ips": v.ips,
             "dnsName": v.dnsName,
             "annotation": v.annotation,
+            "customFields": v.customFields.map { ["name": $0.name, "value": $0.value] },
             "uuid": v.uuid,
             "cpuUsageMHz": num(v.cpuUsageMHz),
             "cpuReadinessPct": num(v.cpuReadinessPct),
