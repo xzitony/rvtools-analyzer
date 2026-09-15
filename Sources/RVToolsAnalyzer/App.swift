@@ -31,10 +31,13 @@ struct RVToolsAnalyzerApp: App {
                     }
                 }
                 .disabled(model.recentProjects.isEmpty)
-                Divider()
-                Button("Close") { model.close() }.keyboardShortcut("w", modifiers: [.command, .shift]).disabled(model.report == nil)
             }
+            // Closing a window and closing the project are different things, so both are named. The Relationship Map
+            // window group drops its default commands (below); otherwise its own "Close" replaces this whole group.
             CommandGroup(replacing: .saveItem) {
+                Button("Close Window") { NSApp.keyWindow?.performClose(nil) }.keyboardShortcut("w")
+                Button("Close Project") { model.close() }.keyboardShortcut("w", modifiers: [.command, .shift]).disabled(model.report == nil)
+                Divider()
                 Button("Save Project") { model.saveProject() }.keyboardShortcut("s").disabled(model.report == nil)
                 Button("Save Project As…") { model.saveProjectAs() }.keyboardShortcut("s", modifiers: [.command, .shift]).disabled(model.report == nil)
                 Divider()
@@ -78,6 +81,7 @@ struct RVToolsAnalyzerApp: App {
             }
         }
         .defaultSize(width: 1320, height: 840)
+        .commandsRemoved()
 
         Settings {
             SettingsView().environment(model)
