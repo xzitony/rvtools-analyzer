@@ -224,7 +224,7 @@ public struct VCF9Readiness: Solution {
                     items: hosts.compactMap { h in
                         let fastest = pnicsByHost[h.id]?.map(\.speedMbps).max() ?? 0
                         guard fastest > 0 else { return nil }
-                        return (fastest >= 10_000 ? .ready : .warning, h.ref("fastest NIC \(fastest >= 1000 ? "\(fastest / 1000) Gbps" : "\(fastest) Mbps")"))
+                        return (fastest >= 10_000 ? .ready : .warning, h.ref("fastest NIC \(Fmt.rate(mbps: fastest))"))
                     },
                     ready: "Every host has a 10 Gbps or faster NIC",
                     remediation: "VCF expects 10 Gbps or faster uplinks on the distributed switch; 1 Gbps NICs are supported for ESX management traffic only.")

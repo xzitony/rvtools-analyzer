@@ -21,7 +21,7 @@ public struct DisasterRecoverySizing: Solution {
         .number("peak", "Replication network", "Peak-to-average change", 2.5, min: 1, max: 10, step: 0.1, unit: "×",
                 help: "Change is bursty; the link must absorb peak change to hold the RPO."),
         .number("wan", "Replication network", "WAN compression", 1.6, min: 1, max: 10, step: 0.1, unit: ": 1"),
-        .number("link", "Replication network", "WAN link", 1000, min: 10, max: 100_000, step: 100, unit: "Mb/s"),
+        .number("link", "Replication network", "WAN link", 1000, min: 10, max: 100_000, step: 100, unit: "Mbps"),
         .number("linkUse", "Replication network", "Usable share of the link", 70, min: 10, max: 100, unit: "%"),
         .number("ratio", "DR compute", "vCPU : pCore at DR", 4, min: 0.5, max: 20, step: 0.5, unit: ": 1"),
         .number("memOver", "DR compute", "vRAM : physical RAM", 1, min: 0.5, max: 4, step: 0.1, unit: ": 1"),
@@ -29,8 +29,8 @@ public struct DisasterRecoverySizing: Solution {
         .toggle("offCompute", "DR compute", "Reserve compute for powered-off VMs", false,
                 help: "Powered-off VMs are always replicated; turn this on if they must also be recoverable at DR."),
         .number("hostCores", "DR host specification", "Cores per host", 64, min: 4, max: 512),
-        .number("hostMem", "DR host specification", "Memory per host", 1024, min: 64, max: 12_288, step: 64, unit: "GB"),
-        .number("hostStor", "DR host specification", "Usable storage per host", 0, min: 0, max: 500, unit: "TB",
+        .number("hostMem", "DR host specification", "Memory per host", 1024, min: 64, max: 12_288, step: 64, unit: "GiB"),
+        .number("hostStor", "DR host specification", "Usable storage per host", 0, min: 0, max: 500, unit: "TiB",
                 help: "0 = external array; otherwise hosts are also sized for storage (e.g. vSAN)."),
         .number("spare", "DR host specification", "Spare hosts (N+x)", 1, min: 0, max: 10),
     ] }
@@ -83,18 +83,18 @@ public struct DisasterRecoverySizing: Solution {
         var sections: [SolutionSection] = [
             .metrics("Summary", [
                 SolutionMetric("VMs protected", Fmt.int(vms.count), "\(computeVMs.count) counted for DR compute", symbol: "desktopcomputer"),
-                SolutionMetric("Compute to recover", "\(Fmt.int(Int(vcpu))) vCPU", "\(Fmt.capacity(mib: vram)) vRAM (incl. growth)", symbol: "cpu"),
+                SolutionMetric("Compute to recover", "\(Fmt.int(Int(vcpu))) vCPU", "\(Fmt.memory(mib: vram)) vRAM (incl. growth)", symbol: "cpu"),
                 SolutionMetric("DR hosts", Fmt.int(Int(recommended)), "\(Int(required)) required (\(binding)-bound) + \(Int(spare)) spare", symbol: "server.rack"),
                 SolutionMetric("DR storage", Fmt.capacity(mib: storage), "replicas, \(SFmt.num(journalHours))h history, headroom", symbol: "externaldrive"),
-                SolutionMetric("Replication bandwidth", SFmt.mbps(avgMbps), "peak \(SFmt.mbps(peakMbps)) · usable link \(SFmt.mbps(usable))",
+                SolutionMetric("Replication bandwidth", Fmt.rate(mbps: avgMbps), "peak \(Fmt.rate(mbps: peakMbps)) · usable link \(Fmt.rate(mbps: usable))",
                                symbol: rpoHolds ? "network" : Severity.warning.symbol),
-                SolutionMetric("Initial seed", SFmt.duration(hours: seedHours), "\(Fmt.capacity(mib: replica)) over \(SFmt.mbps(usable))", symbol: "clock"),
+                SolutionMetric("Initial seed", SFmt.duration(hours: seedHours), "\(Fmt.capacity(mib: replica)) over \(Fmt.rate(mbps: usable))", symbol: "clock"),
             ]),
         ]
 
         var computeRows: [[String]] = [
             ["CPU", "\(Fmt.int(Int(vcpu))) vCPU → \(Fmt.int(Int(pcores.rounded(.up)))) cores at \(SFmt.num(ratio)):1", "\(Fmt.int(Int(hostCores))) cores", Fmt.int(Int(hostsCPU))],
-            ["Memory", "\(Fmt.capacity(mib: vram)) vRAM → \(Fmt.capacity(mib: ramNeeded)) RAM", "\(Fmt.capacity(mib: hostMemMiB)) at \(SFmt.num(memUtil * 100))%", Fmt.int(Int(hostsMem))],
+            ["Memory", "\(Fmt.memory(mib: vram)) vRAM → \(Fmt.memory(mib: ramNeeded)) RAM", "\(Fmt.memory(mib: hostMemMiB)) at \(SFmt.num(memUtil * 100))%", Fmt.int(Int(hostsMem))],
         ]
         if hostStorMiB > 0 { computeRows.append(["Storage", Fmt.capacity(mib: storage), Fmt.capacity(mib: hostStorMiB), Fmt.int(Int(hostsStor))]) }
         computeRows.append(["Required", "\(binding)-bound", "", Fmt.int(Int(required))])
@@ -113,10 +113,10 @@ public struct DisasterRecoverySizing: Solution {
 
         sections.append(.table(SolutionTable(id: "network", title: "Replication network", columns: ["Metric", "Value"], numeric: [1], rows: [
             ["Changed data per day", Fmt.capacity(mib: dailyChange)],
-            ["Average after \(SFmt.num(wan)):1 compression", SFmt.mbps(avgMbps)],
-            ["Peak (\(SFmt.num(peak))× average)", SFmt.mbps(peakMbps)],
-            ["Usable link (\(SFmt.num(p.num("linkUse")))% of \(SFmt.mbps(p.num("link"))))", SFmt.mbps(usable)],
-            ["Link needed to hold a \(SFmt.num(rpoMin))-min RPO at peak", SFmt.mbps(peakMbps / max(p.num("linkUse") / 100, 0.01))],
+            ["Average after \(SFmt.num(wan)):1 compression", Fmt.rate(mbps: avgMbps)],
+            ["Peak (\(SFmt.num(peak))× average)", Fmt.rate(mbps: peakMbps)],
+            ["Usable link (\(SFmt.num(p.num("linkUse")))% of \(Fmt.rate(mbps: p.num("link"))))", Fmt.rate(mbps: usable)],
+            ["Link needed to hold a \(SFmt.num(rpoMin))-min RPO at peak", Fmt.rate(mbps: peakMbps / max(p.num("linkUse") / 100, 0.01))],
             ["Initial seed over the WAN", SFmt.duration(hours: seedHours)],
         ])))
 
@@ -155,8 +155,8 @@ public struct DisasterRecoverySizing: Solution {
         let clusterRows = byCluster.sorted { $0.value.stor > $1.value.stor }
         sections.append(.table(SolutionTable(id: "by-cluster", title: "By source cluster", columns: ["Cluster", "VMs", "vCPU", "vRAM", "Replicated", "Change / day", "Avg bandwidth"],
                                              numeric: [1, 2, 3, 4, 5, 6], rows: clusterRows.map { k, e in
-                                                 [k, Fmt.int(e.vms), Fmt.int(e.vcpu), Fmt.capacity(mib: e.vram), Fmt.capacity(mib: e.stor), Fmt.capacity(mib: e.change),
-                                                  SFmt.mbps(e.change * mibToMegabits / 86_400 / wan)]
+                                                 [k, Fmt.int(e.vms), Fmt.int(e.vcpu), Fmt.memory(mib: e.vram), Fmt.capacity(mib: e.stor), Fmt.capacity(mib: e.change),
+                                                  Fmt.rate(mbps: e.change * mibToMegabits / 86_400 / wan)]
                                              })))
 
         // Considerations
@@ -170,7 +170,7 @@ public struct DisasterRecoverySizing: Solution {
         let indep = vms.filter { $0.disks.contains(where: \.isIndependent) }.map { $0.ref("independent disk(s)") }
         b.list("indep", "Replication", "Independent disks", .warning, noun: "VMs have independent disks", affected: indep,
                ready: "No independent disks", remediation: "Check your replication product's support for independent disks.")
-        let oversize = vms.filter { Double($0.cpus) > hostCores || $0.memoryMiB > hostMemMiB }.map { $0.ref("\($0.cpus) vCPU, \(Fmt.capacity(mib: $0.memoryMiB))") }
+        let oversize = vms.filter { Double($0.cpus) > hostCores || $0.memoryMiB > hostMemMiB }.map { $0.ref("\($0.cpus) vCPU, \(Fmt.memory(mib: $0.memoryMiB))") }
         b.list("oversize", "DR compute", "VMs larger than a DR host", .blocker, noun: "VMs exceed the DR host specification", affected: oversize,
                ready: "Every VM fits on a DR host", remediation: "Increase the DR host specification or right-size these VMs.")
         let bigDisk = vms.filter { $0.disks.contains { $0.capacityMiB > 62 * 1024 * 1024 } }.map { $0.ref("disk > 62 TB") }
@@ -180,8 +180,8 @@ public struct DisasterRecoverySizing: Solution {
         b.list("ft", "Replication", "Fault Tolerance", .warning, noun: "VMs use FT", affected: ft,
                ready: "No FT VMs", remediation: "FT-protected VMs usually can't be host-replicated; verify support.")
         b.add("rpo", "Network", "RPO at peak change", rpoHolds ? .ready : .warning,
-              rpoHolds ? "Peak \(SFmt.mbps(peakMbps)) fits in the usable \(SFmt.mbps(usable))"
-                       : "Peak \(SFmt.mbps(peakMbps)) exceeds the usable \(SFmt.mbps(usable)) — a \(SFmt.num(rpoMin))-min RPO will slip during bursts",
+              rpoHolds ? "Peak \(Fmt.rate(mbps: peakMbps)) fits in the usable \(Fmt.rate(mbps: usable))"
+                       : "Peak \(Fmt.rate(mbps: peakMbps)) exceeds the usable \(Fmt.rate(mbps: usable)) — a \(SFmt.num(rpoMin))-min RPO will slip during bursts",
               remediation: rpoHolds ? "" : "Increase the link, relax the RPO for some VMs, or improve compression.")
         let devices = vms.filter { $0.usbConnected > 0 || $0.cdroms.contains(where: \.connected) }.map { $0.ref($0.usbConnected > 0 ? "USB device" : "CD/DVD connected") }
         b.list("devices", "Recovery", "Connected CD/DVD or USB", .info, noun: "VMs", affected: devices,
@@ -204,12 +204,12 @@ public struct DisasterRecoverySizing: Solution {
 
         let perVM = vms.sorted { replicated($0, basis: basis) > replicated($1, basis: basis) }
         sections.append(.table(SolutionTable(
-            id: "per-vm", title: "Per-VM replication", columns: ["VM", "Cluster", "Power", "vCPU", "Memory", "Replicated", "Change / day", "Avg kb/s", "Networks"],
+            id: "per-vm", title: "Per-VM replication", columns: ["VM", "Cluster", "Power", "vCPU", "Memory", "Replicated", "Change / day", "Avg bandwidth", "Networks"],
             numeric: [3, 4, 5, 6, 7],
             rows: perVM.map { vm in
                 let change = vm.inUseExcludingSwapMiB * c
-                return [vm.name, clusterName(inv, vm), vm.powerLabel, "\(vm.cpus)", Fmt.capacity(mib: vm.memoryMiB), Fmt.capacity(mib: replicated(vm, basis: basis)),
-                        Fmt.capacity(mib: change), String(format: "%.0f", change * mibToMegabits * 1000 / 86_400 / wan), vm.networkList]
+                return [vm.name, clusterName(inv, vm), vm.powerLabel, "\(vm.cpus)", Fmt.memory(mib: vm.memoryMiB), Fmt.capacity(mib: replicated(vm, basis: basis)),
+                        Fmt.capacity(mib: change), Fmt.rate(mbps: change * mibToMegabits / 86_400 / wan), vm.networkList]
             },
             rowRefs: perVM.map(\.vmRef))))
 
@@ -220,7 +220,7 @@ public struct DisasterRecoverySizing: Solution {
             "Initial seed assumes the full replica set crosses the WAN; pre-seeding (backup restore / shipped media) shortens it.",
         ]))
 
-        let headline = "\(Fmt.int(vms.count)) VMs · \(Fmt.int(Int(recommended))) DR hosts · \(Fmt.capacity(mib: storage)) DR storage · \(SFmt.mbps(avgMbps)) avg (\(SFmt.mbps(peakMbps)) peak) replication"
+        let headline = "\(Fmt.int(vms.count)) VMs · \(Fmt.int(Int(recommended))) DR hosts · \(Fmt.capacity(mib: storage)) DR storage · \(Fmt.rate(mbps: avgMbps)) avg (\(Fmt.rate(mbps: peakMbps)) peak) replication"
         return SolutionResult(headline: headline, sections: sections)
     }
 }

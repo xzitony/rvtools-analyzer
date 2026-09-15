@@ -119,6 +119,7 @@ final class ScriptRuntime {
         let limited = JSWatchdog.limit(ctx, seconds: solution.timeout)
         install(ctx)
 
+        ctx.evaluateScript("var __rvaUnits = { storage: \"\(Units.storage.rawValue)\", rate: \"\(Units.rate.rawValue)\" };")
         ctx.evaluateScript(ScriptPrelude.source, withSourceURL: URL(string: "rva:///prelude.js"))
         if let e = takeException(ctx) { return failure("The solution runtime failed to start", e) }
         ctx.evaluateScript(solution.script, withSourceURL: solution.scriptURL)

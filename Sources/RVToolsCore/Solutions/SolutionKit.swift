@@ -296,13 +296,6 @@ enum SFmt {
         return Fmt.num(v, abs(v) < 10 ? 2 : 1)
     }
 
-    static func mbps(_ v: Double) -> String {
-        guard v.isFinite else { return "—" }
-        if v >= 1000 { return String(format: "%.2f Gb/s", v / 1000) }
-        if v >= 10 { return String(format: "%.0f Mb/s", v) }
-        return String(format: "%.1f Mb/s", v)
-    }
-
     static func usd(_ v: Double) -> String {
         guard v.isFinite else { return "—" }
         if abs(v) >= 10_000_000 { return String(format: "$%.2fM", v / 1_000_000) }
@@ -319,8 +312,6 @@ enum SFmt {
 
 /// MiB → megabits
 let mibToMegabits = 8.388608
-/// MiB → decimal MB
-let mibToMB = 1.048576
 
 func regexMatch(_ s: String, _ pattern: String) -> [String]? {
     guard let re = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]),

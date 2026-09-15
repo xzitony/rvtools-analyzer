@@ -70,7 +70,7 @@ struct VMsView: View {
                     TableColumn("Host", sortUsing: KeyPathComparator(\VM.host)) { (vm: VM) in Text(VMsView.shortHost(vm)) }
                     TableColumn("Guest OS", sortUsing: KeyPathComparator(\VM.osName)) { (vm: VM) in GuestOSCell(vm: vm, reportDate: reportDate) }.width(min: 120, ideal: 175)
                     TableColumn("vCPU", sortUsing: KeyPathComparator(\VM.cpus)) { (vm: VM) in Text("\(vm.cpus)").tabular() }.width(44)
-                    TableColumn("Memory", sortUsing: KeyPathComparator(\VM.memoryMiB)) { (vm: VM) in Text(Fmt.capacity(mib: vm.memoryMiB)).tabular() }.width(70)
+                    TableColumn("Memory", sortUsing: KeyPathComparator(\VM.memoryMiB)) { (vm: VM) in Text(Fmt.memory(mib: vm.memoryMiB)).tabular() }.width(70)
                     TableColumn("Provisioned", sortUsing: KeyPathComparator(\VM.provisionedMiB)) { (vm: VM) in Text(Fmt.capacity(mib: vm.provisionedMiB)).tabular() }.width(80)
                     TableColumn("In use", sortUsing: KeyPathComparator(\VM.inUseMiB)) { (vm: VM) in Text(Fmt.capacity(mib: vm.inUseMiB)).tabular() }.width(70)
                 }
@@ -199,12 +199,12 @@ struct VMDetail: View {
                 DetailSection("Compute") {
                     KeyValueGrid(rows: [
                         ("vCPU", "\(vm.cpus)" + (vm.sockets > 0 ? " (\(vm.sockets) socket × \(vm.coresPerSocket) cores)" : "")),
-                        ("Memory", Fmt.capacity(mib: vm.memoryMiB)),
+                        ("Memory", Fmt.memory(mib: vm.memoryMiB)),
                         ("CPU reservation / limit", "\(Fmt.int(Int(vm.cpuReservationMHz))) MHz / " + (vm.cpuLimitMHz < 0 ? "unlimited" : "\(Fmt.int(Int(vm.cpuLimitMHz))) MHz")),
-                        ("Memory reservation / limit", Fmt.capacity(mib: vm.memReservationMiB) + " / " + (vm.memLimitMiB < 0 ? "unlimited" : Fmt.capacity(mib: vm.memLimitMiB))),
+                        ("Memory reservation / limit", Fmt.memory(mib: vm.memReservationMiB) + " / " + (vm.memLimitMiB < 0 ? "unlimited" : Fmt.memory(mib: vm.memLimitMiB))),
                         ("Hot add", "CPU \(vm.cpuHotAdd ? "on" : "off") · memory \(vm.memHotAdd ? "on" : "off")"),
-                        ("Consumed / active", "\(Fmt.capacity(mib: vm.memConsumedMiB)) / \(Fmt.capacity(mib: vm.memActiveMiB))"),
-                        ("Ballooned / swapped", "\(Fmt.capacity(mib: vm.memBalloonedMiB)) / \(Fmt.capacity(mib: vm.memSwappedMiB))"),
+                        ("Consumed / active", "\(Fmt.memory(mib: vm.memConsumedMiB)) / \(Fmt.memory(mib: vm.memActiveMiB))"),
+                        ("Ballooned / swapped", "\(Fmt.memory(mib: vm.memBalloonedMiB)) / \(Fmt.memory(mib: vm.memSwappedMiB))"),
                         ("CPU readiness", vm.cpuReadinessPct.map { Fmt.num($0, 1) + "%" } ?? "—"),
                     ])
                 }

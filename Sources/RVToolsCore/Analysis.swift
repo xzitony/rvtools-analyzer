@@ -221,10 +221,10 @@ public enum Analyzer {
             switch vm.cpus { case ...1: return "1"; case 2: return "2"; case 3...4: return "3–4"; case 5...8: return "5–8"
             case 9...16: return "9–16"; case 17...32: return "17–32"; default: return "> 32" }
         })
-        d.memorySize = ordered(["≤ 2 GB", "2–4 GB", "4–8 GB", "8–16 GB", "16–32 GB", "32–64 GB", "64–128 GB", "> 128 GB"], tally(vms) { vm in
+        d.memorySize = ordered(["≤ 2 GiB", "2–4 GiB", "4–8 GiB", "8–16 GiB", "16–32 GiB", "32–64 GiB", "64–128 GiB", "> 128 GiB"], tally(vms) { vm in
             let g = vm.memoryMiB / 1024
-            switch g { case ...2: return "≤ 2 GB"; case ...4: return "2–4 GB"; case ...8: return "4–8 GB"; case ...16: return "8–16 GB"
-            case ...32: return "16–32 GB"; case ...64: return "32–64 GB"; case ...128: return "64–128 GB"; default: return "> 128 GB" }
+            switch g { case ...2: return "≤ 2 GiB"; case ...4: return "2–4 GiB"; case ...8: return "4–8 GiB"; case ...16: return "8–16 GiB"
+            case ...32: return "16–32 GiB"; case ...64: return "32–64 GiB"; case ...128: return "64–128 GiB"; default: return "> 128 GiB" }
         })
         var byCluster: [String: (Int, Double)] = [:]
         let clusterNames = Dictionary(inv.clusters.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
@@ -259,7 +259,7 @@ public enum Analyzer {
         d.portGroupKind = ranked(tally(inv.portGroups.filter { !$0.isUplink }, { $0.kind }))
         d.topNetworks = inv.portGroups.filter { $0.vmCount > 0 }.sorted { $0.vmCount > $1.vmCount }.prefix(12)
             .map { CountItem(label: $0.name, count: $0.vmCount, value: Double($0.nicCount)) }
-        d.pnicSpeed = tally(inv.pnics, { $0.speedMbps == 0 ? "Link down" : ($0.speedMbps >= 1000 ? "\($0.speedMbps / 1000) Gb/s" : "\($0.speedMbps) Mb/s") })
+        d.pnicSpeed = tally(inv.pnics, { $0.speedMbps == 0 ? "Link down" : Fmt.rate(mbps: $0.speedMbps) })
             .map { CountItem(label: $0.key, count: $0.value.0) }.sorted { $0.count > $1.count }
         d.findingsByCategory = FindingCategory.allCases.compactMap { cat in
             let fs = findings.filter { $0.category == cat }

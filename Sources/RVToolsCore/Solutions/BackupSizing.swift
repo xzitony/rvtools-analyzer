@@ -114,7 +114,7 @@ public struct BackupSizing: Solution {
                 SolutionMetric("Daily change", Fmt.capacity(mib: protected * c), "\(SFmt.num(c * 100))% per day", symbol: "arrow.triangle.2.circlepath"),
                 SolutionMetric("Primary repository", Fmt.capacity(mib: primary), "\(yrs)-yr horizon incl. growth and \(SFmt.num(headroom * 100))% headroom", symbol: "externaldrive"),
                 SolutionMetric("Offsite copy", offsite ? Fmt.capacity(mib: copy) : "Not included", offsite ? "same restore points" : "", symbol: "icloud"),
-                SolutionMetric("Throughput (active full)", SFmt.mbps(fullMiBps * mibToMegabits), "incremental: \(SFmt.mbps(incrMiBps * mibToMegabits))", symbol: "speedometer"),
+                SolutionMetric("Throughput (active full)", Fmt.rate(mbps: fullMiBps * mibToMegabits), "incremental: \(Fmt.rate(mbps: incrMiBps * mibToMegabits))", symbol: "speedometer"),
             ]),
         ]
 
@@ -134,9 +134,9 @@ public struct BackupSizing: Solution {
                                              columns: ["Component", "Restore points", "Today", "In \(yrs) years"], numeric: [1, 2, 3], rows: rows, emphasized: [5, 7, 9])))
 
         sections.append(.table(SolutionTable(id: "throughput", title: "Throughput for the \(SFmt.num(windowSec / 3600))-hour backup window",
-                                             columns: ["Job", "Data per run", "MB/s", "Network"], numeric: [1, 2, 3], rows: [
-                                                 ["Active full", Fmt.capacity(mib: protected), String(format: "%.0f", fullMiBps * mibToMB), SFmt.mbps(fullMiBps * mibToMegabits)],
-                                                 ["Daily incremental", Fmt.capacity(mib: protected * c), String(format: "%.0f", incrMiBps * mibToMB), SFmt.mbps(incrMiBps * mibToMegabits)],
+                                             columns: ["Job", "Data per run", "Storage rate", "Network rate"], numeric: [1, 2, 3], rows: [
+                                                 ["Active full", Fmt.capacity(mib: protected), Fmt.dataRate(mibPerSec: fullMiBps), Fmt.rate(mbps: fullMiBps * mibToMegabits)],
+                                                 ["Daily incremental", Fmt.capacity(mib: protected * c), Fmt.dataRate(mibPerSec: incrMiBps), Fmt.rate(mbps: incrMiBps * mibToMegabits)],
                                              ])))
 
         sections.append(.table(SolutionTable(id: "licensing", title: "Licensing footprint", subtitle: "For per-workload, per-socket or per-host licensing models",

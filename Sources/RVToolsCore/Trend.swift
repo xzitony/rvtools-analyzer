@@ -383,7 +383,7 @@ public enum TrendAnalyzer {
         if a.name != b.name { out.append((.renamed, "\(a.name) → \(b.name)", 0)) }
         var size: [String] = []
         if a.cpus != b.cpus { size.append("\(a.cpus) → \(b.cpus) vCPU") }
-        if abs(a.memoryMiB - b.memoryMiB) >= 1 { size.append("\(Fmt.capacity(mib: a.memoryMiB)) → \(Fmt.capacity(mib: b.memoryMiB)) memory") }
+        if abs(a.memoryMiB - b.memoryMiB) >= 1 { size.append("\(Fmt.memory(mib: a.memoryMiB)) → \(Fmt.memory(mib: b.memoryMiB)) memory") }
         if !size.isEmpty { out.append((.resized, size.joined(separator: ", "), Double(b.cpus - a.cpus) + (b.memoryMiB - a.memoryMiB) / 1024)) }
         let capA = a.disks.isEmpty ? a.provisionedMiB : a.diskCapacityMiB, capB = b.disks.isEmpty ? b.provisionedMiB : b.diskCapacityMiB
         if (!a.disks.isEmpty && !b.disks.isEmpty && a.disks.count != b.disks.count) || abs(capA - capB) >= 1024 {
@@ -502,11 +502,11 @@ public enum TrendAnalyzer {
             }
             for (key, vm) in b where a[key] == nil {
                 let created = vm.creationDate.map { " · created \(Fmt.date($0))" } ?? ""
-                add(key, vm, .added, "\(vm.cpus) vCPU, \(Fmt.capacity(mib: vm.memoryMiB)), \(Fmt.capacity(mib: vm.provisionedMiB)) provisioned\(created)",
+                add(key, vm, .added, "\(vm.cpus) vCPU, \(Fmt.memory(mib: vm.memoryMiB)), \(Fmt.capacity(mib: vm.provisionedMiB)) provisioned\(created)",
                     vm.provisionedMiB, cluster: clusterNames[i][vm.clusterKey] ?? vm.cluster)
             }
             for (key, vm) in a where b[key] == nil {
-                add(key, vm, .removed, "was \(vm.cpus) vCPU, \(Fmt.capacity(mib: vm.memoryMiB)), \(vm.powerLabel.lowercased())", -vm.provisionedMiB,
+                add(key, vm, .removed, "was \(vm.cpus) vCPU, \(Fmt.memory(mib: vm.memoryMiB)), \(vm.powerLabel.lowercased())", -vm.provisionedMiB,
                     cluster: clusterNames[i - 1][vm.clusterKey] ?? vm.cluster)
             }
             for (key, new) in b {
@@ -576,7 +576,7 @@ public enum TrendAnalyzer {
         for i in snapshots.indices.dropFirst() {
             let ha = Dictionary(snapshots[i - 1].inventory.hosts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
             let hb = Dictionary(snapshots[i].inventory.hosts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            for (id, h) in hb where ha[id] == nil { note(i, .host, h.name, "Added", "\(h.cluster.isEmpty ? "standalone" : h.cluster) · \(h.cores) cores · \(Fmt.capacity(mib: h.memoryMiB)) · ESXi \(h.esxVersion)") }
+            for (id, h) in hb where ha[id] == nil { note(i, .host, h.name, "Added", "\(h.cluster.isEmpty ? "standalone" : h.cluster) · \(h.cores) cores · \(Fmt.memory(mib: h.memoryMiB)) · ESXi \(h.esxVersion)") }
             for (id, h) in ha where hb[id] == nil { note(i, .host, h.name, "Removed", "was in \(h.cluster.isEmpty ? "no cluster" : h.cluster)") }
             for (id, new) in hb {
                 guard let old = ha[id] else { continue }
@@ -585,7 +585,7 @@ public enum TrendAnalyzer {
                 }
                 if old.clusterKey != new.clusterKey { note(i, .host, new.name, "Moved", "\(old.cluster.isEmpty ? "standalone" : old.cluster) → \(new.cluster.isEmpty ? "standalone" : new.cluster)") }
                 if old.cores != new.cores || abs(old.memoryMiB - new.memoryMiB) >= 1024 {
-                    note(i, .host, new.name, "Hardware changed", "\(old.cores) → \(new.cores) cores, \(Fmt.capacity(mib: old.memoryMiB)) → \(Fmt.capacity(mib: new.memoryMiB))")
+                    note(i, .host, new.name, "Hardware changed", "\(old.cores) → \(new.cores) cores, \(Fmt.memory(mib: old.memoryMiB)) → \(Fmt.memory(mib: new.memoryMiB))")
                 }
                 if old.maintenance != new.maintenance { note(i, .host, new.name, new.maintenance ? "Entered maintenance" : "Left maintenance", "") }
             }
@@ -631,7 +631,8 @@ public enum TrendExport {
         return ([header] + rows).map { $0.map(quote).joined(separator: ",") }.joined(separator: "\n") + "\n"
     }
 
-    static func gib(_ mib: Double) -> String { String(format: "%.1f", mib / 1024) }
+    static func gib(_ mib: Double) -> String { Fmt.memoryGiB(mib: mib) }
+    static func storage(_ mib: Double) -> String { Fmt.storageGB(mib: mib) }
     static func num(_ v: Double, _ digits: Int = 1) -> String { String(format: "%.\(digits)f", v) }
 
     /// Every metric per snapshot.
@@ -639,8 +640,8 @@ public enum TrendExport {
         let header = ["Metric", "Unit"] + t.snapshots.map { Fmt.dateTime($0.date) }
         let rows = t.series.map { (s: TrendSeries) -> [String] in
             let f = s.metric.format
-            let unit = f == .capacityMiB ? "GiB" : (f == .percent ? "%" : "count")
-            let values = s.points.map { (p: TrendPoint) -> String in f == .capacityMiB ? gib(p.value) : num(p.value, f == .count ? 0 : 1) }
+            let unit = f == .capacityMiB ? Fmt.storageGBLabel : (f == .percent ? "%" : "count")
+            let values = s.points.map { (p: TrendPoint) -> String in f == .capacityMiB ? storage(p.value) : num(p.value, f == .count ? 0 : 1) }
             return [s.metric.rawValue, unit] + values
         }
         return csv(header, rows)
@@ -657,22 +658,24 @@ public enum TrendExport {
     }
 
     public static func vmGrowth(_ t: TrendReport) -> String {
-        let header = ["VM", "Cluster", "Data first GiB", "Data latest GiB", "Change GiB", "GiB per month", "Annual growth %",
+        let u = Fmt.storageGBLabel
+        let header = ["VM", "Cluster", "Data first \(u)", "Data latest \(u)", "Change \(u)", "\(u) per month", "Annual growth %",
                       "vCPU first", "vCPU latest", "Memory first GiB", "Memory latest GiB", "Changes"]
         let rows = t.vmGrowth.map { (g: VMGrowth) -> [String] in
             let annual = g.annualPct.map { num($0) } ?? ""
-            return [g.name, g.cluster, gib(g.firstDataMiB), gib(g.lastDataMiB), gib(g.deltaMiB), gib(g.perMonthMiB), annual,
+            return [g.name, g.cluster, storage(g.firstDataMiB), storage(g.lastDataMiB), storage(g.deltaMiB), storage(g.perMonthMiB), annual,
                     String(g.firstCPU), String(g.lastCPU), gib(g.firstMemMiB), gib(g.lastMemMiB), String(g.changes)]
         }
         return csv(header, rows)
     }
 
     public static func datastores(_ t: TrendReport) -> String {
-        let header = ["Datastore", "Capacity first GiB", "Capacity latest GiB", "Used first GiB", "Used latest GiB", "Used %", "GiB per month", "Days to full", "Full by"]
+        let u = Fmt.storageGBLabel
+        let header = ["Datastore", "Capacity first \(u)", "Capacity latest \(u)", "Used first \(u)", "Used latest \(u)", "Used %", "\(u) per month", "Days to full", "Full by"]
         let rows = t.datastores.map { (d: DatastoreTrend) -> [String] in
             let days = d.daysToFull.map { num($0, 0) } ?? ""
             let full = d.fullDate.map { Fmt.date($0) } ?? ""
-            return [d.name, gib(d.capacityFirst), gib(d.capacityLast), gib(d.usedFirst), gib(d.usedLast), num(d.usedPctLast), gib(d.perMonthMiB), days, full]
+            return [d.name, storage(d.capacityFirst), storage(d.capacityLast), storage(d.usedFirst), storage(d.usedLast), num(d.usedPctLast), storage(d.perMonthMiB), days, full]
         }
         return csv(header, rows)
     }

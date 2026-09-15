@@ -102,7 +102,7 @@ enum Rules {
             // VM
             "vm.snapshot.old": RuleDef(title: "Snapshots older than \(n(t.snapshotAgeDays)) days", severity: .warning, category: .protection,
                                        recommendation: "Snapshots are not backups. Validate and delete/consolidate them; long-lived delta chains grow without bound and degrade I/O."),
-            "vm.snapshot.large": RuleDef(title: "Snapshots larger than \(n(t.snapshotSizeGiB)) GB", severity: .warning, category: .capacity,
+            "vm.snapshot.large": RuleDef(title: "Snapshots larger than \(n(t.snapshotSizeGiB)) GiB", severity: .warning, category: .capacity,
                                          recommendation: "Large deltas risk filling the datastore and make consolidation slow. Remove them in a maintenance window."),
             "vm.consolidation": RuleDef(title: "Disk consolidation needed", severity: .critical, category: .protection,
                                         recommendation: "Run Snapshots › Consolidate. Orphaned delta disks keep growing and break backups."),
@@ -320,7 +320,7 @@ enum Rules {
                 if !vm.nics.isEmpty && !vm.nics.contains(where: \.connected) { f("vm.nonetwork", "\(vm.nics.count) NIC(s), none connected") }
                 for n in vm.nics where !n.connected && !n.network.isEmpty { f("vm.nic.disconnected", "\(n.label) on \(n.network)") }
                 if vm.memBalloonedMiB > 0 || vm.memSwappedMiB > 0 {
-                    f("vm.memory.pressure", "Ballooned \(Fmt.capacity(mib: vm.memBalloonedMiB)), swapped \(Fmt.capacity(mib: vm.memSwappedMiB))")
+                    f("vm.memory.pressure", "Ballooned \(Fmt.memory(mib: vm.memBalloonedMiB)), swapped \(Fmt.memory(mib: vm.memSwappedMiB))")
                 }
                 if let rdy = vm.cpuReadinessPct, rdy > 5 { f("vm.cpu.readiness", "CPU ready \(Fmt.num(rdy, 1))%") }
                 // Desktop VMs are usually VDI and not image-level backed up, so they are skipped.
@@ -354,7 +354,7 @@ enum Rules {
             if !cds.isEmpty { f("vm.cdrom", cds.map { "\($0.node) \($0.deviceType)" }.joined(separator: ", ")) }
             var limits: [String] = []
             if vm.cpuLimitMHz >= 0 { limits.append("CPU limit \(Fmt.int(Int(vm.cpuLimitMHz))) MHz") }
-            if vm.memLimitMiB >= 0 { limits.append("memory limit \(Fmt.capacity(mib: vm.memLimitMiB))") }
+            if vm.memLimitMiB >= 0 { limits.append("memory limit \(Fmt.memory(mib: vm.memLimitMiB))") }
             if !limits.isEmpty { f("vm.limits", limits.joined(separator: ", ")) }
             if let h = hosts[vm.hostKey], h.cores > 0 {
                 if vm.cpus > h.cores { f("vm.vcpu.exceedsHost", "\(vm.cpus) vCPU on a \(h.cores)-core host") }
@@ -425,7 +425,7 @@ enum Rules {
             let cs = h.configStatus.lowercased()
             if cs == "red" || cs == "yellow" { f("host.status", "Config status: \(h.configStatus)") }
             if h.cpuUsagePct > t.hostCPUWarnPct { f("host.cpu.high", "CPU \(Fmt.pct(h.cpuUsagePct))") }
-            if h.memUsagePct > t.hostMemWarnPct { f("host.mem.high", "Memory \(Fmt.pct(h.memUsagePct)) of \(Fmt.capacity(mib: h.memoryMiB))") }
+            if h.memUsagePct > t.hostMemWarnPct { f("host.mem.high", "Memory \(Fmt.pct(h.memUsagePct)) of \(Fmt.memory(mib: h.memoryMiB))") }
             if h.vcpuPerCore > t.vcpuPerCoreWarn { f("host.vcpuratio", "\(h.vcpuOn) vCPU on \(h.cores) cores (\(Fmt.ratio(h.vcpuPerCore)))") }
             if let eol = Lifecycle.vsphereEndOfSupport(h.esxVersion) {
                 if eol <= now { f("host.esxi.eol", "ESXi \(h.esxVersion) — support ended \(Fmt.date(eol))") }
@@ -461,7 +461,7 @@ enum Rules {
                 if c.drsEnabled == false { f("cluster.drs.off", "\(c.hostCount) hosts, DRS disabled") }
                 if c.haEnabled == true && c.admissionControl == false { f("cluster.ac.off", "HA on, admission control off") }
                 if c.memPctAfterHostLoss > 100 {
-                    f("cluster.n1.mem", "Memory use \(Fmt.capacity(mib: c.memUsedMiB)) vs \(Fmt.capacity(mib: c.memoryMiB - c.largestHostMemMiB)) left after losing the largest host (\(Fmt.pct(c.memPctAfterHostLoss)))")
+                    f("cluster.n1.mem", "Memory use \(Fmt.memory(mib: c.memUsedMiB)) vs \(Fmt.memory(mib: c.memoryMiB - c.largestHostMemMiB)) left after losing the largest host (\(Fmt.pct(c.memPctAfterHostLoss)))")
                 }
                 if c.cpuPctAfterHostLoss > 100 {
                     f("cluster.n1.cpu", "CPU use \(Fmt.ghz(c.cpuUsedMHz)) vs \(Fmt.ghz(c.cpuMHz - c.largestHostCpuMHz)) left after losing the largest host (\(Fmt.pct(c.cpuPctAfterHostLoss)))")

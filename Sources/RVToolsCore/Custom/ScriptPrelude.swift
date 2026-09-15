@@ -46,14 +46,24 @@ globalThis.rva = (() => {
     if (digits !== undefined) return v.toFixed(digits) + "%";
     return (v < 10 && v !== 0 && Math.round(v) !== v ? v.toFixed(1) : v.toFixed(0)) + "%";
   }
+  // Display units chosen in the app (or rvtools-cli --units / --rate). Memory is always binary.
+  const units = Object.freeze(typeof __rvaUnits === "object" && __rvaUnits ? __rvaUnits : { storage: "binary", rate: "bits" });
+  function scaled(v, base, names) {
+    const a = Math.abs(v);
+    if (a < base) return v.toFixed(0) + " " + names[0];
+    if (a < base * base) return (v / base).toFixed(a < 10 * base ? 1 : 0) + " " + names[1];
+    if (a < base * base * base) return (v / base / base).toFixed(1) + " " + names[2];
+    return (v / base / base / base).toFixed(2) + " " + names[3];
+  }
   function capacity(mib) {
     if (!finite(mib)) return "—";
-    const a = Math.abs(mib);
-    if (a < 1024) return mib.toFixed(0) + " MB";
-    if (a < 1048576) return (mib / 1024).toFixed(a < 10240 ? 1 : 0) + " GB";
-    if (a < 1073741824) return (mib / 1048576).toFixed(1) + " TB";
-    return (mib / 1073741824).toFixed(2) + " PB";
+    return units.storage === "decimal" ? scaled(mib * 1.048576, 1000, ["MB", "GB", "TB", "PB"]) : scaled(mib, 1024, ["MiB", "GiB", "TiB", "PiB"]);
   }
+  function memory(mib) {
+    if (!finite(mib)) return "—";
+    return scaled(mib, 1024, ["MiB", "GiB", "TiB", "PiB"]);
+  }
+  function trimmed(v) { return String(Number(v.toFixed(2))); }
   const currencySymbols = { USD: "$", EUR: "€", GBP: "£", JPY: "¥", AUD: "A$", CAD: "C$", NZD: "NZ$", INR: "₹", BRL: "R$" };
   function money(v, currency) {
     if (!finite(v)) return "—";
@@ -63,12 +73,13 @@ globalThis.rva = (() => {
     const symbol = currencySymbols[code];
     return (v < 0 ? "−" : "") + (symbol !== undefined ? symbol + body : body + " " + code);
   }
-  function mbps(v) {
-    if (!finite(v)) return "—";
-    if (v >= 1000) return (v / 1000).toFixed(2) + " Gb/s";
-    if (v >= 10) return v.toFixed(0) + " Mb/s";
-    return v.toFixed(1) + " Mb/s";
+  function rate(mbps) {
+    if (!finite(mbps)) return "—";
+    const bits = units.rate !== "bytes", v = bits ? mbps : mbps / 8;
+    if (Math.abs(v) >= 1000) return trimmed(v / 1000) + (bits ? " Gbps" : " GB/s");
+    return (Math.abs(v) >= 10 ? v.toFixed(0) : trimmed(v)) + (bits ? " Mbps" : " MB/s");
   }
+  const mbps = rate;
   function duration(hours) {
     if (!finite(hours)) return "—";
     if (hours < 1) return (hours * 60).toFixed(0) + " minutes";
@@ -184,7 +195,7 @@ globalThis.rva = (() => {
 
   return {
     apiVersion: 1,
-    int, num, pct, capacity, gib: (mib) => mib / 1024, money, mbps, duration, date, daysBetween,
+    int, num, pct, capacity, memory, gib: (mib) => mib / 1024, money, mbps, rate, units, duration, date, daysBetween,
     sum, groupBy, countBy, sortBy, uniq, index,
     ref, vmRef, hostRef, clusterRef, datastoreRef, isWindows,
     metric, metrics, table, bars, notes, checks,

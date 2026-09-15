@@ -365,7 +365,7 @@ struct VMSelectionView: View {
             Button("None") { selection = [] }
             Spacer()
             Text("\(Fmt.int(chosen.count)) selected · \(Fmt.int(chosen.reduce(0) { $0 + $1.cpus })) vCPU · "
-                + "\(Fmt.capacity(mib: chosen.reduce(0) { $0 + $1.memoryMiB })) vRAM · \(Fmt.capacity(mib: chosen.reduce(0) { $0 + $1.inUseMiB })) in use")
+                + "\(Fmt.memory(mib: chosen.reduce(0) { $0 + $1.memoryMiB })) vRAM · \(Fmt.capacity(mib: chosen.reduce(0) { $0 + $1.inUseMiB })) in use")
                 .font(.callout).foregroundStyle(.secondary).tabular()
         }
         .controlSize(.small)
@@ -386,7 +386,7 @@ struct VMSelectionView: View {
             }
             Group {
                 TableColumn("vCPU", sortUsing: KeyPathComparator(\VM.cpus)) { (vm: VM) in Text("\(vm.cpus)").tabular() }.width(44)
-                TableColumn("Memory", sortUsing: KeyPathComparator(\VM.memoryMiB)) { (vm: VM) in Text(Fmt.capacity(mib: vm.memoryMiB)).tabular() }.width(70)
+                TableColumn("Memory", sortUsing: KeyPathComparator(\VM.memoryMiB)) { (vm: VM) in Text(Fmt.memory(mib: vm.memoryMiB)).tabular() }.width(70)
                 TableColumn("In use", sortUsing: KeyPathComparator(\VM.inUseMiB)) { (vm: VM) in Text(Fmt.capacity(mib: vm.inUseMiB)).tabular() }.width(75)
                 TableColumn("Provisioned", sortUsing: KeyPathComparator(\VM.provisionedMiB)) { (vm: VM) in Text(Fmt.capacity(mib: vm.provisionedMiB)).tabular() }.width(85)
                 TableColumn("Folder", sortUsing: KeyPathComparator(\VM.folder)) { (vm: VM) in Text(vm.folder) }
