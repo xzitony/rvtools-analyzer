@@ -5,12 +5,14 @@ import Foundation
 /// The object a relationship map is centred on (ids as in `Inventory`).
 public enum RelFocus: Hashable, Codable, Sendable {
     case vm(String), host(String), cluster(String), datastore(String), portGroup(String)
+    /// A datastore's storage paths only: hosts and their adapters, the datastore, and the devices behind it.
+    case storagePaths(String)
 }
 
 public enum RelKind: String, Sendable {
     case datacenter = "Datacenter", cluster = "Cluster", host = "Host", vm = "VM"
     case folder = "Folder", resourcePool = "Resource pool", vApp = "vApp"
-    case datastore = "Datastore", storageDevice = "Storage device"
+    case datastore = "Datastore", storageDevice = "Storage device", storageAdapter = "Storage adapter"
     case portGroup = "Port group", standardSwitch = "Standard switch", distributedSwitch = "Distributed switch"
     case physicalNIC = "Physical NIC", vmkernel = "VMkernel adapter", vlan = "VLAN"
 }
@@ -38,6 +40,7 @@ public struct RelNode: Identifiable, Hashable, Sendable {
         case .cluster(let id)?: return (.cluster, id)
         case .datastore(let id)?: return (.datastore, id)
         case .portGroup(let id)?: return (.network, id)
+        case .storagePaths(let id)?: return (.datastore, id)
         case nil: return nil
         }
     }
@@ -108,6 +111,7 @@ public enum RelationshipBuilder {
         case .cluster(let id): return b.clusters[id].map(b.clusterMap)
         case .datastore(let id): return b.datastores[id].map(b.datastoreMap)
         case .portGroup(let id): return b.portGroups[id].map(b.portGroupMap)
+        case .storagePaths(let id): return b.datastores[id].map(b.storagePathMap)
         }
     }
 
@@ -121,6 +125,7 @@ public enum RelationshipBuilder {
         case "host": return inv.hosts.first { matches($0.name) || matches(MapBuilder.short($0.name)) }.map { .host($0.id) }
         case "cluster": return inv.clusters.first { matches($0.name) }.map { .cluster($0.id) }
         case "datastore", "ds": return inv.datastores.first { matches($0.name) }.map { .datastore($0.id) }
+        case "paths", "storagepaths": return inv.datastores.first { matches($0.name) }.map { .storagePaths($0.id) }
         case "portgroup", "network", "pg": return inv.portGroups.first { matches($0.name) }.map { .portGroup($0.id) }
         default: return nil
         }
@@ -505,6 +510,79 @@ private struct MapBuilder {
             let n = node(vm)
             d.add(n, 3, "Virtual machines")
             d.link(f.id, n.id, disks.isEmpty ? "configuration files" : "\(disks.count) disk\(disks.count == 1 ? "" : "s") · \(Fmt.capacity(mib: disks.reduce(0) { $0 + $1.capacityMiB }))")
+        }
+        return d.finish(f)
+    }
+
+    /// Hosts → storage adapters → the datastore → the devices (or NFS server) behind it. No VMs: this map is about
+    /// how the storage is reached, so a missing path or adapter stands out.
+    func storagePathMap(_ ds: Datastore) -> RelationshipMap {
+        let d = Draft(columns: 4)
+        let p = StoragePaths.paths(for: ds, in: inv)
+        let f = RelNode(id: "ds:" + ds.id, kind: .datastore, name: ds.name,
+                        detail: "\(ds.type) · \(Fmt.capacity(mib: ds.capacityMiB)) · \(p.summary)",
+                        alert: p.deadPaths > 0 ? "\(p.deadPaths) dead paths" : nil)
+        d.add(f, 2, "Datastore")
+
+        for h in p.hosts {
+            guard let host = hosts[h.hostKey] else { continue }
+            let hn = node(host)
+            d.add(hn, 0, "Hosts")
+            if p.transport == .nfs {
+                if h.vmkernels.isEmpty {
+                    d.link(hn.id, f.id, "no storage VMkernel")
+                }
+                for k in h.vmkernels {
+                    let kn = RelNode(id: "vmk:" + k.id, kind: .vmkernel, name: "\(Self.short(k.host)) · \(k.device)",
+                                     detail: "\(k.ip) · MTU \(k.mtu) · \(k.portGroup)",
+                                     alert: h.uplinks == 1 ? "1 uplink" : nil)
+                    d.add(kn, 1, "VMkernel adapters")
+                    d.link(hn.id, kn.id)
+                    d.link(kn.id, f.id, h.uplinks > 0 ? "\(h.uplinks) uplinks" : "")
+                }
+            } else if h.adapters.isEmpty {
+                d.link(hn.id, f.id, h.hasPathData ? "\(h.paths) paths" : "no path data")
+            } else {
+                for a in h.adapters {
+                    let hba = inv.hbas.first { $0.hostKey == h.hostKey && $0.device.lowercased() == a.lowercased() }
+                    let viaAdapter = h.devices.reduce(0) { $0 + $1.pathNames.filter { StoragePaths.adapter(ofPath: $0).lowercased() == a.lowercased() }.count }
+                    let an = RelNode(id: "hba:" + h.hostKey + "|" + a.lowercased(), kind: .storageAdapter,
+                                     name: "\(Self.short(h.host)) · \(a)",
+                                     detail: [hba?.type, hba?.model].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
+                                     alert: hba?.status.lowercased() == "offline" ? "offline" : (h.adapters.count == 1 && h.paths > 1 ? "only adapter" : nil))
+                    d.add(an, 1, "Storage adapters")
+                    d.link(hn.id, an.id)
+                    d.link(an.id, f.id, "\(viaAdapter) path\(viaAdapter == 1 ? "" : "s")")
+                }
+            }
+        }
+
+        if p.transport == .nfs, !p.server.isEmpty {
+            let sn = RelNode(id: "nfs:" + key(ds.vcenter, p.server), kind: .storageDevice, name: p.server,
+                             detail: p.exportPath.isEmpty ? "NFS server" : "NFS export \(p.exportPath)")
+            d.add(sn, 3, "NFS server")
+            d.link(f.id, sn.id)
+        }
+        var devices: [(lun: MultiPathLUN, hosts: Int, paths: Int, dead: Int, adapters: Set<String>)] = []
+        for h in p.hosts {
+            for l in h.devices {
+                let adapters = Set(l.pathNames.map(StoragePaths.adapter(ofPath:)))
+                if let i = devices.firstIndex(where: { $0.lun.disk.lowercased() == l.disk.lowercased() }) {
+                    devices[i].hosts += 1; devices[i].paths += l.paths; devices[i].dead += l.deadPaths
+                    devices[i].adapters.formUnion(adapters)
+                } else {
+                    devices.append((l, 1, l.paths, l.deadPaths, adapters))
+                }
+            }
+        }
+        for dev in devices {
+            let l = dev.lun
+            let n = RelNode(id: "dev:" + ds.id + "|" + l.disk.lowercased(), kind: .storageDevice, name: l.displayName.isEmpty ? l.disk : l.displayName,
+                            detail: "\(dev.hosts) host\(dev.hosts == 1 ? "" : "s") · \(dev.paths) paths · \(StoragePaths.policyName(l.policy))"
+                                + (l.vendor.isEmpty ? "" : " · \(l.vendor)"),
+                            alert: dev.dead > 0 ? "\(dev.dead) dead paths" : nil)
+            d.add(n, 3, "Storage devices")
+            d.link(f.id, n.id)
         }
         return d.finish(f)
     }

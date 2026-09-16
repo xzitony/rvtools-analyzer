@@ -477,6 +477,8 @@ public struct MultiPathLUN: Identifiable, Sendable {
     public var paths = 0
     public var activePaths = 0
     public var deadPaths = 0
+    /// Path names as RVTools reports them ("vmhba1:C0:T0:L1"), so the adapters behind them can be counted.
+    public var pathNames: [String] = []
     public var vendor = ""
     public var model = ""
 }

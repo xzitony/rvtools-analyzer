@@ -209,6 +209,29 @@ enum Rules {
                                      recommendation: "Investigate fabric/array ports; the LUN is running with reduced redundancy."),
             "host.lun.singlepath": RuleDef(title: "LUN with a single storage path", severity: .warning, category: .availability,
                                            recommendation: "Configure multipathing so a single HBA/port failure doesn't drop the datastore."),
+            // Datastore pathing
+            "ds.path.dead": RuleDef(title: "Dead paths to a datastore", severity: .critical, category: .availability,
+                                    recommendation: "The datastore runs with reduced redundancy. Check the fabric, array ports and HBA state."),
+            "ds.path.single": RuleDef(title: "Datastore reached over a single path", severity: .critical, category: .availability,
+                                      recommendation: "One HBA, cable, fabric or array port failure takes the datastore away from that host. Present the LUN over at least two paths."),
+            "ds.path.adapter": RuleDef(title: "All paths to a datastore on one adapter", severity: .warning, category: .availability,
+                                       recommendation: "Paths run over several array ports but a single HBA. Zone the LUN to a second HBA so the adapter isn't a single point of failure."),
+            "ds.path.uneven": RuleDef(title: "Hosts see different numbers of paths", severity: .warning, category: .configuration,
+                                      recommendation: "Uneven zoning or masking: a host with fewer paths loses redundancy first and performs differently. Align zoning across the cluster."),
+            "ds.path.policy": RuleDef(title: "Path selection policy isn't Round Robin", severity: .info, category: .performance,
+                                      recommendation: "Most active/active arrays expect VMW_PSP_RR. Confirm the vendor's supported policy (some arrays require Fixed or MRU)."),
+            "ds.path.mixedpolicy": RuleDef(title: "Mixed path selection policies for one datastore", severity: .warning, category: .configuration,
+                                           recommendation: "Hosts use different policies for the same LUN; performance and failover behaviour differ per host. Set one policy, usually by claim rule."),
+            "ds.path.nodata": RuleDef(title: "No multipathing data for some hosts", severity: .info, category: .configuration,
+                                      recommendation: "The vMultiPath tab has no rows for these hosts, so their redundancy can't be checked. Re-export with multipathing included."),
+            "ds.nfs.novmk": RuleDef(title: "NFS datastore with no storage VMkernel adapter", severity: .warning, category: .availability,
+                                    recommendation: "NFS traffic falls back to whichever adapter carries that subnet, usually management. Give each host a VMkernel adapter on the storage network."),
+            "ds.nfs.singlevmk": RuleDef(title: "NFS datastore reached over one VMkernel adapter", severity: .info, category: .availability,
+                                        recommendation: "NFS redundancy comes from the network: the adapter's port group should have two uplinks, or add a second VMkernel adapter with its own subnet for session trunking."),
+            "ds.nfs.uplink": RuleDef(title: "NFS VMkernel adapter on a switch with one uplink", severity: .critical, category: .availability,
+                                     recommendation: "A single NIC or cable failure takes the datastore away from that host. Add an uplink to the switch carrying the storage port group."),
+            "ds.nfs.mtu": RuleDef(title: "Mixed MTU on the NFS storage network", severity: .warning, category: .configuration,
+                                  recommendation: "Jumbo frames must match end to end (VMkernel, switches, array). Mismatched MTUs cause fragmentation or silent drops."),
             // Cluster
             "cluster.ha.off": RuleDef(title: "vSphere HA disabled", severity: .critical, category: .availability,
                                       recommendation: "Without HA, VMs are not restarted after a host failure."),
@@ -476,6 +499,7 @@ enum Rules {
         }
 
         // MARK: Datastores
+        let pathsByDatastore = StoragePaths.map(inv)
         for d in inv.datastores {
             let L = d.clusterList.isEmpty ? d.type : d.clusterList
             let f = { (rule: String, detail: String) in e.add(rule, .datastore, d.id, d.name, L, detail) }
@@ -488,6 +512,43 @@ enum Rules {
             }
             if d.vmCount == 0 && (d.vmTotalReported ?? 0) == 0 && d.capacityMiB > 0 { f("ds.empty", "\(Fmt.capacity(mib: d.capacityMiB)) \(d.type)") }
             if d.type.lowercased() == "vmfs" && d.majorVersion > 0 && d.majorVersion < 6 { f("ds.vmfs.old", "VMFS \(d.majorVersion)") }
+
+            // Pathing: multipathing for block storage, VMkernel adapters and uplinks for NFS.
+            let p = pathsByDatastore[d.id] ?? DatastorePaths()
+            let names = { (list: [HostStoragePaths]) in list.map(\.host).sorted().joined(separator: ", ") }
+            if !p.deadPathHosts.isEmpty {
+                f("ds.path.dead", "\(p.deadPaths) dead path\(p.deadPaths == 1 ? "" : "s") on \(names(p.deadPathHosts))")
+            }
+            if !p.singlePathHosts.isEmpty {
+                f("ds.path.single", "1 path from \(names(p.singlePathHosts)) (\(p.transport.rawValue))")
+            }
+            if !p.singleAdapterHosts.isEmpty {
+                let h = p.singleAdapterHosts[0]
+                f("ds.path.adapter", "\(p.singleAdapterHosts.count) host\(p.singleAdapterHosts.count == 1 ? "" : "s") use only \(h.adapterList): \(names(p.singleAdapterHosts))")
+            }
+            if p.transport.isBlock, p.minPaths > 0, p.maxPaths > p.minPaths {
+                f("ds.path.uneven", "\(p.minPaths)–\(p.maxPaths) paths across \(p.hosts.count) hosts")
+            }
+            if p.policies.count > 1 {
+                f("ds.path.mixedpolicy", p.policies.map(StoragePaths.policyName).joined(separator: ", "))
+            } else if let policy = p.policies.first, policy.uppercased() != "VMW_PSP_RR", p.maxPaths > 1 {
+                f("ds.path.policy", "\(StoragePaths.policyName(policy)) with \(p.maxPaths) paths")
+            }
+            if !p.hostsWithoutData.isEmpty, p.transport != .local, !p.hosts.isEmpty, p.hostsWithoutData.count < p.hosts.count {
+                f("ds.path.nodata", "\(p.hostsWithoutData.count) of \(p.hosts.count) hosts: \(p.hostsWithoutData.sorted().joined(separator: ", "))")
+            }
+            if !p.noVMKHosts.isEmpty {
+                f("ds.nfs.novmk", "\(p.noVMKHosts.count) of \(p.hosts.count) hosts have no VMkernel adapter on the storage network\(p.server.isEmpty ? "" : " (\(p.server))")")
+            }
+            if !p.singleVMKHosts.isEmpty {
+                f("ds.nfs.singlevmk", "1 VMkernel adapter on \(names(p.singleVMKHosts))")
+            }
+            if !p.singleUplinkHosts.isEmpty {
+                f("ds.nfs.uplink", "1 uplink behind the storage VMkernel on \(names(p.singleUplinkHosts))")
+            }
+            if p.mtus.count > 1 {
+                f("ds.nfs.mtu", "MTU " + p.mtus.map(String.init).joined(separator: " and ") + " on the VMkernel adapters reaching \(p.server.isEmpty ? "the server" : p.server)")
+            }
         }
 
         // MARK: Networking

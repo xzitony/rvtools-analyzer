@@ -33,6 +33,8 @@ enum DebugSnapshot {
             let worstVM = inv?.vms.max { $0.issueCount < $1.issueCount }?.id
             let busiestHost = inv?.hosts.max { $0.issueCount < $1.issueCount }?.id
             let fullestDS = inv?.datastores.max { $0.usedPct < $1.usedPct }?.id
+            // The storage-path map is only interesting for a datastore with paths (a local disk has none).
+            let pathiestDS = inv?.datastores.max { $0.lunPaths < $1.lunPaths }?.id ?? fullestDS
             var steps: [(String, () -> Void)] = [
                 ("01-overview", { model.sidebar = .overview }),
                 ("02-issues", { model.focusRule = model.report?.groups.first?.rule; model.sidebar = .issues }),
@@ -89,6 +91,7 @@ enum DebugSnapshot {
                     ("50-map-vm", worstVM.map { .vm($0) }), ("51-map-host", busiestHost.map { .host($0) }),
                     ("52-map-cluster", inv.clusters.first.map { .cluster($0.id) }), ("53-map-datastore", fullestDS.map { .datastore($0) }),
                     ("54-map-portgroup", busiestPG.map { .portGroup($0) }),
+                    ("55-map-storage-paths", pathiestDS.map { .storagePaths($0) }),
                 ]
                 for (name, focus) in maps {
                     guard let focus, let map = RelationshipBuilder.map(focus, in: inv), let png = RelationshipMapImage.png(map, subtitle: model.projectTitle) else { continue }

@@ -135,6 +135,23 @@ struct DatastoresPane: View {
     @State private var sortOrder = [KeyPathComparator(\Datastore.usedPct, order: .reverse)]
     @State private var search = ""
 
+    /// Path redundancy per datastore, for the Paths column: "4×6" is 4 paths from each of 6 hosts.
+    private var pathSummaries: [String: (short: String, detail: String, alert: Bool)] {
+        StoragePaths.map(report.inventory).mapValues { p in
+            switch p.transport {
+            case .nfs:
+                let vmk = p.hosts.map { $0.vmkernels.count }.min() ?? 0
+                return (vmk == 0 ? "NFS" : "\(vmk) vmk", p.summary, !p.noVMKHosts.isEmpty || !p.singleUplinkHosts.isEmpty)
+            case .vsan, .local:
+                return ("—", p.summary, false)
+            default:
+                guard p.maxPaths > 0 else { return ("—", p.summary, false) }
+                let paths = p.minPaths == p.maxPaths ? "\(p.minPaths)" : "\(p.minPaths)–\(p.maxPaths)"
+                return ("\(paths)×\(p.hosts.filter(\.hasPathData).count)", p.summary, p.deadPaths > 0 || !p.singlePathHosts.isEmpty)
+            }
+        }
+    }
+
     private var rows: [Datastore] {
         let q = search.lowercased()
         let r = q.isEmpty ? report.inventory.datastores : report.inventory.datastores.filter {
@@ -166,6 +183,12 @@ struct DatastoresPane: View {
             Group {
                 TableColumn("VMs", value: \Datastore.vmCount) { (d: Datastore) in Text("\(d.vmCount)").tabular() }.width(45)
                 TableColumn("Hosts", value: \Datastore.hostCount) { (d: Datastore) in Text("\(d.hostCount)").tabular() }.width(45)
+                TableColumn("Paths") { (d: Datastore) in
+                    let p = pathSummaries[d.id]
+                    Text(p?.short ?? "—").foregroundStyle(p?.alert == true ? Palette.critical : Color.primary).tabular()
+                        .help(p?.detail ?? "")
+                }
+                .width(70)
                 TableColumn("Clusters", value: \Datastore.clusterList).width(min: 90, ideal: 120)
                 TableColumn("Findings", value: \Datastore.issueCount) { (d: Datastore) in Text(d.issueCount > 0 ? "\(d.issueCount)" : "").tabular() }.width(60)
             }
@@ -179,6 +202,54 @@ struct DatastoresPane: View {
             }
         }
         .inspectorColumnWidth(min: 340, ideal: 420, max: 640)
+    }
+}
+
+/// How each host reaches the datastore: paths and adapters for block storage, VMkernel adapters and uplinks for NFS.
+struct StoragePathsSection: View {
+    @Environment(AppModel.self) private var model
+    let paths: DatastorePaths
+
+    var body: some View {
+        if !paths.hosts.isEmpty, paths.transport != .vsan, paths.transport != .local {
+            DetailSection("Storage paths", count: paths.hosts.count) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("\(paths.transport.rawValue) · \(paths.summary)").font(.caption).foregroundStyle(.secondary)
+                    if paths.transport == .nfs, !paths.server.isEmpty {
+                        Text("Server \(paths.server)\(paths.exportPath.isEmpty ? "" : " · \(paths.exportPath)")").font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(paths.hosts) { h in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Button(h.host.split(separator: ".").first.map(String.init) ?? h.host) { model.reveal(host: h.hostKey) }
+                                .buttonStyle(.link).lineLimit(1)
+                            Spacer()
+                            Text(line(h)).font(.caption).foregroundStyle(alert(h) ? Palette.critical : .secondary)
+                        }
+                    }
+                    if paths.transport == .nfs {
+                        Text("NFS has no multipathing: redundancy comes from the VMkernel adapters and the uplinks behind them.")
+                            .font(.caption2).foregroundStyle(.tertiary)
+                    }
+                }
+            }
+        }
+    }
+
+    private func line(_ h: HostStoragePaths) -> String {
+        if paths.transport == .nfs {
+            guard !h.vmkernels.isEmpty else { return "no storage VMkernel" }
+            let mtu = h.mtus.map(String.init).joined(separator: "/")
+            return "\(h.vmkernels.map(\.device).joined(separator: ", ")) · MTU \(mtu) · \(h.uplinks) uplink\(h.uplinks == 1 ? "" : "s")"
+        }
+        guard h.hasPathData else { return "no path data" }
+        let dead = h.deadPaths > 0 ? " · \(h.deadPaths) dead" : ""
+        let adapters = h.adapters.isEmpty ? "" : " · " + h.adapterList
+        return "\(h.paths) path\(h.paths == 1 ? "" : "s")\(dead)\(adapters)"
+    }
+
+    private func alert(_ h: HostStoragePaths) -> Bool {
+        if paths.transport == .nfs { return h.vmkernels.isEmpty || h.uplinks == 1 }
+        return h.deadPaths > 0 || (h.hasPathData && h.paths == 1) || (h.paths > 1 && h.adapters.count == 1)
     }
 }
 
@@ -199,7 +270,15 @@ struct DatastoreDetail: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(d.name).font(.title3.weight(.semibold)).textSelection(.enabled)
                     Text("\(d.type) · \(Fmt.capacity(mib: d.capacityMiB))" + (d.isLocal ? " · local to one host" : "")).foregroundStyle(.secondary)
-                    RelationshipMapButton(focus: .datastore(d.id)).padding(.top, 2)
+                    HStack(spacing: 12) {
+                        RelationshipMapButton(focus: .datastore(d.id))
+                        // Only where there is pathing to show: vSAN and local disks have none.
+                        if d.lunPaths > 0 || d.type.lowercased().contains("nfs") {
+                            RelationshipMapButton(focus: .storagePaths(d.id), title: "Storage Paths", symbol: "point.topleft.down.to.point.bottomright.curvepath",
+                                                  hint: "Hosts, adapters and the devices behind this datastore, without VMs")
+                        }
+                    }
+                    .padding(.top, 2)
                 }
                 LabeledMeter(label: "Used", pct: d.usedPct, detail: "\(Fmt.capacity(mib: d.capacityMiB - d.freeMiB)) used · \(Fmt.capacity(mib: d.freeMiB)) free",
                              warn: 100 - th.datastoreFreeWarnPct, crit: 100 - th.datastoreFreeCritPct)
@@ -215,6 +294,7 @@ struct DatastoreDetail: View {
                         ("Address", d.address), ("URL", d.url),
                     ])
                 }
+                StoragePathsSection(paths: StoragePaths.paths(for: d, in: report.inventory))
                 DetailSection("Hosts", count: d.hostNames.count) {
                     VStack(alignment: .leading, spacing: 3) {
                         ForEach(d.hostKeys, id: \.self) { hk in

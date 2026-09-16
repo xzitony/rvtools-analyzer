@@ -114,6 +114,7 @@ Every VM, host, cluster, datastore and port group has a **Relationship Map** but
 | **Host** | Datacenter → cluster, its VMs, datastores → storage devices, switches → port groups and physical NICs → VMkernel adapters. |
 | **Cluster** | Its hosts, datastores, port groups (→ switches and VLANs) and VMs. |
 | **Datastore** | Clusters → hosts that mount it, its storage devices (paths per host) and the VMs with files on it. |
+| **Storage paths** | The same datastore without its VMs: hosts → their storage adapters (or, for NFS, the VMkernel adapters that reach the server and the uplinks behind them) → the datastore → the devices or NFS export behind it. Dead paths, single paths and single adapters are marked. |
 | **Port group** | Hosts and their uplinks → switch, then VLANs, VMkernel adapters and the VMs connected to it (with IPs). |
 
 Hover over an object to highlight what it's connected to (and details such as a VM's disks on a datastore). Click an object to centre the map on it, and use **Back** to return. Large groups show the first few objects and a **+N more** button. Warning icons mark things like maintenance mode, links down, datastores 90% full or more, dead storage paths and permissive port group security, and a count shows findings.
