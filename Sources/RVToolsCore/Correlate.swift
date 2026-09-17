@@ -747,6 +747,7 @@ private final class Builder {
                 l.vendor = r.s(cVendor); l.model = r.s(cModel)
                 for (p, s) in paths where !r.s(p).isEmpty {
                     l.paths += 1
+                    l.pathNames.append(r.s(p))
                     let st = r.s(s).lowercased()
                     if st.contains("active") { l.activePaths += 1 }
                     if st.contains("dead") { l.deadPaths += 1 }

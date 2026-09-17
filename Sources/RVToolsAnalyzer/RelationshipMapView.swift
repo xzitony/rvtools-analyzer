@@ -15,6 +15,7 @@ extension RelKind {
         case .vApp: return "shippingbox"
         case .datastore: return "externaldrive"
         case .storageDevice: return "internaldrive"
+        case .storageAdapter: return "cable.connector.horizontal"
         case .portGroup: return "network"
         case .standardSwitch, .distributedSwitch: return "switch.2"
         case .physicalNIC: return "cable.connector"
@@ -28,7 +29,7 @@ extension RelKind {
         switch self {
         case .datacenter, .cluster, .host: return Palette.series[0]
         case .vm, .folder, .resourcePool, .vApp: return Palette.series[6]
-        case .datastore, .storageDevice: return Palette.series[2]
+        case .datastore, .storageDevice, .storageAdapter: return Palette.series[2]
         case .portGroup, .standardSwitch, .distributedSwitch, .vlan: return Palette.series[1]
         case .physicalNIC, .vmkernel: return Palette.series[3]
         }
@@ -40,18 +41,21 @@ struct RelationshipMapButton: View {
     @Environment(\.openWindow) private var openWindow
     let focus: RelFocus
     var compact = false
+    var title = "Relationship Map"
+    var symbol = "point.3.filled.connected.trianglepath.dotted"
+    var hint = "Show everything this is connected to, and export it"
 
     var body: some View {
         Button { openWindow(id: RelationshipMapWindow.windowID, value: focus) } label: {
             if compact {
-                Image(systemName: "point.3.filled.connected.trianglepath.dotted")
+                Image(systemName: symbol)
             } else {
-                Label("Relationship Map", systemImage: "point.3.filled.connected.trianglepath.dotted")
+                Label(title, systemImage: symbol)
             }
         }
         .buttonStyle(.borderless)
         .controlSize(.small)
-        .help("Show everything this is connected to, and export it")
+        .help(hint)
     }
 }
 
