@@ -46,8 +46,17 @@ public final class Table: @unchecked Sendable {
         return nil
     }
 
+    private static func rowKey(_ row: [String], _ columns: [Int]) -> String {
+        columns.map { $0 < row.count ? row[$0] : "" }.joined(separator: "\u{1}")
+    }
+
     /// Appends rows from another export of the same tab (multi-vCenter merges); headers are unioned.
-    func merge(_ other: RawTable) {
+    /// Rows the table already holds are skipped and counted: opening the same export twice, or an export and another
+    /// copy of it, would otherwise count those objects twice. Rows are compared on the columns the incoming file has,
+    /// so columns only the other file carries (added by hand, or from a different RVTools version) don't hide a
+    /// duplicate. Returns how many rows carrying data were skipped.
+    @discardableResult
+    func merge(_ other: RawTable) -> Int {
         var mapping: [Int] = []
         for h in other.headers {
             if let i = lookup[Table.normalize(h)] { mapping.append(i) } else {
@@ -59,11 +68,20 @@ public final class Table: @unchecked Sendable {
         }
         for j in Table.customRange(other.headers) where j < mapping.count { customColumns.insert(mapping[j]) }
         let width = headers.count
+        var seen = Set(rows.map { Table.rowKey($0, mapping) })
+        var skipped = 0
         for r in other.rows {
             var out = Array(repeating: "", count: width)
             for (j, v) in r.enumerated() where j < mapping.count { out[mapping[j]] = v }
+            if !seen.insert(Table.rowKey(out, mapping)).inserted {
+                // RVTools repeats a one-cell placeholder on tabs it didn't fill ("This tab page is empty when …"),
+                // which every export carries; skip it quietly rather than reporting it as duplicated data.
+                if out.filter({ !$0.isEmpty }).count > 1 { skipped += 1 }
+                continue
+            }
             rows.append(out)
         }
+        return skipped
     }
 }
 
@@ -93,6 +111,8 @@ public final class Dataset: @unchecked Sendable {
     public private(set) var reportDate: Date = Date()
     public private(set) var rvtoolsVersion: String = ""
     public private(set) var warnings: [String] = []
+    /// Rows skipped as already loaded, per file and tab (see `Table.merge`).
+    private var duplicateRows: [String: [String: Int]] = [:]
 
     public func table(_ name: String) -> Table? { tables[name.lowercased()] }
 
@@ -123,7 +143,7 @@ public final class Dataset: @unchecked Sendable {
                 default: continue
                 }
                 ds.sources.append(file)
-                for raw in raws where !raw.headers.isEmpty { ds.add(raw) }
+                for raw in raws where !raw.headers.isEmpty { ds.add(raw, from: file.lastPathComponent) }
                 if let d = Parse.dateFromExportName(file.lastPathComponent) ?? Parse.dateFromExportName(file.deletingLastPathComponent().lastPathComponent) {
                     fileDates.append(d)
                 } else if let attrs = try? FileManager.default.attributesOfItem(atPath: file.path), let m = attrs[.modificationDate] as? Date {
@@ -151,13 +171,19 @@ public final class Dataset: @unchecked Sendable {
             }
         }
         ds.reportDate = metaDates.max() ?? fileDates.max() ?? Date()
+        for (file, tabs) in ds.duplicateRows.sorted(by: { $0.key < $1.key }) {
+            let total = tabs.values.reduce(0, +)
+            let detail = tabs.sorted { $0.value > $1.value }.prefix(3).map { "\($0.key) \(Fmt.int($0.value))" }.joined(separator: ", ")
+            ds.warnings.append("\(file): \(Fmt.int(total)) row(s) were already loaded from another file and were counted once (\(detail))")
+        }
         return ds
     }
 
-    private func add(_ raw: RawTable) {
+    private func add(_ raw: RawTable, from file: String) {
         let key = raw.name.lowercased()
         if let existing = tables[key] {
-            existing.merge(raw)
+            let skipped = existing.merge(raw)
+            if skipped > 0 { duplicateRows[file, default: [:]][raw.name, default: 0] += skipped }
         } else {
             tables[key] = Table(raw: raw)
             tableNames.append(raw.name)
