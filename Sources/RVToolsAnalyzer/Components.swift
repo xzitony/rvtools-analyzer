@@ -36,6 +36,8 @@ struct KPITile: View {
     var detail: String?
     var symbol: String?
     var tint: Color?
+    /// Colours the value itself, for a figure in a warning or critical state.
+    var valueTint: Color?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -43,7 +45,7 @@ struct KPITile: View {
                 if let symbol { Image(systemName: symbol).foregroundStyle(tint ?? .secondary) }
                 Text(title).font(.caption).foregroundStyle(.secondary).textCase(.uppercase)
             }
-            Text(value).font(.system(size: 26, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.6)
+            Text(value).font(.system(size: 26, weight: .semibold)).foregroundStyle(valueTint ?? .primary).lineLimit(1).minimumScaleFactor(0.6)
             if let detail {
                 Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(2).fixedSize(horizontal: false, vertical: true)
             }

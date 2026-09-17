@@ -189,6 +189,8 @@ If `run` throws, the Results step shows the error with its line number.
 // rva.metrics("Summary", [rva.metric("Data today", "123.7 TiB", "guest used", "internaldrive")])
 ```
 
+Add an optional **`status`** (`blocker`, `warning`, `info` or `ready`) to flag a figure. `blocker` shows the value in red and `warning` in amber, for example a monthly total below a contract minimum: `rva.metric("Monthly", rva.money(cost), "below the $5,000 minimum", "dollarsign.circle", "blocker")`. Older app versions ignore it.
+
 ### checks: a readiness or considerations checklist
 
 ```js

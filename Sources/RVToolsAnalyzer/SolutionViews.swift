@@ -575,7 +575,9 @@ private struct SectionView: View {
                 if !title.isEmpty && title != "Summary" { Text(title).font(.headline) }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 200), spacing: 12)], spacing: 12) {
                     ForEach(Array(metrics.enumerated()), id: \.offset) { _, m in
-                        KPITile(title: m.label, value: m.value, detail: m.detail.isEmpty ? nil : m.detail, symbol: m.symbol)
+                        let alert = m.status == .blocker || m.status == .warning
+                        KPITile(title: m.label, value: m.value, detail: m.detail.isEmpty ? nil : m.detail, symbol: m.symbol,
+                                tint: m.status?.color, valueTint: alert ? m.status?.color : nil)
                     }
                 }
             }
