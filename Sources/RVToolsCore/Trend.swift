@@ -41,10 +41,10 @@ public enum TrendLoader {
         let loaded = try loadEach(expand(urls).map { [$0] }).sorted { $0.0.reportDate < $1.0.reportDate }
         var groups: [[(Dataset, Inventory)]] = []
         for item in loaded {
-            let servers = Set(item.1.vcenters.map { $0.server.lowercased() })
+            let servers = Set(item.1.vcenters.map { TrendAnalyzer.canonicalServer($0.server) })
             if let group = groups.last, let first = group.first,
                item.0.reportDate.timeIntervalSince(first.0.reportDate) <= combineWindow,
-               group.allSatisfy({ Set($0.1.vcenters.map { $0.server.lowercased() }).isDisjoint(with: servers) }) {
+               group.allSatisfy({ Set($0.1.vcenters.map { TrendAnalyzer.canonicalServer($0.server) }).isDisjoint(with: servers) }) {
                 groups[groups.count - 1].append(item)
             } else {
                 groups.append([item])
@@ -352,9 +352,23 @@ public enum TrendAnalyzer {
     static let organicDataLabel = "VM data in use (VMs in every snapshot)"
     static let datastoreUsedLabel = "Datastore used"
 
+    /// A vCenter's name for matching across exports: RVTools may record it by short name in one export and by FQDN
+    /// in another (e.g. "vc01" vs "vc01.corp.example"). IP addresses are kept whole.
+    public static func canonicalServer(_ server: String) -> String {
+        let s = server.lowercased().trimmingCharacters(in: .whitespaces)
+        if s.split(separator: ".").allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) || s.contains(":") { return s }
+        return s.split(separator: ".").first.map(String.init) ?? s
+    }
+
+    /// An inventory id ("server|name") with its vCenter part canonicalised, for matching objects across exports.
+    static func canonicalID(_ id: String) -> String {
+        guard let bar = id.firstIndex(of: "|") else { return canonicalServer(id) }
+        return canonicalServer(String(id[..<bar])) + id[bar...]
+    }
+
     /// Stable identity across exports: vCenter + VM UUID, then VM ID (moref), then name.
     public static func vmKey(_ vm: VM) -> String {
-        let server = vm.vcenter.lowercased()
+        let server = canonicalServer(vm.vcenter)
         if !vm.uuid.isEmpty { return server + "|u:" + vm.uuid.lowercased() }
         if !vm.vmID.isEmpty { return server + "|m:" + vm.vmID.lowercased() }
         return server + "|n:" + vm.name.lowercased()
@@ -389,9 +403,9 @@ public enum TrendAnalyzer {
         if (!a.disks.isEmpty && !b.disks.isEmpty && a.disks.count != b.disks.count) || abs(capA - capB) >= 1024 {
             out.append((.storage, "\(a.disks.count) → \(b.disks.count) disks, \(Fmt.capacity(mib: capA)) → \(Fmt.capacity(mib: capB)) provisioned", capB - capA))
         }
-        if a.clusterKey != b.clusterKey {
+        if canonicalID(a.clusterKey) != canonicalID(b.clusterKey) {
             out.append((.clusterMove, "\(a.cluster.isEmpty ? "standalone" : a.cluster) → \(b.cluster.isEmpty ? "standalone" : b.cluster)", 0))
-        } else if a.hostKey != b.hostKey {
+        } else if canonicalID(a.hostKey) != canonicalID(b.hostKey) {
             out.append((.hostMove, "\(shortHost(a.host)) → \(shortHost(b.host))", 0))
         }
         if !a.datastores.isEmpty, !b.datastores.isEmpty, Set(a.datastores) != Set(b.datastores) {
@@ -420,10 +434,11 @@ public enum TrendAnalyzer {
         var unusedLocal = Set<String>(), used = Set<String>()
         for s in snapshots {
             for d in s.inventory.datastores {
-                if d.isUnusedLocal { unusedLocal.insert(d.id) } else { used.insert(d.id) }
+                if d.isUnusedLocal { unusedLocal.insert(canonicalID(d.id)) } else { used.insert(canonicalID(d.id)) }
             }
         }
-        let hiddenDatastores = ignoreUnusedLocalDatastores ? unusedLocal.subtracting(used) : []
+        let hiddenCanonical = ignoreUnusedLocalDatastores ? unusedLocal.subtracting(used) : []
+        let hiddenDatastores = Set(snapshots.flatMap { $0.inventory.datastores.map(\.id) }.filter { hiddenCanonical.contains(canonicalID($0)) })
         var warnings: [String] = []
         var nameKeyed = 0
 
@@ -518,7 +533,7 @@ public enum TrendAnalyzer {
                 netVMs: totals[i].vms - totals[i - 1].vms, netVCPU: totals[i].vcpuAll - totals[i - 1].vcpuAll,
                 netVRAMMiB: totals[i].vramAllMiB - totals[i - 1].vramAllMiB, dataGrowthMiB: dataTotals[i] - dataTotals[i - 1]))
 
-            let serversA = Set(snapshots[i - 1].vcenters.map { $0.lowercased() }), serversB = Set(snapshots[i].vcenters.map { $0.lowercased() })
+            let serversA = Set(snapshots[i - 1].vcenters.map(canonicalServer)), serversB = Set(snapshots[i].vcenters.map(canonicalServer))
             if serversA.isDisjoint(with: serversB) {
                 warnings.append("Snapshot \(i + 1) (\(Fmt.date(date))) shares no vCenter with the previous one — are these exports of the same environment?")
             }
@@ -544,28 +559,30 @@ public enum TrendAnalyzer {
 
         // Datastores: growth and days-to-full at the observed rate
         let dsIndex = snapshots.map { s in
-            Dictionary(s.inventory.datastores.filter { !hiddenDatastores.contains($0.id) }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            Dictionary(s.inventory.datastores.filter { !hiddenDatastores.contains($0.id) }.map { (canonicalID($0.id), $0) }, uniquingKeysWith: { a, _ in a })
         }
         let lastDate = snapshots.last!.date
         let datastores: [DatastoreTrend] = (dsIndex.last ?? [:]).values.compactMap { d in
-            let ys = dsIndex.indices.compactMap { i in dsIndex[i][d.id].map { (days[i], $0.capacityMiB - $0.freeMiB) } }
-            guard ys.count >= 2, let firstDS = dsIndex.first(where: { $0[d.id] != nil })?[d.id] else { return nil }
+            let dk = canonicalID(d.id)
+            let ys = dsIndex.indices.compactMap { i in dsIndex[i][dk].map { (days[i], $0.capacityMiB - $0.freeMiB) } }
+            guard ys.count >= 2, let firstDS = dsIndex.first(where: { $0[dk] != nil })?[dk] else { return nil }
             let perDay = slope(ys)
             let toFull: Double? = perDay > 0.5 ? d.freeMiB / perDay : nil
-            return DatastoreTrend(key: d.id, datastoreID: d.id, name: d.name, capacityFirst: firstDS.capacityMiB, capacityLast: d.capacityMiB,
+            return DatastoreTrend(key: dk, datastoreID: d.id, name: d.name, capacityFirst: firstDS.capacityMiB, capacityLast: d.capacityMiB,
                                   usedFirst: firstDS.capacityMiB - firstDS.freeMiB, usedLast: d.capacityMiB - d.freeMiB, perDayMiB: perDay,
                                   daysToFull: toFull, fullDate: toFull.map { lastDate.addingTimeInterval($0 * 86_400) })
         }.sorted { ($0.sortDays, -$0.usedPctLast) < ($1.sortDays, -$1.usedPctLast) }
 
         // Clusters (first appearance vs last)
-        let clusterIdx = snapshots.map { s in Dictionary(s.inventory.clusters.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }) }
-        func clusterData(_ i: Int, _ id: String) -> Double { snapshots[i].inventory.vms.filter { $0.isVM && $0.clusterKey == id }.reduce(0) { $0 + data($1) } }
+        let clusterIdx = snapshots.map { s in Dictionary(s.inventory.clusters.map { (canonicalID($0.id), $0) }, uniquingKeysWith: { a, _ in a }) }
+        func clusterData(_ i: Int, _ id: String) -> Double { snapshots[i].inventory.vms.filter { $0.isVM && canonicalID($0.clusterKey) == id }.reduce(0) { $0 + data($1) } }
         let clusters: [ClusterTrend] = (clusterIdx.last ?? [:]).values.compactMap { c in
-            guard let fi = clusterIdx.firstIndex(where: { $0[c.id] != nil }), let f = clusterIdx[fi][c.id] else { return nil }
+            let ck = canonicalID(c.id)
+            guard let fi = clusterIdx.firstIndex(where: { $0[ck] != nil }), let f = clusterIdx[fi][ck] else { return nil }
             let li = snapshots.count - 1
-            return ClusterTrend(key: c.id, name: c.name, hostsFirst: f.hostCount, hostsLast: c.hostCount, vmsFirst: f.vmCount, vmsLast: c.vmCount,
+            return ClusterTrend(key: ck, name: c.name, hostsFirst: f.hostCount, hostsLast: c.hostCount, vmsFirst: f.vmCount, vmsLast: c.vmCount,
                                 vcpuFirst: f.vcpuOn, vcpuLast: c.vcpuOn, memPctFirst: f.memUsagePct, memPctLast: c.memUsagePct,
-                                cpuPctFirst: f.cpuUsagePct, cpuPctLast: c.cpuUsagePct, dataFirst: clusterData(fi, c.id), dataLast: clusterData(li, c.id))
+                                cpuPctFirst: f.cpuUsagePct, cpuPctLast: c.cpuUsagePct, dataFirst: clusterData(fi, ck), dataLast: clusterData(li, ck))
         }.sorted { $0.name < $1.name }
 
         // Infrastructure changes
@@ -574,8 +591,8 @@ public enum TrendAnalyzer {
             infra.append(InfraChange(id: infra.count, snapshot: i, date: snapshots[i].date, kind: kind, name: name, change: change, detail: detail))
         }
         for i in snapshots.indices.dropFirst() {
-            let ha = Dictionary(snapshots[i - 1].inventory.hosts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
-            let hb = Dictionary(snapshots[i].inventory.hosts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let ha = Dictionary(snapshots[i - 1].inventory.hosts.map { (canonicalID($0.id), $0) }, uniquingKeysWith: { a, _ in a })
+            let hb = Dictionary(snapshots[i].inventory.hosts.map { (canonicalID($0.id), $0) }, uniquingKeysWith: { a, _ in a })
             for (id, h) in hb where ha[id] == nil { note(i, .host, h.name, "Added", "\(h.cluster.isEmpty ? "standalone" : h.cluster) · \(h.cores) cores · \(Fmt.memory(mib: h.memoryMiB)) · ESXi \(h.esxVersion)") }
             for (id, h) in ha where hb[id] == nil { note(i, .host, h.name, "Removed", "was in \(h.cluster.isEmpty ? "no cluster" : h.cluster)") }
             for (id, new) in hb {
@@ -583,7 +600,7 @@ public enum TrendAnalyzer {
                 if old.esxVersion != new.esxVersion || old.esxBuild != new.esxBuild {
                     note(i, .host, new.name, "ESXi updated", "\(old.esxVersion) (\(old.esxBuild)) → \(new.esxVersion) (\(new.esxBuild))")
                 }
-                if old.clusterKey != new.clusterKey { note(i, .host, new.name, "Moved", "\(old.cluster.isEmpty ? "standalone" : old.cluster) → \(new.cluster.isEmpty ? "standalone" : new.cluster)") }
+                if canonicalID(old.clusterKey) != canonicalID(new.clusterKey) { note(i, .host, new.name, "Moved", "\(old.cluster.isEmpty ? "standalone" : old.cluster) → \(new.cluster.isEmpty ? "standalone" : new.cluster)") }
                 if old.cores != new.cores || abs(old.memoryMiB - new.memoryMiB) >= 1024 {
                     note(i, .host, new.name, "Hardware changed", "\(old.cores) → \(new.cores) cores, \(Fmt.memory(mib: old.memoryMiB)) → \(Fmt.memory(mib: new.memoryMiB))")
                 }
@@ -606,9 +623,9 @@ public enum TrendAnalyzer {
                     note(i, .cluster, new.name, "Settings changed", "HA \(s(old.haEnabled)) → \(s(new.haEnabled)), DRS \(s(old.drsEnabled)) → \(s(new.drsEnabled))")
                 }
             }
-            let va = Dictionary(snapshots[i - 1].inventory.vcenters.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let va = Dictionary(snapshots[i - 1].inventory.vcenters.map { (canonicalServer($0.id), $0) }, uniquingKeysWith: { a, _ in a })
             for vc in snapshots[i].inventory.vcenters {
-                if let old = va[vc.id], !old.build.isEmpty, old.build != vc.build { note(i, .vcenter, vc.server, "Updated", "\(old.version) (\(old.build)) → \(vc.version) (\(vc.build))") }
+                if let old = va[canonicalServer(vc.id)], !old.build.isEmpty, old.build != vc.build { note(i, .vcenter, vc.server, "Updated", "\(old.version) (\(old.build)) → \(vc.version) (\(vc.build))") }
             }
         }
         infra.sort { ($0.date, $0.kind.rawValue, $0.name) < ($1.date, $1.kind.rawValue, $1.name) }

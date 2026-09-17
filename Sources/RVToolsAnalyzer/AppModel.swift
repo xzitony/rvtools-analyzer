@@ -331,11 +331,39 @@ final class AppModel {
         loadingMessage = project.map { "Opening \($0.file.name)…" } ?? "Reading \(urls.count == 1 ? urls[0].lastPathComponent : "\(urls.count) items")…"
         let t = project?.file.thresholds ?? thresholds
         let acks = project?.file.acknowledgements ?? []
+        // Several exports opened together are merged as separate vCenters, unless they were taken at different times:
+        // then they're most likely one environment over time, so offer trend mode instead.
+        let checkTimes = project == nil && TrendLoader.expand(urls).count > 1
         Task.detached(priority: .userInitiated) {
             do {
-                let ds = try Dataset.load(urls)
+                var loaded: (Dataset, Inventory)?
+                if checkTimes {
+                    let snapshots = try TrendLoader.load(urls)
+                    if snapshots.count >= 2, snapshots[snapshots.count - 1].date.timeIntervalSince(snapshots[0].date) > TrendLoader.combineWindow {
+                        switch await MainActor.run(body: { self.askToCompare(snapshots) }) {
+                        case .compare:
+                            let (trend, report) = AppModel.buildTrend(snapshots, thresholds: t, acknowledgements: acks)
+                            await MainActor.run {
+                                scoped.forEach { $0.stopAccessingSecurityScopedResource() }
+                                self.apply(trend.last.dataset, trend.last.inventory, report, trend: trend)
+                            }
+                            return
+                        case .merge:
+                            break
+                        case .cancel:
+                            await MainActor.run {
+                                scoped.forEach { $0.stopAccessingSecurityScopedResource() }
+                                self.isLoading = false
+                            }
+                            return
+                        }
+                    } else if snapshots.count == 1, let only = snapshots.first {
+                        loaded = (only.dataset, only.inventory)
+                    }
+                }
+                let ds = try loaded?.0 ?? Dataset.load(urls)
                 await MainActor.run { self.loadingMessage = "Correlating \(ds.tableNames.count) tabs…" }
-                let inv = InventoryBuilder.build(ds)
+                let inv = loaded?.1 ?? InventoryBuilder.build(ds)
                 let report = Analyzer.run(inv, thresholds: t, acknowledgements: acks)
                 await MainActor.run {
                     scoped.forEach { $0.stopAccessingSecurityScopedResource() }
@@ -354,6 +382,30 @@ final class AppModel {
     }
 
     // MARK: Trend mode
+
+    enum OpenChoice { case compare, merge, cancel }
+
+    /// Asks what to do with exports that were opened together but taken at different times.
+    private func askToCompare(_ snapshots: [TrendSnapshot]) -> OpenChoice {
+        let alert = NSAlert()
+        alert.messageText = "These exports were taken at different times"
+        let dates = snapshots.map { Fmt.date($0.date) }
+        alert.informativeText = "\(snapshots.count) exports from \(dates.first ?? "") to \(dates.last ?? ""). Compare them as snapshots of one environment "
+            + "over time, or merge them into one view as if they were separate vCenters?"
+        alert.addButton(withTitle: "Compare Snapshots")
+        alert.addButton(withTitle: "Merge")
+        alert.addButton(withTitle: "Cancel")
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: return .compare
+        case .alertSecondButtonReturn: return .merge
+        default: return .cancel
+        }
+    }
+
+    nonisolated static func buildTrend(_ snapshots: [TrendSnapshot], thresholds t: Thresholds, acknowledgements acks: [Acknowledgement]) -> (TrendReport, Report) {
+        let trend = TrendAnalyzer.run(snapshots, ignoreUnusedLocalDatastores: t.ignoreUnusedLocalDatastores)
+        return (trend, Analyzer.run(snapshots[snapshots.count - 1].inventory, thresholds: t, acknowledgements: acks))
+    }
 
     var sampleSeriesURL: URL? { Bundle.main.url(forResource: "RVTools_sample_series", withExtension: nil) }
 
@@ -391,12 +443,10 @@ final class AppModel {
                     throw RVToolsError.unreadable("Compare Snapshots needs exports of the same environment taken at different times, but these files form a single snapshot. To combine several vCenters into one view, use Open… instead.")
                 }
                 await MainActor.run { self.loadingMessage = "Comparing \(snapshots.count) snapshots…" }
-                let trend = TrendAnalyzer.run(snapshots, ignoreUnusedLocalDatastores: t.ignoreUnusedLocalDatastores)
-                let latest = snapshots[snapshots.count - 1]
-                let report = Analyzer.run(latest.inventory, thresholds: t, acknowledgements: acks)
+                let (trend, report) = AppModel.buildTrend(snapshots, thresholds: t, acknowledgements: acks)
                 await MainActor.run {
                     scoped.forEach { $0.stopAccessingSecurityScopedResource() }
-                    self.apply(latest.dataset, latest.inventory, report, trend: trend)
+                    self.apply(trend.last.dataset, trend.last.inventory, report, trend: trend)
                     if let project { self.restore(project.file, url: project.url, prices: project.prices, lists: project.lists) }
                     DebugSnapshot.runIfRequested(self)
                 }
