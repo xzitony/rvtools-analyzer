@@ -93,6 +93,8 @@ public struct Report: Sendable {
     public var acknowledgedFindings: [Finding] = []
     public var acknowledgedGroups: [FindingGroup] = []
     public var acknowledgements: [Acknowledgement] = []
+    /// Where the key figures in scope came from: reported, derived from another tab, or missing.
+    public var dataQuality = DataQuality()
 }
 
 public enum Analyzer {
@@ -118,7 +120,8 @@ public enum Analyzer {
         return Report(inventory: inv, totals: totals(inv, findings), findings: findings, groups: groupList,
                       dist: distributions(inv, findings), storage: storage(inv), thresholds: thresholds, findingsByObject: byObject,
                       unusedLocalDatastores: unusedLocal, acknowledgedFindings: acknowledged,
-                      acknowledgedGroups: groupFindings(acknowledged, catalog), acknowledgements: acknowledgements)
+                      acknowledgedGroups: groupFindings(acknowledged, catalog), acknowledgements: acknowledgements,
+                      dataQuality: DataQuality.evaluate(inv))
     }
 
     static func groupFindings(_ findings: [Finding], _ catalog: [String: RuleDef]) -> [FindingGroup] {

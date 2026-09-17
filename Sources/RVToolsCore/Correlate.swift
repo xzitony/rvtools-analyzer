@@ -23,10 +23,15 @@ private final class Builder {
     var dsIndex: [String: Int] = [:]
     var pgIndex: [String: Int] = [:]
     var vcIndex: [String: Int] = [:]
+    /// Per-VM figures from other tabs, kept to fill blanks in vInfo (see `fillMissingFigures`).
+    var vInfoDiskTotal: [Int: Double] = [:]
+    var vcpuTabCPUs: [Int: Int] = [:]
+    var vMemoryTabSize: [Int: Double] = [:]
 
     init(_ ds: Dataset) {
         self.ds = ds
         inv.reportDate = ds.reportDate
+        inv.tabsPresent = Set(ds.tableNames.map { $0.lowercased() })
     }
 
     func run() -> Inventory {
@@ -34,12 +39,14 @@ private final class Builder {
         buildHosts()
         buildClusters()
         buildVMs()
+        inferHosts()
         attachVMChildren()
         buildDatastores()
         buildNetworking()
         buildHostChildren()
         buildLicensesAndPools()
         buildHealth()
+        fillMissingFigures()
         rollUp()
         consistencyChecks()
         return inv
@@ -237,7 +244,7 @@ private final class Builder {
         let cHW = t.col("HW version"), cSB = t.col("EFI Secure boot"), cCBT = t.col("CBT"), cPath = t.col("Path")
         let cNote = t.col("Annotation"), cDC = t.col("Datacenter"), cCluster = t.col("Cluster"), cHost = t.col("Host")
         let cOSConf = t.col("OS according to the configuration file", "OS"), cOSTools = t.col("OS according to the VMware Tools")
-        let cVMID = t.col("VM ID"), cUUID = t.col("VM UUID", "UUID"), cReady = t.col("Overall Cpu Readiness")
+        let cVMID = t.col("VM ID"), cUUID = t.col("VM UUID", "UUID"), cReady = t.col("Overall Cpu Readiness"), cDiskTotal = t.col("Total disk capacity MiB")
         let cNets = (1...8).map { t.col("Network #\($0)") }
         let cCustom = t.customColumns.sorted()
 
@@ -308,6 +315,7 @@ private final class Builder {
 
             inv.vms.append(vm)
             let idx = inv.vms.count - 1
+            vInfoDiskTotal[idx] = r.d0(cDiskTotal)
             vmIDs.insert(id)
             if !vmid.isEmpty { vmByID[key(server, vmid)] = idx }
             if !uuid.isEmpty { vmByUUID[key(server, uuid)] = idx }
@@ -319,6 +327,26 @@ private final class Builder {
         let withHost = inv.vms.filter { !$0.host.isEmpty }
         let hostMatched = withHost.filter { hostIndex[$0.hostKey] != nil }.count
         inv.joins.append(JoinStat(source: t.name, target: "Host (vHost)", keys: "VI SDK Server + Host", matched: hostMatched, total: withHost.count))
+    }
+
+    /// Without vHost, hosts are still named on every VM row: keep them as placeholders so placement, maps and
+    /// per-host views work. Their capacity is marked missing rather than zero.
+    func inferHosts() {
+        guard ds.table("vHost") == nil else { return }
+        for vm in inv.vms where !vm.host.isEmpty && hostIndex[vm.hostKey] == nil {
+            var h = Host(id: vm.hostKey)
+            h.name = vm.host
+            h.vcenter = vm.vcenter
+            h.datacenter = vm.datacenter
+            h.cluster = vm.cluster
+            h.clusterKey = vm.clusterKey
+            h.inferred = true
+            h.coresSource = .missing
+            h.memorySource = .missing
+            inv.hosts.append(h)
+            hostIndex[h.id] = inv.hosts.count - 1
+            hostByBareName[h.name.lowercased(), default: []].append(inv.hosts.count - 1)
+        }
     }
 
     // MARK: - VM child tabs
@@ -354,8 +382,9 @@ private final class Builder {
     func attachVMChildren() {
         joinVMTab("vCPU") { t in
             let cS = t.col("Sockets"), cC = t.col("Cores p/s"), cRes = t.col("Reservation"), cLim = t.col("Limit"), cHot = t.col("Hot Add")
-            let cOverall = t.col("Overall")
+            let cOverall = t.col("Overall"), cCPUs = t.col("CPUs")
             return { i, r in
+                self.vcpuTabCPUs[i] = r.i0(cCPUs)
                 self.inv.vms[i].cpuUsageMHz = r.d0(cOverall)
                 self.inv.vms[i].sockets = r.i0(cS)
                 self.inv.vms[i].coresPerSocket = r.i0(cC)
@@ -366,8 +395,9 @@ private final class Builder {
         }
         joinVMTab("vMemory") { t in
             let cRes = t.col("Reservation"), cLim = t.col("Limit"), cHot = t.col("Hot Add"), cBal = t.col("Ballooned")
-            let cSwap = t.col("Swapped"), cCons = t.col("Consumed"), cAct = t.col("Active")
+            let cSwap = t.col("Swapped"), cCons = t.col("Consumed"), cAct = t.col("Active"), cSize = t.col("Size MiB")
             return { i, r in
+                self.vMemoryTabSize[i] = r.d0(cSize)
                 self.inv.vms[i].memReservationMiB = r.d0(cRes)
                 self.inv.vms[i].memLimitMiB = r.d(cLim) ?? -1
                 self.inv.vms[i].memHotAdd = r.b(cHot) ?? false
@@ -505,6 +535,21 @@ private final class Builder {
                 dsIndex[d.id] = inv.datastores.count - 1
             }
             inv.joins.append(JoinStat(source: "vDatastore.Hosts", target: "Host (vHost)", keys: "VI SDK Server + host name", matched: refMatched, total: refs, note: "Host mounts per datastore"))
+        }
+
+        // Without vDatastore, datastores are still named in every VM's .vmx and disk paths.
+        if ds.table("vDatastore") == nil {
+            for vm in inv.vms {
+                for name in vm.datastores where dsIndex[key(vm.vcenter, name)] == nil {
+                    var d = Datastore(id: key(vm.vcenter, name))
+                    d.name = name
+                    d.vcenter = vm.vcenter
+                    d.inferred = true
+                    d.capacitySource = .missing
+                    inv.datastores.append(d)
+                    dsIndex[d.id] = inv.datastores.count - 1
+                }
+            }
         }
 
         // VM ↔ Datastore via vDisk paths and the VM's .vmx path.
@@ -828,6 +873,52 @@ private final class Builder {
         }
         inv.joins.append(JoinStat(source: t.name, target: "VM / Host / Datastore", keys: "Name (VM name, host name or [datastore] path)",
                                   matched: matched, total: t.rows.count, note: "Unmatched rows are vCenter-level messages"))
+    }
+
+    // MARK: - Blank or zeroed figures
+
+    /// RVTools can leave a column blank or zero (a permissions gap, a vCenter that timed out, a trimmed export) while
+    /// another tab still has the same fact. Fill those from the other tab, or mark them missing, before rolling up.
+    func fillMissingFigures() {
+        for i in inv.vms.indices where !inv.vms[i].isSRMPlaceholder {
+            var vm = inv.vms[i]
+            if vm.cpus <= 0 {
+                let fromTab = vcpuTabCPUs[i] ?? 0, fromTopology = vm.sockets * vm.coresPerSocket
+                if fromTab > 0 || fromTopology > 0 { vm.cpus = fromTab > 0 ? fromTab : fromTopology; vm.cpusSource = .vCPU } else { vm.cpusSource = .missing }
+            }
+            if vm.memoryMiB <= 0 {
+                if let size = vMemoryTabSize[i], size > 0 { vm.memoryMiB = size; vm.memorySource = .vMemory } else { vm.memorySource = .missing }
+            }
+            // A VM that vInfo says has no disks, and none turned up in vDisk, genuinely has no storage.
+            let hasDisks = !vm.disks.isEmpty || vm.diskCount > 0 || (vInfoDiskTotal[i] ?? 0) > 0
+            if vm.provisionedMiB <= 0, hasDisks {
+                if vm.diskCapacityMiB > 0 { vm.provisionedMiB = vm.diskCapacityMiB; vm.provisionedSource = .vDisk }
+                else if let total = vInfoDiskTotal[i], total > 0 { vm.provisionedMiB = total; vm.provisionedSource = .vInfoDiskTotal }
+                else if vm.guestCapacityMiB > 0 { vm.provisionedMiB = vm.guestCapacityMiB; vm.provisionedSource = .vPartitionCapacity }
+                else { vm.provisionedSource = .missing }
+            }
+            if vm.inUseMiB <= 0, hasDisks {
+                if vm.guestConsumedMiB > 0 { vm.inUseMiB = vm.guestConsumedMiB; vm.inUseSource = .vPartition }
+                else if vm.provisionedMiB > 0 { vm.inUseMiB = vm.provisionedMiB; vm.inUseSource = .vDiskFull }
+                else { vm.inUseSource = .missing }
+            }
+            inv.vms[i] = vm
+        }
+        for i in inv.hosts.indices where !inv.hosts[i].isVirtual {
+            if inv.hosts[i].cores <= 0 { inv.hosts[i].coresSource = .missing }
+            if inv.hosts[i].memoryMiB <= 0 { inv.hosts[i].memorySource = .missing }
+        }
+        for i in inv.datastores.indices where inv.datastores[i].accessible && inv.datastores[i].capacityMiB <= 0 {
+            // Only with a real free figure: capacity rebuilt from in-use alone would read as 100% full.
+            let rebuilt = inv.datastores[i].freeMiB + inv.datastores[i].inUseMiB
+            if inv.datastores[i].freeMiB > 0 {
+                inv.datastores[i].capacityMiB = rebuilt
+                inv.datastores[i].freePct = inv.datastores[i].freeMiB / rebuilt * 100
+                inv.datastores[i].capacitySource = .freePlusUsed
+            } else {
+                inv.datastores[i].capacitySource = .missing
+            }
+        }
     }
 
     // MARK: - Roll-ups

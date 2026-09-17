@@ -57,13 +57,16 @@ struct StorageOverview: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
-                    KPITile(title: "Capacity", value: Fmt.capacity(mib: t.dsCapacityMiB), detail: "\(t.datastores) datastores", symbol: "externaldrive")
-                    KPITile(title: "Used", value: Fmt.pct(t.dsUsedPct), detail: "\(Fmt.capacity(mib: t.dsUsedMiB)) used · \(Fmt.capacity(mib: t.dsFreeMiB)) free", symbol: "chart.bar.fill")
-                    KPITile(title: "Provisioned", value: Fmt.pct(t.dsCapacityMiB > 0 ? t.dsProvisionedMiB / t.dsCapacityMiB * 100 : 0),
-                            detail: "\(Fmt.capacity(mib: t.dsProvisionedMiB)) promised to VMs (thin overcommit)", symbol: "arrow.up.right.square")
+                    let q = report.dataQuality, dsKnown = q.datastoreCapacityKnown
+                    KPITile(title: "Capacity", value: dsKnown ? Fmt.capacity(mib: t.dsCapacityMiB) : "—", detail: "\(t.datastores) datastores" + (dsKnown ? "" : " · vDatastore tab not in export"), symbol: "externaldrive")
+                    KPITile(title: "Used", value: dsKnown ? Fmt.pct(t.dsUsedPct) : "—", detail: dsKnown ? "\(Fmt.capacity(mib: t.dsUsedMiB)) used · \(Fmt.capacity(mib: t.dsFreeMiB)) free" : "Not in export", symbol: "chart.bar.fill")
+                    KPITile(title: "Provisioned", value: dsKnown ? Fmt.pct(t.dsCapacityMiB > 0 ? t.dsProvisionedMiB / t.dsCapacityMiB * 100 : 0) : "—",
+                            detail: dsKnown ? "\(Fmt.capacity(mib: t.dsProvisionedMiB)) promised to VMs (thin overcommit)" : "Not in export", symbol: "arrow.up.right.square")
                     KPITile(title: "VM in use", value: Fmt.capacity(mib: t.vmInUseMiB), detail: "of \(Fmt.capacity(mib: t.vmProvisionedMiB)) VM provisioned", symbol: "internaldrive")
-                    KPITile(title: "Guest used", value: Fmt.capacity(mib: t.guestConsumedMiB), detail: "of \(Fmt.capacity(mib: t.guestCapacityMiB)) guest file systems", symbol: "folder")
-                    KPITile(title: "Thin provisioned", value: Fmt.pct(s.thinMiB / diskTotal * 100), detail: "\(Fmt.capacity(mib: s.thinMiB)) thin · \(Fmt.capacity(mib: s.thickMiB)) thick", symbol: "square.dashed")
+                    KPITile(title: "Guest used", value: q.has("vPartition") ? Fmt.capacity(mib: t.guestConsumedMiB) : "—",
+                            detail: q.has("vPartition") ? "of \(Fmt.capacity(mib: t.guestCapacityMiB)) guest file systems" : "vPartition tab not in export", symbol: "folder")
+                    KPITile(title: "Thin provisioned", value: q.has("vDisk") ? Fmt.pct(s.thinMiB / diskTotal * 100) : "—",
+                            detail: q.has("vDisk") ? "\(Fmt.capacity(mib: s.thinMiB)) thin · \(Fmt.capacity(mib: s.thickMiB)) thick" : "vDisk tab not in export", symbol: "square.dashed")
                 }
                 HStack(alignment: .top, spacing: 16) {
                     Card("Datastore utilization", subtitle: "Most-used datastores") {
@@ -72,9 +75,11 @@ struct StorageOverview: View {
                     Card("Reclaim opportunities", subtitle: "Correlated from vInfo, vSnapshot, vPartition, vDatastore and vHealth") {
                         VStack(spacing: 0) {
                             reclaimRow("Powered-off VMs", Fmt.capacity(mib: s.poweredOffProvisionedMiB), "\(t.vmsOff) VMs · \(Fmt.capacity(mib: s.poweredOffInUseMiB)) actually in use", rule: "vm.poweredoff")
-                            reclaimRow("Snapshots", Fmt.capacity(mib: s.snapshotMiB), "\(t.snapshots) snapshots in delta files", rule: "vm.snapshot.old")
+                            reclaimRow("Snapshots", report.dataQuality.has("vSnapshot") ? Fmt.capacity(mib: s.snapshotMiB) : "—",
+                                       report.dataQuality.has("vSnapshot") ? "\(t.snapshots) snapshots in delta files" : "vSnapshot tab not in export", rule: "vm.snapshot.old")
                             reclaimRow("Templates", Fmt.capacity(mib: s.templateProvisionedMiB), "\(t.templates) templates provisioned", rule: nil)
-                            reclaimRow("Free space inside guests", Fmt.capacity(mib: s.guestFreeMiB), "Right-sizing headroom in guest file systems", rule: nil)
+                            reclaimRow("Free space inside guests", report.dataQuality.has("vPartition") ? Fmt.capacity(mib: s.guestFreeMiB) : "—",
+                                       report.dataQuality.has("vPartition") ? "Right-sizing headroom in guest file systems" : "vPartition tab not in export", rule: nil)
                             reclaimRow("Empty datastores", Fmt.capacity(mib: report.inventory.datastores.filter { $0.vmCount == 0 }.reduce(0) { $0 + $1.capacityMiB }),
                                        "\(report.inventory.datastores.filter { $0.vmCount == 0 }.count) datastores with no VM files", rule: "ds.empty")
                             reclaimRow("Zombie files (RVTools)", "\(s.zombieFiles)", "VMDKs not attached to any registered VM", rule: "vhealth.zombie")

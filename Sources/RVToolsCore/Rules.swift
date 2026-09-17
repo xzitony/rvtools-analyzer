@@ -441,7 +441,8 @@ enum Rules {
         }
 
         // MARK: Hosts
-        for h in inv.hosts {
+        // Hosts and datastores known only by name from vInfo have no configuration to check.
+        for h in inv.hosts where !h.inferred {
             let L = clusters[h.clusterKey]?.name ?? h.cluster
             let f = { (rule: String, detail: String) in e.add(rule, .host, h.id, h.name, L, detail) }
             if h.maintenance { f("host.maintenance", "In maintenance mode") }
@@ -475,7 +476,8 @@ enum Rules {
         }
 
         // MARK: Clusters
-        for c in inv.clusters where !c.isStandalone {
+        let inferredClusters = Set(inv.hosts.filter(\.inferred).map(\.clusterKey))
+        for c in inv.clusters where !c.isStandalone && !inferredClusters.contains(c.id) {
             let L = [c.vcenter, c.datacenter].filter { !$0.isEmpty }.joined(separator: " › ")
             let f = { (rule: String, detail: String) in e.add(rule, .cluster, c.id, c.name, L, detail) }
             if c.hostCount == 1 { f("cluster.single", "1 host") }
@@ -500,7 +502,7 @@ enum Rules {
 
         // MARK: Datastores
         let pathsByDatastore = StoragePaths.map(inv)
-        for d in inv.datastores {
+        for d in inv.datastores where !d.inferred {
             let L = d.clusterList.isEmpty ? d.type : d.clusterList
             let f = { (rule: String, detail: String) in e.add(rule, .datastore, d.id, d.name, L, detail) }
             if !d.accessible { f("ds.inaccessible", "Not accessible") }

@@ -396,6 +396,14 @@ do {
         print("  [\(c.ok ? "ok" : "!!")] \(pad(c.title, 50)) reported \(c.reported) · derived \(c.derived)")
     }
 
+    let q = r.dataQuality
+    print("\n== Data confidence: \(Fmt.num(q.score, 1))% of \(Fmt.int(q.total)) key figures available — \(Fmt.int(q.reported)) reported, \(Fmt.int(q.derived)) derived, \(Fmt.int(q.missing)) missing")
+    for g in q.gaps {
+        let tag = g.kind == .missing ? "missing" : (g.kind == .derived ? "derived" : "note")
+        let count = g.total > 0 ? "\(g.affected)/\(g.total)" : ""
+        print("  [\(pad(tag, 7))] \(pad(g.area + " · " + g.title, 34)) \(lpad(count, 11))  " + (g.fallback.isEmpty ? "" : "from \(g.fallback) — ") + g.impact)
+    }
+
     print("\n== Findings: \(t.critical) critical, \(t.warning) warning, \(t.info) info"
         + (r.acknowledgedFindings.isEmpty ? "" : " (\(r.acknowledgedFindings.count) acknowledged findings not shown)"))
     for g in r.groups {
