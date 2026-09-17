@@ -12,6 +12,7 @@ struct OverviewView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                SourceWarningsNotice()
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
                     KPITile(title: "Virtual machines", value: Fmt.int(t.vms), detail: "\(Fmt.int(t.vmsOn)) on · \(Fmt.int(t.vmsOff)) off · \(Fmt.int(t.templates)) templates", symbol: "desktopcomputer")
                     KPITile(title: "Hosts", value: Fmt.int(t.hosts), detail: "\(t.clusters) clusters · \(t.datacenters) datacenters · \(t.vcenters) vCenter\(t.vcenters == 1 ? "" : "s")", symbol: "server.rack")
@@ -233,6 +234,29 @@ struct DatastoreUsageChart: View {
                 Label("< \(Fmt.num(thresholds.datastoreFreeCritPct, 0))% free", systemImage: Severity.critical.symbol).foregroundStyle(Palette.critical)
             }
             .font(.caption)
+        }
+    }
+}
+
+/// Anything odd about the files themselves, e.g. rows that arrived twice because an export was opened more than once.
+struct SourceWarningsNotice: View {
+    @Environment(AppModel.self) private var model
+
+    var body: some View {
+        let warnings = model.dataset?.warnings ?? []
+        if !warnings.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(warnings, id: \.self) { w in
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Image(systemName: Severity.info.symbol).foregroundStyle(Palette.primary)
+                        Text(w).font(.callout).fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Palette.track.opacity(0.5)))
         }
     }
 }

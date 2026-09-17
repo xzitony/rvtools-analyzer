@@ -368,6 +368,7 @@ do {
     print("Export date:  \(Fmt.dateTime(ds.reportDate))   RVTools \(ds.rvtoolsVersion)")
     print("Timing:       load \(ms(t0, t1)), correlate \(ms(t1, t2)), analyze \(ms(t2, t3))")
     print("Tabs:         " + ds.tableNames.map { "\($0)=\(ds.table($0)?.rows.count ?? 0)" }.joined(separator: " "))
+    for w in ds.warnings { print("Note:         \(w)") }
 
     let t = r.totals
     print("\n== Inventory")
