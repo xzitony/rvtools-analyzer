@@ -39,12 +39,13 @@ public enum TrendLoader {
     /// Loads each export on its own, then groups them into snapshots by export time.
     public static func load(_ urls: [URL]) throws -> [TrendSnapshot] {
         let loaded = try loadEach(expand(urls).map { [$0] }).sorted { $0.0.reportDate < $1.0.reportDate }
+        let ids = TrendAnalyzer.serverIdentities(loaded.map { TrendSnapshot(id: 0, date: $0.0.reportDate, dataset: $0.0, inventory: $0.1) })
         var groups: [[(Dataset, Inventory)]] = []
         for item in loaded {
-            let servers = Set(item.1.vcenters.map { TrendAnalyzer.canonicalServer($0.server) })
+            let servers = Set(item.1.vcenters.map { TrendAnalyzer.canonicalServer($0.server, identities: ids) })
             if let group = groups.last, let first = group.first,
                item.0.reportDate.timeIntervalSince(first.0.reportDate) <= combineWindow,
-               group.allSatisfy({ Set($0.1.vcenters.map { TrendAnalyzer.canonicalServer($0.server) }).isDisjoint(with: servers) }) {
+               group.allSatisfy({ Set($0.1.vcenters.map { TrendAnalyzer.canonicalServer($0.server, identities: ids) }).isDisjoint(with: servers) }) {
                 groups[groups.count - 1].append(item)
             } else {
                 groups.append([item])
@@ -287,11 +288,16 @@ public struct TrendReport: Sendable {
     public let datastores: [DatastoreTrend]
     public let clusters: [ClusterTrend]
     public let warnings: [String]
+    /// vCenter address → instance UUID, used to build VM keys (see `TrendAnalyzer.vmKey`).
+    public let serverIdentities: [String: String]
     let index: [[String: VM]]
 
     public var first: TrendSnapshot { snapshots[0] }
     public var last: TrendSnapshot { snapshots[snapshots.count - 1] }
     public var spanDays: Double { last.date.timeIntervalSince(first.date) / 86_400 }
+
+    /// This trend's key for a VM, for `history(_:)` and change lookups.
+    public func key(_ vm: VM) -> String { TrendAnalyzer.vmKey(vm, identities: serverIdentities) }
 
     public func series(_ m: TrendMetric) -> TrendSeries? { series.first { $0.metric == m } }
     public func count(_ kind: ChangeKind) -> Int { changes.filter { $0.kind == kind }.count }
@@ -352,23 +358,37 @@ public enum TrendAnalyzer {
     static let organicDataLabel = "VM data in use (VMs in every snapshot)"
     static let datastoreUsedLabel = "Datastore used"
 
+    /// Instance UUID per vCenter address, across every snapshot: RVTools records the address it connected to, which
+    /// can be an IP in one export and an FQDN in the next, while the UUID identifies the vCenter itself.
+    static func serverIdentities(_ snapshots: [TrendSnapshot]) -> [String: String] {
+        var out: [String: String] = [:]
+        for s in snapshots {
+            for vc in s.inventory.vcenters where !vc.instanceUUID.isEmpty {
+                out[canonicalServer(vc.server)] = "uuid:" + vc.instanceUUID.lowercased()
+            }
+        }
+        return out
+    }
+
     /// A vCenter's name for matching across exports: RVTools may record it by short name in one export and by FQDN
     /// in another (e.g. "vc01" vs "vc01.corp.example"). IP addresses are kept whole.
-    public static func canonicalServer(_ server: String) -> String {
+    public static func canonicalServer(_ server: String, identities: [String: String] = [:]) -> String {
         let s = server.lowercased().trimmingCharacters(in: .whitespaces)
-        if s.split(separator: ".").allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) || s.contains(":") { return s }
-        return s.split(separator: ".").first.map(String.init) ?? s
+        let name: String
+        if s.split(separator: ".").allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) || s.contains(":") { name = s }
+        else { name = s.split(separator: ".").first.map(String.init) ?? s }
+        return identities[name] ?? name
     }
 
     /// An inventory id ("server|name") with its vCenter part canonicalised, for matching objects across exports.
-    static func canonicalID(_ id: String) -> String {
-        guard let bar = id.firstIndex(of: "|") else { return canonicalServer(id) }
-        return canonicalServer(String(id[..<bar])) + id[bar...]
+    static func canonicalID(_ id: String, _ identities: [String: String] = [:]) -> String {
+        guard let bar = id.firstIndex(of: "|") else { return canonicalServer(id, identities: identities) }
+        return canonicalServer(String(id[..<bar]), identities: identities) + id[bar...]
     }
 
     /// Stable identity across exports: vCenter + VM UUID, then VM ID (moref), then name.
-    public static func vmKey(_ vm: VM) -> String {
-        let server = canonicalServer(vm.vcenter)
+    public static func vmKey(_ vm: VM, identities: [String: String] = [:]) -> String {
+        let server = canonicalServer(vm.vcenter, identities: identities)
         if !vm.uuid.isEmpty { return server + "|u:" + vm.uuid.lowercased() }
         if !vm.vmID.isEmpty { return server + "|m:" + vm.vmID.lowercased() }
         return server + "|n:" + vm.name.lowercased()
@@ -392,7 +412,7 @@ public enum TrendAnalyzer {
 
     static func shortHost(_ s: String) -> String { s.split(separator: ".").first.map(String.init) ?? s }
 
-    static func diff(_ a: VM, _ b: VM) -> [(ChangeKind, String, Double)] {
+    static func diff(_ a: VM, _ b: VM, _ identities: [String: String]) -> [(ChangeKind, String, Double)] {
         var out: [(ChangeKind, String, Double)] = []
         if a.name != b.name { out.append((.renamed, "\(a.name) → \(b.name)", 0)) }
         var size: [String] = []
@@ -403,9 +423,9 @@ public enum TrendAnalyzer {
         if (!a.disks.isEmpty && !b.disks.isEmpty && a.disks.count != b.disks.count) || abs(capA - capB) >= 1024 {
             out.append((.storage, "\(a.disks.count) → \(b.disks.count) disks, \(Fmt.capacity(mib: capA)) → \(Fmt.capacity(mib: capB)) provisioned", capB - capA))
         }
-        if canonicalID(a.clusterKey) != canonicalID(b.clusterKey) {
+        if canonicalID(a.clusterKey, identities) != canonicalID(b.clusterKey, identities) {
             out.append((.clusterMove, "\(a.cluster.isEmpty ? "standalone" : a.cluster) → \(b.cluster.isEmpty ? "standalone" : b.cluster)", 0))
-        } else if canonicalID(a.hostKey) != canonicalID(b.hostKey) {
+        } else if canonicalID(a.hostKey, identities) != canonicalID(b.hostKey, identities) {
             out.append((.hostMove, "\(shortHost(a.host)) → \(shortHost(b.host))", 0))
         }
         if !a.datastores.isEmpty, !b.datastores.isEmpty, Set(a.datastores) != Set(b.datastores) {
@@ -428,8 +448,14 @@ public enum TrendAnalyzer {
         return out
     }
 
-    public static func run(_ snapshots: [TrendSnapshot], ignoreUnusedLocalDatastores: Bool = true) -> TrendReport {
+    public static func run(_ snapshots: [TrendSnapshot], ignoreUnusedLocalDatastores: Bool = true,
+                           ignoreVMCManagementDatastore: Bool = true) -> TrendReport {
         precondition(!snapshots.isEmpty)
+        // The same vCenter can appear under different addresses in different exports; match it by instance UUID.
+        let ids = serverIdentities(snapshots)
+        func canonicalID(_ id: String) -> String { TrendAnalyzer.canonicalID(id, ids) }
+        func canonicalServer(_ server: String) -> String { TrendAnalyzer.canonicalServer(server, identities: ids) }
+
         // As in the dashboards, host-local datastores that no VM used in any snapshot are left out.
         var unusedLocal = Set<String>(), used = Set<String>()
         for s in snapshots {
@@ -438,7 +464,10 @@ public enum TrendAnalyzer {
             }
         }
         let hiddenCanonical = ignoreUnusedLocalDatastores ? unusedLocal.subtracting(used) : []
-        let hiddenDatastores = Set(snapshots.flatMap { $0.inventory.datastores.map(\.id) }.filter { hiddenCanonical.contains(canonicalID($0)) })
+        var hiddenDatastores = Set(snapshots.flatMap { $0.inventory.datastores.map(\.id) }.filter { hiddenCanonical.contains(canonicalID($0)) })
+        if ignoreVMCManagementDatastore {
+            hiddenDatastores.formUnion(snapshots.flatMap { $0.inventory.vmcManagementDatastores.map(\.id) })
+        }
         var warnings: [String] = []
         var nameKeyed = 0
 
@@ -446,7 +475,7 @@ public enum TrendAnalyzer {
         let index: [[String: VM]] = snapshots.map { snap in
             var map: [String: VM] = [:]
             for vm in snap.inventory.vms where vm.isVM {
-                var key = vmKey(vm)
+                var key = vmKey(vm, identities: ids)
                 if key.contains("|n:") { nameKeyed += 1 }
                 if map[key] != nil { key += "|" + vm.name.lowercased() }
                 map[key] = vm
@@ -526,7 +555,7 @@ public enum TrendAnalyzer {
             }
             for (key, new) in b {
                 guard let old = a[key] else { continue }
-                for (kind, detail, magnitude) in diff(old, new) { add(key, new, kind, detail, magnitude, cluster: clusterNames[i][new.clusterKey] ?? new.cluster) }
+                for (kind, detail, magnitude) in diff(old, new, ids) { add(key, new, kind, detail, magnitude, cluster: clusterNames[i][new.clusterKey] ?? new.cluster) }
             }
             intervals.append(IntervalSummary(
                 snapshot: i, from: snapshots[i - 1].date, to: date, counts: counts,
@@ -634,7 +663,7 @@ public enum TrendAnalyzer {
         if nameKeyed > 0 { warnings.append("\(nameKeyed) VM rows had no UUID or VM ID and were matched by name; renames of those VMs appear as remove + add.") }
 
         return TrendReport(snapshots: snapshots, series: series, growth: growth, changes: changes, infra: infra, intervals: intervals,
-                           vmGrowth: vmGrowth, datastores: datastores, clusters: clusters, warnings: warnings, index: index)
+                           vmGrowth: vmGrowth, datastores: datastores, clusters: clusters, warnings: warnings, serverIdentities: ids, index: index)
     }
 }
 

@@ -240,9 +240,9 @@ final class AppModel {
     /// Re-runs the loaded trend (its change descriptions and figures depend on the settings).
     private func refreshTrend() {
         guard let t = trend else { return }
-        let snapshots = t.snapshots, ignore = thresholds.ignoreUnusedLocalDatastores
+        let snapshots = t.snapshots, ignore = thresholds.ignoreUnusedLocalDatastores, ignoreVMC = thresholds.ignoreVMCManagementDatastore
         Task.detached(priority: .userInitiated) {
-            let updated = TrendAnalyzer.run(snapshots, ignoreUnusedLocalDatastores: ignore)
+            let updated = TrendAnalyzer.run(snapshots, ignoreUnusedLocalDatastores: ignore, ignoreVMCManagementDatastore: ignoreVMC)
             await MainActor.run { if self.trend?.snapshots.count == snapshots.count { self.trend = updated } }
         }
     }
@@ -256,7 +256,8 @@ final class AppModel {
             guard thresholds != oldValue else { return }
             if let data = try? JSONEncoder().encode(thresholds) { UserDefaults.standard.set(data, forKey: "thresholds") }
             recompute()
-            if thresholds.ignoreUnusedLocalDatastores != oldValue.ignoreUnusedLocalDatastores { refreshTrend() }
+            if thresholds.ignoreUnusedLocalDatastores != oldValue.ignoreUnusedLocalDatastores
+                || thresholds.ignoreVMCManagementDatastore != oldValue.ignoreVMCManagementDatastore { refreshTrend() }
             noteChange()
         }
     }
@@ -403,7 +404,8 @@ final class AppModel {
     }
 
     nonisolated static func buildTrend(_ snapshots: [TrendSnapshot], thresholds t: Thresholds, acknowledgements acks: [Acknowledgement]) -> (TrendReport, Report) {
-        let trend = TrendAnalyzer.run(snapshots, ignoreUnusedLocalDatastores: t.ignoreUnusedLocalDatastores)
+        let trend = TrendAnalyzer.run(snapshots, ignoreUnusedLocalDatastores: t.ignoreUnusedLocalDatastores,
+                                      ignoreVMCManagementDatastore: t.ignoreVMCManagementDatastore)
         return (trend, Analyzer.run(snapshots[snapshots.count - 1].inventory, thresholds: t, acknowledgements: acks))
     }
 

@@ -15,6 +15,7 @@ struct StorageView: View {
             }
             .pickerStyle(.segmented).labelsHidden().frame(width: 240).padding(.vertical, 10)
             Divider()
+            VMCDatastoreNotice(report: report).padding(.horizontal, 16).padding(.top, 10)
             UnusedLocalDatastoresNotice(report: report).padding(.horizontal, 16).padding(.top, 10)
             if model.storageTab == 0 { StorageOverview(report: report) } else { DatastoresPane(report: report) }
         }
@@ -22,6 +23,31 @@ struct StorageView: View {
 }
 
 /// Says when host-local datastores with no VM files are left out (or could be), with a one-click switch.
+/// VMC on AWS lists the cluster's vSAN capacity as both vsanDatastore and WorkloadDatastore.
+struct VMCDatastoreNotice: View {
+    @Environment(AppModel.self) private var model
+    let report: Report
+
+    var body: some View {
+        let dupes = report.vmcManagementDatastores
+        if !dupes.isEmpty {
+            let left = report.thresholds.ignoreVMCManagementDatastore
+            let names = dupes.map(\.name).sorted().joined(separator: ", ")
+            HStack(spacing: 10) {
+                Image(systemName: left ? "eye.slash" : "eye").foregroundStyle(Palette.primary)
+                Text("\(names) reports the same vSAN capacity as WorkloadDatastore (VMware Cloud on AWS) and "
+                     + (left ? "is left out of totals, findings and charts." : "is counted again in totals, findings and charts."))
+                    .font(.callout)
+                Spacer()
+                Button(left ? "Include It" : "Leave It Out") { model.thresholds.ignoreVMCManagementDatastore.toggle() }
+                    .controlSize(.small)
+            }
+            .padding(.horizontal, 12).padding(.vertical, 8)
+            .background(RoundedRectangle(cornerRadius: 8).fill(Palette.track.opacity(0.5)))
+        }
+    }
+}
+
 struct UnusedLocalDatastoresNotice: View {
     @Environment(AppModel.self) private var model
     let report: Report

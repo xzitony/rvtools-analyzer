@@ -157,7 +157,7 @@ struct VMDetail: View {
                 }
                 if let trend = model.trend {
                     DetailSection("History across snapshots") {
-                        VMHistoryGrid(trend: trend, key: TrendAnalyzer.vmKey(vm))
+                        VMHistoryGrid(trend: trend, key: trend.key(vm))
                     }
                 }
                 DetailSection("Findings", count: report.findingsByObject[vm.id]?.count ?? 0) {

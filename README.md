@@ -58,6 +58,7 @@ Opening several exports normally *merges* them into one view of several vCenters
 
 - Each export is one point in time, ordered by its export timestamp. Exports of *different* vCenters taken within 12 hours are combined into one snapshot, so a multi-vCenter estate can be trended too. A folder containing several exports can be chosen directly.
 - VMs are matched across snapshots by vCenter + VM UUID (then VM ID, then name), so renames are recognised as renames rather than remove + add.
+- A vCenter is identified by its instance UUID ("VI SDK UUID"), not by the address RVTools connected to, so exports taken by IP in one run and by FQDN in another still match. Without a UUID, the short hostname is used.
 
 ![Trend Summary](docs/images/trend-summary.png)
 
@@ -87,6 +88,8 @@ Ages are measured from the export timestamp in `vMetaData` or the file name, not
 | **Compute** | Cluster cards (HA/DRS/admission control, capacity, consolidation ratios, CPU/memory used, memory if the largest host fails, ESXi/CPU mix) and host utilization. The hosts table has an inspector covering the host's VMs, datastores, pNICs, VMkernel adapters, HBAs, LUN paths and findings. |
 | **Virtual Machines** | A searchable, sortable inventory (search by name, IP, host, OS, network, datastore or notes). The inspector shows everything joined to the VM: placement, compute, disks, guest partitions, NICs with VLANs, snapshots, Tools/HW/firmware, findings and vHealth messages. |
 | **Storage** | Capacity, used, provisioned (overcommit), thin vs thick, reclaim opportunities (powered-off VMs, snapshots, templates, guest free space, empty datastores, zombie files) and snapshot age. The datastores table has an inspector listing each datastore's VMs and hosts. |
+
+**VMware Cloud on AWS.** VMC lists the cluster's vSAN capacity twice, as `vsanDatastore` (management) and `WorkloadDatastore` (what the customer uses), each reporting the whole cluster. The management copy is recognised (same vCenter, same capacity and free space) and left out by default, so capacity isn't counted twice; VMs stored there are still listed. The Storage page says so, with a button to include it, and the same switch is in **Settings › Findings**.
 
 **Local datastores with no VM files.** Host-local datastores that hold no VMs, templates or VM disks, usually ESXi boot or scratch devices, are left out by default. They don't count in capacity totals, findings (such as low free space or "datastore with no VMs"), charts, trends, exports or solutions. A datastore counts as local when exactly one host mounts it and it isn't vSAN or NFS. Local datastores that VMs use always count. When any are left out, the Storage page says how many, with a button to include them; the same switch is in **Settings › Findings**, and projects save it.
 | **Network** | Port groups with VLANs, observed subnets, the switch they're on, host and VM counts, and security policy. RVTools doesn't record VM netmasks, so observed subnets are inferred from the guest IPv4 addresses on each port group's VM NICs: grouped into /24 blocks, merged where neighbouring blocks are all in use, with a warning when the same range shows up on another port group. VMkernel adapters show their exact CIDR from the reported mask. Also distributed and standard switches, VMkernel adapters, physical NICs, and adapter types. |
@@ -161,7 +164,7 @@ The authoring guide, with the manifest, inventory, results, helpers and price li
 
 The **Scope** picker in the toolbar limits every page to one vCenter, datacenter or cluster. Datastores and networks follow the hosts and VMs in scope.
 
-**Export** writes CSVs of the findings, the correlated VM inventory, hosts, clusters and datastores. **Settings** (⌘,) holds the thresholds and whether local datastores with no VM files are left out; findings recalculate immediately when you change them. **Settings › Units** chooses how storage is shown, in binary units (MiB, GiB, TiB, the default, as vSphere calculates capacity) or decimal units (MB, GB, TB), and network rates in bits (Mbps, Gbps, the default) or bytes (MB/s, GB/s). The choice applies to the dashboards, findings, solution results, relationship maps and CSV exports. Memory is always shown in binary units, because RAM is sized in powers of two.
+**Export** writes CSVs of the findings, the correlated VM inventory, hosts, clusters and datastores. **Settings** (⌘,) holds the thresholds, whether local datastores with no VM files are left out and whether the VMC management datastore is left out; findings recalculate immediately when you change them. **Settings › Units** chooses how storage is shown, in binary units (MiB, GiB, TiB, the default, as vSphere calculates capacity) or decimal units (MB, GB, TB), and network rates in bits (Mbps, Gbps, the default) or bytes (MB/s, GB/s). The choice applies to the dashboards, findings, solution results, relationship maps and CSV exports. Memory is always shown in binary units, because RAM is sized in powers of two.
 
 ## How tabs are correlated
 

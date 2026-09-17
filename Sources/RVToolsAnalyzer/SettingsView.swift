@@ -80,6 +80,8 @@ private struct FindingsSettingsView: View {
             }
             Section("Local datastores") {
                 Toggle("Ignore local datastores with no VM files", isOn: $model.thresholds.ignoreUnusedLocalDatastores)
+                Toggle("Ignore the VMC management datastore (vsanDatastore)", isOn: $model.thresholds.ignoreVMCManagementDatastore)
+                    .help("VMware Cloud on AWS lists the cluster's vSAN capacity twice — as vsanDatastore and as WorkloadDatastore — so counting both doubles it.")
                 Text("Host-local datastores that hold no VMs, templates or VM disks — usually ESXi boot or scratch devices — are left out of capacity totals, findings, charts, exports and solutions. Local datastores that VMs use always count.")
                     .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
