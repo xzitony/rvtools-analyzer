@@ -162,6 +162,8 @@ final class AppModel {
     var storageTab = 0
     var networkTab = 0
     var focusRule: String?
+    /// Hides the data-confidence banner until another export is opened.
+    var dataBannerDismissed = false
 
     // Solutions: per-solution VM selection (reset per export), assumptions (persisted) and active tab.
     var solutionSelections: [String: Set<String>] = [:] { didSet { noteChange() } }
@@ -538,6 +540,7 @@ final class AppModel {
         selectedHostID = nil
         selectedDatastoreID = nil
         selectedPortGroupID = nil
+        dataBannerDismissed = false
         sidebar = trend == nil ? .overview : .trendSummary
         isLoading = false
         // A freshly opened export is a new, unsaved session.

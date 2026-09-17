@@ -199,8 +199,8 @@ struct VMDetail: View {
                 }
                 DetailSection("Compute") {
                     KeyValueGrid(rows: [
-                        ("vCPU", "\(vm.cpus)" + (vm.sockets > 0 ? " (\(vm.sockets) socket × \(vm.coresPerSocket) cores)" : "")),
-                        ("Memory", Fmt.memory(mib: vm.memoryMiB)),
+                        ("vCPU", "\(vm.cpus)" + (vm.sockets > 0 ? " (\(vm.sockets) socket × \(vm.coresPerSocket) cores)" : "") + sourceNote(vm.cpusSource)),
+                        ("Memory", Fmt.memory(mib: vm.memoryMiB) + sourceNote(vm.memorySource)),
                         ("CPU reservation / limit", "\(Fmt.int(Int(vm.cpuReservationMHz))) MHz / " + (vm.cpuLimitMHz < 0 ? "unlimited" : "\(Fmt.int(Int(vm.cpuLimitMHz))) MHz")),
                         ("Memory reservation / limit", Fmt.memory(mib: vm.memReservationMiB) + " / " + (vm.memLimitMiB < 0 ? "unlimited" : Fmt.memory(mib: vm.memLimitMiB))),
                         ("Hot add", "CPU \(vm.cpuHotAdd ? "on" : "off") · memory \(vm.memHotAdd ? "on" : "off")"),
@@ -211,8 +211,8 @@ struct VMDetail: View {
                 }
                 DetailSection("Storage", count: vm.disks.count) {
                     KeyValueGrid(rows: [
-                        ("Provisioned", Fmt.capacity(mib: vm.provisionedMiB)),
-                        ("In use", Fmt.capacity(mib: vm.inUseMiB)),
+                        ("Provisioned", Fmt.capacity(mib: vm.provisionedMiB) + sourceNote(vm.provisionedSource)),
+                        ("In use", Fmt.capacity(mib: vm.inUseMiB) + sourceNote(vm.inUseSource)),
                         ("Guest file systems", vm.partitions.isEmpty ? "—" : "\(Fmt.capacity(mib: vm.guestConsumedMiB)) used of \(Fmt.capacity(mib: vm.guestCapacityMiB))"),
                     ])
                     ForEach(Array(vm.disks.enumerated()), id: \.offset) { _, d in
@@ -307,5 +307,14 @@ struct VMDetail: View {
             }
             .padding(16)
         }
+    }
+}
+
+/// Suffix for an inspector value that vInfo didn't report directly.
+func sourceNote(_ source: FigureSource) -> String {
+    switch source {
+    case .reported: return ""
+    case .missing: return " · not in export"
+    default: return " · derived from \(source.rawValue)"
     }
 }

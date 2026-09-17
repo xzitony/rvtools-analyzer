@@ -238,9 +238,13 @@ struct MainView: View {
                 .background(.bar)
             }
         } detail: {
-            detail
-                .navigationTitle(model.sidebar?.rawValue ?? "Overview")
-                .navigationSubtitle(model.projectTitle + (model.projectURL != nil && model.isDirty ? " — Edited" : "") + " · " + subtitleContext)
+            // A VStack rather than a safe-area inset: pages with an .inspector ignore the inset and draw under it.
+            VStack(spacing: 0) {
+                if showDataBanner { DataConfidenceBanner(quality: report.dataQuality) }
+                detail.frame(maxHeight: .infinity)
+            }
+            .navigationTitle(model.sidebar?.rawValue ?? "Overview")
+            .navigationSubtitle(model.projectTitle + (model.projectURL != nil && model.isDirty ? " — Edited" : "") + " · " + subtitleContext)
         }
         .sheet(isPresented: $model.showProjectInfo) {
             ProjectInfoSheet().environment(model)
@@ -294,6 +298,12 @@ struct MainView: View {
                 .help("Open another RVTools export")
             }
         }
+    }
+
+    /// On the snapshot dashboards and solutions; Correlations shows the full breakdown instead.
+    private var showDataBanner: Bool {
+        guard !model.dataBannerDismissed, !report.dataQuality.headline.isEmpty, let page = model.sidebar else { return false }
+        return !SidebarItem.trendPages.contains(page) && page != .correlations && page != .rawData
     }
 
     private var subtitleContext: String {

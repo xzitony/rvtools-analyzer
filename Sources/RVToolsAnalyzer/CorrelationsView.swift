@@ -19,6 +19,8 @@ struct CorrelationsView: View {
         let inv = report.inventory
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                DataConfidenceCard(quality: report.dataQuality)
+
                 Card("Entity graph", subtitle: "Every tab is joined into this object model (counts for the current scope)") {
                     VStack(alignment: .leading, spacing: 14) {
                         chain([("vCenters", inv.vcenters.count), ("Datacenters", inv.datacenterCount), ("Clusters", report.totals.clusters),
