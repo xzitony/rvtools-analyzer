@@ -89,6 +89,8 @@ public struct Report: Sendable {
     public var findingsByObject: [String: [Finding]]
     /// Host-local datastores with no VM files. Left out of `inventory` when `thresholds.ignoreUnusedLocalDatastores`.
     public var unusedLocalDatastores: [Datastore] = []
+    /// VMC management datastores (duplicate vSAN capacity). Left out when `thresholds.ignoreVMCManagementDatastore`.
+    public var vmcManagementDatastores: [Datastore] = []
     /// Findings covered by an acknowledgement: left out of `findings`, `groups`, totals, inspectors and exports.
     public var acknowledgedFindings: [Finding] = []
     public var acknowledgedGroups: [FindingGroup] = []
@@ -100,7 +102,10 @@ public struct Report: Sendable {
 public enum Analyzer {
     public static func run(_ source: Inventory, thresholds: Thresholds = Thresholds(), acknowledgements: [Acknowledgement] = []) -> Report {
         let unusedLocal = source.unusedLocalDatastores
-        var inv = thresholds.ignoreUnusedLocalDatastores ? source.removingDatastores(Set(unusedLocal.map(\.id))) : source
+        let vmcManagement = source.vmcManagementDatastores
+        var hidden = thresholds.ignoreUnusedLocalDatastores ? Set(unusedLocal.map(\.id)) : []
+        if thresholds.ignoreVMCManagementDatastore { hidden.formUnion(vmcManagement.map(\.id)) }
+        var inv = source.removingDatastores(hidden)
         let (allFindings, catalog) = Rules.evaluate(inv, thresholds)
         let (findings, acknowledged) = acknowledgements.partition(allFindings)
 
@@ -119,7 +124,7 @@ public enum Analyzer {
 
         return Report(inventory: inv, totals: totals(inv, findings), findings: findings, groups: groupList,
                       dist: distributions(inv, findings), storage: storage(inv), thresholds: thresholds, findingsByObject: byObject,
-                      unusedLocalDatastores: unusedLocal, acknowledgedFindings: acknowledged,
+                      unusedLocalDatastores: unusedLocal, vmcManagementDatastores: vmcManagement, acknowledgedFindings: acknowledged,
                       acknowledgedGroups: groupFindings(acknowledged, catalog), acknowledgements: acknowledgements,
                       dataQuality: DataQuality.evaluate(inv))
     }

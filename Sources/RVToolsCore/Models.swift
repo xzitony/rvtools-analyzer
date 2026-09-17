@@ -371,6 +371,9 @@ public struct Datastore: Identifiable, Sendable {
     public var lunPaths = 0
     public var issueCount = 0
     public var capacitySource = FigureSource.reported
+    /// VMC on AWS lists the cluster's vSAN capacity twice: as "vsanDatastore" (management) and as
+    /// "WorkloadDatastore" (what the customer uses). Set on the management copy, whose capacity double-counts.
+    public var isVMCManagementDatastore = false
     /// Known only from VM file paths (the export has no vDatastore tab): no capacity, type or host mounts.
     public var inferred = false
 
@@ -539,6 +542,9 @@ public struct VCenter: Identifiable, Sendable {
     public var build = ""
     public var apiVersion = ""
     public var osType = ""
+    /// The vCenter's own instance UUID ("VI SDK UUID"). Stable identity across exports, unlike `server`, which is
+    /// just the address RVTools connected to (an IP in one export, an FQDN in the next).
+    public var instanceUUID = ""
     public var datacenters: [String] = []
 }
 
@@ -590,6 +596,9 @@ public struct Inventory: Sendable {
 
     /// Host-local datastores that no VM uses (see `Datastore.isUnusedLocal`).
     public var unusedLocalDatastores: [Datastore] { datastores.filter(\.isUnusedLocal) }
+
+    /// VMC management datastores whose capacity is the same vSAN capacity as WorkloadDatastore.
+    public var vmcManagementDatastores: [Datastore] { datastores.filter(\.isVMCManagementDatastore) }
 
     /// The inventory without these datastores; host and cluster datastore counts and vHealth messages follow.
     public func removingDatastores(_ ids: Set<String>) -> Inventory {

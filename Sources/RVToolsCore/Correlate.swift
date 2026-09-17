@@ -46,6 +46,8 @@ private final class Builder {
         buildHostChildren()
         buildLicensesAndPools()
         buildHealth()
+        // Rows with no "VI SDK Server" (RVTools writes them for objects it couldn't attribute) aren't a vCenter.
+        inv.vcenters.removeAll { $0.server.trimmingCharacters(in: .whitespaces).isEmpty }
         fillMissingFigures()
         rollUp()
         consistencyChecks()
@@ -71,6 +73,12 @@ private final class Builder {
         let short = name.split(separator: ".").first.map(String.init)?.lowercased() ?? ""
         if let i = inv.hosts.firstIndex(where: { $0.vcenter.lowercased() == server.lowercased() && $0.name.split(separator: ".").first?.lowercased() == short }) { return i }
         return nil
+    }
+
+    /// Records the vCenter's instance UUID from any tab that carries "VI SDK UUID".
+    func noteInstanceUUID(_ server: String, _ uuid: String) {
+        guard !uuid.isEmpty, let i = vcIndex[server.lowercased()], inv.vcenters[i].instanceUUID.isEmpty else { return }
+        inv.vcenters[i].instanceUUID = uuid
     }
 
     @discardableResult
@@ -111,7 +119,7 @@ private final class Builder {
     func buildVCenters() {
         guard let t = ds.table("vSource") else { return }
         let cServer = t.col("VI SDK Server"), cVersion = t.col("Version"), cBuild = t.col("Build"), cFull = t.col("Fullname")
-        let cAPI = t.col("API version"), cOS = t.col("OS type"), cName = t.col("Name")
+        let cAPI = t.col("API version"), cOS = t.col("OS type"), cName = t.col("Name"), cUUID = t.col("VI SDK UUID")
         for r in t.rows {
             let server = r.s(cServer).isEmpty ? r.s(cName) : r.s(cServer)
             let i = ensureVCenter(server)
@@ -120,6 +128,7 @@ private final class Builder {
             inv.vcenters[i].build = r.s(cBuild)
             inv.vcenters[i].apiVersion = r.s(cAPI)
             inv.vcenters[i].osType = r.s(cOS)
+            if inv.vcenters[i].instanceUUID.isEmpty { inv.vcenters[i].instanceUUID = r.s(cUUID) }
         }
     }
 
@@ -245,6 +254,7 @@ private final class Builder {
         let cNote = t.col("Annotation"), cDC = t.col("Datacenter"), cCluster = t.col("Cluster"), cHost = t.col("Host")
         let cOSConf = t.col("OS according to the configuration file", "OS"), cOSTools = t.col("OS according to the VMware Tools")
         let cVMID = t.col("VM ID"), cUUID = t.col("VM UUID", "UUID"), cReady = t.col("Overall Cpu Readiness"), cDiskTotal = t.col("Total disk capacity MiB")
+        let cSDKUUID = t.col("VI SDK UUID")
         let cNets = (1...8).map { t.col("Network #\($0)") }
         let cCustom = t.customColumns.sorted()
 
@@ -252,6 +262,7 @@ private final class Builder {
             let server = r.s(cServer), name = r.s(cVM)
             guard !name.isEmpty else { continue }
             ensureVCenter(server)
+            noteInstanceUUID(server, r.s(cSDKUUID))
             let vmid = r.s(cVMID), uuid = r.s(cUUID)
             var id = !vmid.isEmpty ? key(server, vmid) : (!uuid.isEmpty ? key(server, "uuid:" + uuid) : key(server, "name:\(name)"))
             if vmIDs.contains(id) { id += "#\(ri)" }
@@ -550,6 +561,17 @@ private final class Builder {
                     dsIndex[d.id] = inv.datastores.count - 1
                 }
             }
+        }
+
+        // VMC on AWS surfaces one vSAN datastore twice: "vsanDatastore" (management) and "WorkloadDatastore", both
+        // reporting the whole cluster's capacity, so counting both doubles it.
+        for i in inv.datastores.indices where inv.datastores[i].name.caseInsensitiveCompare("vsanDatastore") == .orderedSame {
+            let d = inv.datastores[i]
+            let workload = inv.datastores.first {
+                $0.name.caseInsensitiveCompare("WorkloadDatastore") == .orderedSame && $0.vcenter.lowercased() == d.vcenter.lowercased()
+                    && abs($0.capacityMiB - d.capacityMiB) < 1 && abs($0.freeMiB - d.freeMiB) < 1
+            }
+            if workload != nil { inv.datastores[i].isVMCManagementDatastore = true }
         }
 
         // VM ↔ Datastore via vDisk paths and the VM's .vmx path.

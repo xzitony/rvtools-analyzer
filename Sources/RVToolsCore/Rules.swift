@@ -65,6 +65,8 @@ public struct Thresholds: Codable, Equatable, Sendable {
     public var licenseExpiryDays = 90.0
     /// Leave host-local datastores with no VM files (boot / scratch devices) out of every dashboard, finding and solution.
     public var ignoreUnusedLocalDatastores = true
+    /// VMC on AWS: leave the management "vsanDatastore" out, since WorkloadDatastore reports the same capacity.
+    public var ignoreVMCManagementDatastore = true
 
     public init() {}
 
@@ -85,6 +87,7 @@ public struct Thresholds: Codable, Equatable, Sendable {
         certExpiryDays = try c.decodeIfPresent(Double.self, forKey: .certExpiryDays) ?? d.certExpiryDays
         licenseExpiryDays = try c.decodeIfPresent(Double.self, forKey: .licenseExpiryDays) ?? d.licenseExpiryDays
         ignoreUnusedLocalDatastores = try c.decodeIfPresent(Bool.self, forKey: .ignoreUnusedLocalDatastores) ?? d.ignoreUnusedLocalDatastores
+        ignoreVMCManagementDatastore = try c.decodeIfPresent(Bool.self, forKey: .ignoreVMCManagementDatastore) ?? d.ignoreVMCManagementDatastore
     }
 }
 

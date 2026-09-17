@@ -375,6 +375,10 @@ do {
     print("VMs \(t.vms): on \(t.vmsOn), off \(t.vmsOff), suspended \(t.vmsSuspended) · templates \(t.templates)")
     print("Compute: \(t.sockets) sockets, \(t.cores) cores, \(Fmt.memory(mib: t.physMemMiB)) RAM · vCPU on \(t.vcpuOn) (\(Fmt.ratio(t.vcpuPerCore))) · vRAM on \(Fmt.memory(mib: t.vramOnMiB))")
     print("Utilisation: CPU \(Fmt.pct(t.cpuUsagePct)) · memory \(Fmt.pct(t.memUsagePct))")
+    if !r.vmcManagementDatastores.isEmpty {
+        print("VMC management datastores, same vSAN capacity as WorkloadDatastore (\(r.thresholds.ignoreVMCManagementDatastore ? "left out of the figures below" : "included")): "
+            + r.vmcManagementDatastores.map(\.name).sorted().joined(separator: ", "))
+    }
     if !r.unusedLocalDatastores.isEmpty {
         print("Local datastores with no VM files (\(r.thresholds.ignoreUnusedLocalDatastores ? "left out of the figures below" : "included")): "
             + r.unusedLocalDatastores.map(\.name).sorted().joined(separator: ", "))
