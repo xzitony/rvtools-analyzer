@@ -154,7 +154,8 @@ globalThis.rva = (() => {
   const hints = (vm) => [vm.name, vm.annotation].concat(customFields(vm).map((f) => f.value)).filter(Boolean).join("\n");
 
   // Result sections
-  const metric = (label, value, detail, symbol) => ({ label, value: String(value), detail: detail === undefined ? "" : String(detail), symbol });
+  const metric = (label, value, detail, symbol, status) =>
+    Object.assign({ label, value: String(value), detail: detail === undefined ? "" : String(detail), symbol }, status ? { status } : {});
   const metrics = (title, items) => ({ type: "metrics", title, items });
   const table = (spec) => Object.assign({ type: "table" }, spec);
   const bars = (title, items, options) => Object.assign({ type: "bars", title, items }, options || {});

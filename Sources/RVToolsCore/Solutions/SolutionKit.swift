@@ -194,8 +194,10 @@ public struct SolutionMetric: Sendable {
     public let value: String
     public let detail: String
     public let symbol: String?
-    public init(_ label: String, _ value: String, _ detail: String = "", symbol: String? = nil) {
-        self.label = label; self.value = value; self.detail = detail; self.symbol = symbol
+    /// Optional state for the figure, e.g. `.blocker` for a total below a required minimum.
+    public let status: CheckStatus?
+    public init(_ label: String, _ value: String, _ detail: String = "", symbol: String? = nil, status: CheckStatus? = nil) {
+        self.label = label; self.value = value; self.detail = detail; self.symbol = symbol; self.status = status
     }
 }
 
@@ -373,7 +375,9 @@ public extension SolutionResult {
         for section in sections {
             switch section {
             case .metrics(let t, let metrics):
-                md += "## \(t.isEmpty ? "Summary" : t)\n\n" + table(["Metric", "Value", "Detail"], metrics.map { [$0.label, $0.value, $0.detail] })
+                md += "## \(t.isEmpty ? "Summary" : t)\n\n" + table(["Metric", "Value", "Detail"], metrics.map { m in
+                    [m.label, m.value + (m.status == .blocker || m.status == .warning ? " (\(m.status!.label))" : ""), m.detail]
+                })
             case .checks(let t, let checks):
                 md += "## \(t)\n\n" + table(["Status", "Area", "Check", "Result"], checks.map { [$0.status.label, $0.area, $0.title, $0.summary] })
                 for c in checks where c.status != .ready && (!c.affected.isEmpty || !c.remediation.isEmpty) {

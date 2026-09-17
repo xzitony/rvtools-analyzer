@@ -407,8 +407,15 @@ enum ResultMapper {
             switch type {
             case "metrics":
                 let items = try list(s["items"], "\(at).items")
-                out.append(.metrics(title, items.map { m in
-                    SolutionMetric(m["label"]?.text ?? "", m["value"]?.text ?? "", m["detail"]?.text ?? "", symbol: m["symbol"]?.string)
+                out.append(.metrics(title, try items.enumerated().map { j, m in
+                    var metricStatus: CheckStatus?
+                    if let text = m["status"]?.string, !text.isEmpty {
+                        guard let st = status(text.lowercased()) else {
+                            throw ExtensionError("\(at).items[\(j)]: status must be blocker, warning, info or ready (got “\(text)”)")
+                        }
+                        metricStatus = st
+                    }
+                    return SolutionMetric(m["label"]?.text ?? "", m["value"]?.text ?? "", m["detail"]?.text ?? "", symbol: m["symbol"]?.string, status: metricStatus)
                 }))
             case "checks":
                 let checks = try list(s["checks"], "\(at).checks").enumerated().map { j, c -> SolutionCheck in
