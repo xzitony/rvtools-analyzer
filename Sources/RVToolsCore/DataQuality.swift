@@ -52,6 +52,13 @@ public struct DataQuality: Sendable {
     public var derived = 0
     public var missing = 0
     public var gaps: [DataGap] = []
+    /// False when every host in scope lacks cores and memory (e.g. no vHost tab): capacity figures show as unknown, not zero.
+    public var hostCapacityKnown = true
+    public var datastoreCapacityKnown = true
+    var tabsPresent: Set<String> = []
+
+    /// Whether the export has this tab (always true for inventories not built from a dataset).
+    public func has(_ tab: String) -> Bool { tabsPresent.isEmpty || tabsPresent.contains(tab.lowercased()) }
 
     public var total: Int { reported + derived + missing }
     /// Share of key figures that have a value, reported or derived (0–100).
@@ -64,8 +71,8 @@ public struct DataQuality: Sendable {
     public var headline: [DataGap] { gaps.filter { $0.kind != .note } }
 
     static let coreTabs: [(tab: String, impact: String)] = [
-        ("vHost", "No host capacity: cores, memory, vCPU:core and N+1 figures are empty"),
-        ("vDatastore", "No datastore capacity or free space"),
+        ("vHost", "Hosts known only by name from vInfo: no cores, memory, ESXi version or hardware, so vCPU:core, N+1 and host checks are unavailable"),
+        ("vDatastore", "Datastores known only from VM file paths: no capacity, free space, type or host mounts"),
     ]
     static let detailTabs: [(tab: String, impact: String)] = [
         ("vDisk", "No per-disk sizes, provisioning type or VM ↔ datastore links beyond the .vmx path"),
@@ -74,10 +81,17 @@ public struct DataQuality: Sendable {
         ("vMemory", "No memory reservations, limits, ballooning or consumed memory"),
         ("vNetwork", "No per-NIC detail; networks come from vInfo only"),
         ("vCluster", "No HA / DRS settings"),
+        ("vSnapshot", "No snapshot data: snapshot counts and ages show none, which may not be true"),
+        ("vTools", "No VMware Tools status or version"),
     ]
 
     public static func evaluate(_ inv: Inventory) -> DataQuality {
         var q = DataQuality()
+        q.tabsPresent = inv.tabsPresent
+        let realHosts = inv.hosts.filter { !$0.isVirtual }
+        q.hostCapacityKnown = realHosts.isEmpty ? inv.tabsPresent.isEmpty || inv.tabsPresent.contains("vhost") : realHosts.contains { $0.coresSource != .missing }
+        q.datastoreCapacityKnown = inv.datastores.isEmpty ? inv.tabsPresent.isEmpty || inv.tabsPresent.contains("vdatastore")
+            : inv.datastores.contains { $0.capacitySource != .missing }
         func tally(_ s: FigureSource) {
             switch s {
             case .reported: q.reported += 1

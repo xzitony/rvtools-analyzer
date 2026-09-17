@@ -7,6 +7,7 @@ struct OverviewView: View {
     let report: Report
     private var t: Totals { report.totals }
     private var th: Thresholds { report.thresholds }
+    private var q: DataQuality { report.dataQuality }
 
     var body: some View {
         ScrollView {
@@ -14,16 +15,20 @@ struct OverviewView: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
                     KPITile(title: "Virtual machines", value: Fmt.int(t.vms), detail: "\(Fmt.int(t.vmsOn)) on · \(Fmt.int(t.vmsOff)) off · \(Fmt.int(t.templates)) templates", symbol: "desktopcomputer")
                     KPITile(title: "Hosts", value: Fmt.int(t.hosts), detail: "\(t.clusters) clusters · \(t.datacenters) datacenters · \(t.vcenters) vCenter\(t.vcenters == 1 ? "" : "s")", symbol: "server.rack")
-                    KPITile(title: "Physical compute", value: "\(Fmt.int(t.cores)) cores", detail: "\(t.sockets) sockets · \(Fmt.memory(mib: t.physMemMiB)) RAM", symbol: "cpu")
-                    KPITile(title: "vCPU : core", value: Fmt.ratio(t.vcpuPerCore), detail: "\(Fmt.int(t.vcpuOn)) vCPU on running VMs", symbol: "square.stack.3d.up")
-                    KPITile(title: "vRAM : RAM", value: Fmt.pct(t.vramPerPhysical * 100), detail: "\(Fmt.memory(mib: t.vramOnMiB)) assigned to running VMs", symbol: "memorychip")
-                    KPITile(title: "CPU usage", value: Fmt.pct(t.cpuUsagePct), detail: "\(Fmt.ghz(t.cpuUsedMHz)) of \(Fmt.ghz(t.cpuMHz))", symbol: "speedometer")
-                    KPITile(title: "Memory usage", value: Fmt.pct(t.memUsagePct), detail: "\(Fmt.memory(mib: t.memUsedMiB)) of \(Fmt.memory(mib: t.physMemMiB))", symbol: "memorychip.fill")
-                    KPITile(title: "Datastores", value: Fmt.capacity(mib: t.dsCapacityMiB), detail: "\(Fmt.pct(t.dsUsedPct)) used · \(Fmt.capacity(mib: t.dsFreeMiB)) free · \(t.datastores) datastores"
+                    // Without host data these read as zero; say so rather than show 0 cores or 0%.
+                    let hosts = q.hostCapacityKnown, noHosts = "vHost tab not in export"
+                    KPITile(title: "Physical compute", value: hosts ? "\(Fmt.int(t.cores)) cores" : "—", detail: hosts ? "\(t.sockets) sockets · \(Fmt.memory(mib: t.physMemMiB)) RAM" : noHosts, symbol: "cpu")
+                    KPITile(title: "vCPU : core", value: hosts ? Fmt.ratio(t.vcpuPerCore) : "—", detail: "\(Fmt.int(t.vcpuOn)) vCPU on running VMs", symbol: "square.stack.3d.up")
+                    KPITile(title: "vRAM : RAM", value: hosts ? Fmt.pct(t.vramPerPhysical * 100) : "—", detail: "\(Fmt.memory(mib: t.vramOnMiB)) assigned to running VMs", symbol: "memorychip")
+                    KPITile(title: "CPU usage", value: hosts ? Fmt.pct(t.cpuUsagePct) : "—", detail: hosts ? "\(Fmt.ghz(t.cpuUsedMHz)) of \(Fmt.ghz(t.cpuMHz))" : noHosts, symbol: "speedometer")
+                    KPITile(title: "Memory usage", value: hosts ? Fmt.pct(t.memUsagePct) : "—", detail: hosts ? "\(Fmt.memory(mib: t.memUsedMiB)) of \(Fmt.memory(mib: t.physMemMiB))" : noHosts, symbol: "memorychip.fill")
+                    KPITile(title: "Datastores", value: q.datastoreCapacityKnown ? Fmt.capacity(mib: t.dsCapacityMiB) : "—",
+                            detail: (q.datastoreCapacityKnown ? "\(Fmt.pct(t.dsUsedPct)) used · \(Fmt.capacity(mib: t.dsFreeMiB)) free · " : "Capacity not in export · ") + "\(t.datastores) datastores"
                             + (report.thresholds.ignoreUnusedLocalDatastores && !report.unusedLocalDatastores.isEmpty ? " (\(report.unusedLocalDatastores.count) unused local left out)" : ""),
                             symbol: "externaldrive")
                     KPITile(title: "VM storage in use", value: Fmt.capacity(mib: t.vmInUseMiB), detail: "of \(Fmt.capacity(mib: t.vmProvisionedMiB)) provisioned", symbol: "internaldrive")
-                    KPITile(title: "Snapshots", value: Fmt.int(t.snapshots), detail: "\(Fmt.capacity(mib: t.snapshotMiB)) in delta files", symbol: "camera.on.rectangle")
+                    KPITile(title: "Snapshots", value: q.has("vSnapshot") ? Fmt.int(t.snapshots) : "—",
+                            detail: q.has("vSnapshot") ? "\(Fmt.capacity(mib: t.snapshotMiB)) in delta files" : "vSnapshot tab not in export", symbol: "camera.on.rectangle")
                     KPITile(title: "Findings", value: Fmt.int(t.findings), detail: "\(t.critical) critical · \(t.warning) warning · \(t.info) info"
                                 + (report.acknowledgedFindings.isEmpty ? "" : " · \(report.acknowledgedFindings.count) acknowledged"),
                             symbol: Severity.critical.symbol, tint: t.critical > 0 ? Palette.critical : .secondary)
@@ -139,13 +144,18 @@ struct OverviewView: View {
                         Button(c.name) { model.computeTab = 0; model.sidebar = .compute }.buttonStyle(.link).lineLimit(1)
                         Text("\(c.hostCount)").tabular()
                         Text("\(Fmt.int(c.vmsOn)) / \(Fmt.int(c.vmCount))").tabular()
-                        Text(Fmt.ratio(c.vcpuPerCore)).tabular()
-                        UsageMeter(pct: c.cpuUsagePct, warn: th.hostCPUWarnPct, crit: 95)
-                        UsageMeter(pct: c.memUsagePct, warn: th.hostMemWarnPct, crit: 95)
-                        if c.hostCount > 1 {
-                            UsageMeter(pct: c.memPctAfterHostLoss, warn: 90, crit: 100)
+                        Text(c.capacityUnknown ? "—" : Fmt.ratio(c.vcpuPerCore)).tabular()
+                        if c.capacityUnknown {
+                            // CPU used, memory used, N+1: no host data behind any of them.
+                            ForEach(0..<3, id: \.self) { _ in Text("no host data").font(.caption).foregroundStyle(.secondary) }
                         } else {
-                            Text("single host").font(.caption).foregroundStyle(.secondary)
+                            UsageMeter(pct: c.cpuUsagePct, warn: th.hostCPUWarnPct, crit: 95)
+                            UsageMeter(pct: c.memUsagePct, warn: th.hostMemWarnPct, crit: 95)
+                            if c.hostCount > 1 {
+                                UsageMeter(pct: c.memPctAfterHostLoss, warn: 90, crit: 100)
+                            } else {
+                                Text("single host").font(.caption).foregroundStyle(.secondary)
+                            }
                         }
                         if c.isStandalone {
                             Text("standalone").font(.caption).foregroundStyle(.secondary)

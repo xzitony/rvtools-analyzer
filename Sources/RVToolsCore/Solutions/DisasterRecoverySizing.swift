@@ -123,7 +123,9 @@ public struct DisasterRecoverySizing: Solution {
         // DR network mapping: every port group the selected VMs use, with VLANs and observed subnets.
         var nets: [String: (vcenter: String, vms: Set<String>, subnets: Set<String>)] = [:]
         for vm in vms {
-            for n in vm.nics where !n.network.isEmpty {
+            // Without vNetwork, vInfo's Network #1–8 columns still name the port groups (no IPs per NIC).
+            let nics = vm.nics.isEmpty ? vm.networks.map { VNic(network: $0, connected: true) } : vm.nics
+            for n in nics where !n.network.isEmpty {
                 let k = vm.vcenter.lowercased() + "|" + n.network
                 var e = nets[k] ?? (vm.vcenter, [], [])
                 e.vms.insert(vm.id)

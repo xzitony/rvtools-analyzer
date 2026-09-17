@@ -267,6 +267,8 @@ public struct Host: Identifiable, Sendable {
     public var issueCount = 0
     public var coresSource = FigureSource.reported
     public var memorySource = FigureSource.reported
+    /// Known only by name from vInfo (the export has no vHost tab): no capacity, version or hardware.
+    public var inferred = false
 
     /// A virtual ESXi host (vSAN witness appliance, nested lab host, cloud placeholder) — excluded from capacity roll-ups.
     public var isVirtual: Bool { cpuModel.lowercased().contains("vmware virtual") || model.lowercased().contains("vmware virtual") }
@@ -323,6 +325,8 @@ public struct Cluster: Identifiable, Sendable {
     public var issueCount = 0
 
     public var displayName: String { name }
+    /// Hosts are present but none reports cores or memory (e.g. hosts known only from vInfo).
+    public var capacityUnknown: Bool { hostCount > 0 && cores == 0 && memoryMiB == 0 }
     public var vcpuPerCore: Double { cores > 0 ? Double(vcpuOn) / Double(cores) : 0 }
     public var vramPerPhysical: Double { memoryMiB > 0 ? vramOnMiB / memoryMiB : 0 }
     public var cpuUsagePct: Double { cpuMHz > 0 ? cpuUsedMHz / cpuMHz * 100 : 0 }
@@ -367,6 +371,8 @@ public struct Datastore: Identifiable, Sendable {
     public var lunPaths = 0
     public var issueCount = 0
     public var capacitySource = FigureSource.reported
+    /// Known only from VM file paths (the export has no vDatastore tab): no capacity, type or host mounts.
+    public var inferred = false
 
     public var vmCount: Int { vmIDs.count }
     public var hostCount: Int { hostNames.count }

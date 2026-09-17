@@ -39,6 +39,7 @@ private final class Builder {
         buildHosts()
         buildClusters()
         buildVMs()
+        inferHosts()
         attachVMChildren()
         buildDatastores()
         buildNetworking()
@@ -328,6 +329,26 @@ private final class Builder {
         inv.joins.append(JoinStat(source: t.name, target: "Host (vHost)", keys: "VI SDK Server + Host", matched: hostMatched, total: withHost.count))
     }
 
+    /// Without vHost, hosts are still named on every VM row: keep them as placeholders so placement, maps and
+    /// per-host views work. Their capacity is marked missing rather than zero.
+    func inferHosts() {
+        guard ds.table("vHost") == nil else { return }
+        for vm in inv.vms where !vm.host.isEmpty && hostIndex[vm.hostKey] == nil {
+            var h = Host(id: vm.hostKey)
+            h.name = vm.host
+            h.vcenter = vm.vcenter
+            h.datacenter = vm.datacenter
+            h.cluster = vm.cluster
+            h.clusterKey = vm.clusterKey
+            h.inferred = true
+            h.coresSource = .missing
+            h.memorySource = .missing
+            inv.hosts.append(h)
+            hostIndex[h.id] = inv.hosts.count - 1
+            hostByBareName[h.name.lowercased(), default: []].append(inv.hosts.count - 1)
+        }
+    }
+
     // MARK: - VM child tabs
 
     struct VMKeyCols { let server, id, uuid, name: Int? }
@@ -514,6 +535,21 @@ private final class Builder {
                 dsIndex[d.id] = inv.datastores.count - 1
             }
             inv.joins.append(JoinStat(source: "vDatastore.Hosts", target: "Host (vHost)", keys: "VI SDK Server + host name", matched: refMatched, total: refs, note: "Host mounts per datastore"))
+        }
+
+        // Without vDatastore, datastores are still named in every VM's .vmx and disk paths.
+        if ds.table("vDatastore") == nil {
+            for vm in inv.vms {
+                for name in vm.datastores where dsIndex[key(vm.vcenter, name)] == nil {
+                    var d = Datastore(id: key(vm.vcenter, name))
+                    d.name = name
+                    d.vcenter = vm.vcenter
+                    d.inferred = true
+                    d.capacitySource = .missing
+                    inv.datastores.append(d)
+                    dsIndex[d.id] = inv.datastores.count - 1
+                }
+            }
         }
 
         // VM ↔ Datastore via vDisk paths and the VM's .vmx path.

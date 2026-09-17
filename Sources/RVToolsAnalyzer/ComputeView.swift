@@ -42,7 +42,7 @@ struct ClustersPane: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 440), spacing: 16, alignment: .top)], spacing: 16) {
                     ForEach(report.inventory.clusters) { c in ClusterCard(cluster: c, thresholds: report.thresholds) }
                 }
-                HostUtilizationCard(hosts: report.inventory.hosts)
+                if report.dataQuality.hostCapacityKnown { HostUtilizationCard(hosts: report.inventory.hosts) }
             }
             .padding(20)
         }
@@ -72,14 +72,14 @@ struct ClusterCard: View {
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
                 GridRow {
                     Stat(label: "Hosts", value: "\(c.hostCount)" + (c.hostsInMaintenance > 0 ? " (\(c.hostsInMaintenance) maint.)" : ""))
-                    Stat(label: "Cores / threads", value: "\(Fmt.int(c.cores)) / \(Fmt.int(c.threads))")
-                    Stat(label: "Memory", value: Fmt.memory(mib: c.memoryMiB))
+                    Stat(label: "Cores / threads", value: c.capacityUnknown ? "—" : "\(Fmt.int(c.cores)) / \(Fmt.int(c.threads))")
+                    Stat(label: "Memory", value: c.capacityUnknown ? "—" : Fmt.memory(mib: c.memoryMiB))
                     Stat(label: "Datastores", value: "\(c.datastoreCount)")
                 }
                 GridRow {
                     Stat(label: "VMs on / total", value: "\(Fmt.int(c.vmsOn)) / \(Fmt.int(c.vmCount))")
-                    Stat(label: "vCPU : core", value: Fmt.ratio(c.vcpuPerCore))
-                    Stat(label: "vRAM : RAM", value: Fmt.pct(c.vramPerPhysical * 100))
+                    Stat(label: "vCPU : core", value: c.capacityUnknown ? "—" : Fmt.ratio(c.vcpuPerCore))
+                    Stat(label: "vRAM : RAM", value: c.capacityUnknown ? "—" : Fmt.pct(c.vramPerPhysical * 100))
                     Stat(label: "Templates", value: "\(c.templates)")
                 }
                 GridRow {
@@ -89,11 +89,16 @@ struct ClusterCard: View {
                     Stat(label: "In use", value: Fmt.capacity(mib: c.inUseMiB))
                 }
             }
+            if c.capacityUnknown {
+                Label("Host capacity and utilization aren't in this export (no vHost tab); hosts are known only by name from vInfo.", systemImage: "info.circle")
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            } else {
             LabeledMeter(label: "CPU used", pct: c.cpuUsagePct, detail: "\(Fmt.ghz(c.cpuUsedMHz)) of \(Fmt.ghz(c.cpuMHz))", warn: thresholds.hostCPUWarnPct, crit: 95)
             LabeledMeter(label: "Memory used", pct: c.memUsagePct, detail: "\(Fmt.memory(mib: c.memUsedMiB)) of \(Fmt.memory(mib: c.memoryMiB))", warn: thresholds.hostMemWarnPct, crit: 95)
             if c.hostCount > 1 {
                 LabeledMeter(label: "Memory if the largest host fails (N+1)", pct: c.memPctAfterHostLoss,
                              detail: "\(Fmt.memory(mib: c.memUsedMiB)) needed vs \(Fmt.memory(mib: c.memoryMiB - c.largestHostMemMiB)) remaining", warn: 90, crit: 100)
+            }
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text("ESXi: " + (c.esxVersions.isEmpty ? "—" : c.esxVersions.joined(separator: " · ")))

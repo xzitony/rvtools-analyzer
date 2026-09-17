@@ -108,6 +108,21 @@ public struct VCF9Readiness: Solution {
         return (.blocker, "\(label) — upgrade to 8.0 first (no direct path to 9)")
     }
 
+    /// The RVTools tabs each check reads beyond vInfo; checks without them are reported as not assessed.
+    static let requiredTabs: [String: [String]] = [
+        "vc.version": ["vSource"], "vc.vds": ["dvSwitch"],
+        "host.version": ["vHost"], "host.cpu": ["vHost"], "host.hcl": ["vHost"], "host.ntp": ["vHost"], "host.dns": ["vHost"],
+        "host.cert": ["vHost"], "host.uplinks": ["vNIC"], "host.nicspeed": ["vNIC"],
+        "cl.size": ["vHost"], "cl.drs": ["vCluster"], "cl.ha": ["vCluster"], "cl.n1": ["vHost"], "cl.image": ["vHost"],
+        "cl.shared": ["vDatastore"], "cl.stretched": ["vHost"],
+        "net.vss": ["vNetwork", "vPort|dvPort"], "net.vmk": ["vSC_VMK"], "net.vmkdhcp": ["vSC_VMK"], "net.vds": ["dvSwitch"],
+        "net.cisco": ["dvSwitch"], "net.nsx": ["vNetwork"],
+        "st.types": ["vDatastore"], "st.vmfs5": ["vDatastore"], "st.vvol": ["vDatastore"], "st.iscsi": ["vHBA"],
+        "st.free": ["vDatastore"], "st.local": ["vDatastore"],
+        "vm.tools": ["vTools"], "vm.toolsold": ["vTools"], "vm.devices": ["vNetwork", "vDisk"], "vm.mobility": ["vDisk", "vCD"],
+        "vm.snapshots": ["vSnapshot"], "lic.cores": ["vHost"],
+    ]
+
     public func run(vms: [VM], inventory inv: Inventory, params p: Params) -> SolutionResult {
         let minU = p.choice("minSource")
         let legacyStatus: CheckStatus = p.choice("legacyCPU") == 1 ? .blocker : .warning
@@ -454,7 +469,9 @@ public struct VCF9Readiness: Solution {
               "\(Fmt.int(licensedCores)) cores for \(sockets) CPUs on \(hosts.count) hosts (\(coreMin)-core minimum per CPU)",
               remediation: "Confirm current Broadcom licensing terms, including any per-order minimums.")
 
+        b.markUnassessed(VCF9Readiness.requiredTabs, present: inv.tabsPresent)
         let checks = b.checks
+        let hostData = !hosts.contains(where: \.inferred)
         let counts = Dictionary(grouping: checks, by: \.status).mapValues(\.count)
         let scored = checks.filter { $0.status != .info }
         let score = scored.isEmpty ? 100 : Double(scored.filter { $0.status == .ready }.count) / Double(scored.count) * 100
@@ -466,10 +483,14 @@ public struct VCF9Readiness: Solution {
                 SolutionMetric("Warnings", Fmt.int(counts[.warning] ?? 0), "checks to plan for", symbol: CheckStatus.warning.symbol),
                 SolutionMetric("Ready", Fmt.int(counts[.ready] ?? 0), "checks passed", symbol: CheckStatus.ready.symbol),
                 SolutionMetric("Readiness", Fmt.pct(score), "of scored checks pass", symbol: "gauge.with.dots.needle.67percent"),
-                SolutionMetric("VCF cores", Fmt.int(licensedCores), "\(coreMin)-core minimum per CPU", symbol: "key"),
+                SolutionMetric("VCF cores", hostData ? Fmt.int(licensedCores) : "—", hostData ? "\(coreMin)-core minimum per CPU" : "vHost tab not in export", symbol: "key"),
             ]),
             .checks("Readiness checks", checks),
         ]
+        guard hostData else {
+            return SolutionResult(headline: "\(hosts.count) hosts in \(real.count) clusters · \(counts[.blocker] ?? 0) blockers · \(counts[.warning] ?? 0) warnings · "
+                                    + "host checks not assessed (vHost tab not in export)", sections: sections)
+        }
 
         // Host readiness table
         let hostRows = hosts.sorted { ($0.cluster, $0.name) < ($1.cluster, $1.name) }.map { h -> [String] in

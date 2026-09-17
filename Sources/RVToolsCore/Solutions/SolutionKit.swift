@@ -277,6 +277,20 @@ struct CheckBuilder {
         add(id, area, title, worst, summary, remediation: remediation, affected: bad.map(\.1))
     }
 
+    /// Turns checks whose source tabs aren't in the export into unscored "not assessed" rows, so a partial export
+    /// (e.g. vInfo only) doesn't read as ready. `requires` maps a check id to its tabs; "vPort|dvPort" means either.
+    mutating func markUnassessed(_ requires: [String: [String]], present tabs: Set<String>) {
+        guard !tabs.isEmpty else { return }
+        checks = checks.map { c in
+            let missing = (requires[c.id] ?? []).filter { alt in !alt.split(separator: "|").contains { tabs.contains($0.lowercased()) } }
+            guard !missing.isEmpty else { return c }
+            let names = missing.map { $0.replacingOccurrences(of: "|", with: " / ") }
+            return SolutionCheck(id: c.id, area: c.area, title: c.title, status: .info,
+                                 summary: "Not assessed: \(names.joined(separator: ", ")) not in export",
+                                 remediation: "Ask for a full RVTools export (all tabs) to check this.", affected: [])
+        }
+    }
+
     /// A check that is "ready" when nothing is affected, otherwise `status`.
     mutating func list(_ id: String, _ area: String, _ title: String, _ status: CheckStatus, noun: String, affected: [AffectedObject],
                        ready: String, remediation: String, total: Int? = nil) {
