@@ -58,7 +58,7 @@ struct WelcomeView: View {
             VStack(spacing: 10) {
                 Image(systemName: "arrow.down.doc").font(.system(size: 28)).foregroundStyle(.secondary)
                 Text("Drop an RVTools .xlsx export, a folder of RVTools_tab*.csv files, or a saved project here").font(.callout)
-                Text("Drop several exports at once to merge multiple vCenters — to follow one environment over time, use Compare Snapshots.")
+                Text("Drop several exports at once to merge multiple vCenters; exports taken at different times can be compared as snapshots instead.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             .frame(width: 520, height: 150)
