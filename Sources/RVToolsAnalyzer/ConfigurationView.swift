@@ -131,7 +131,8 @@ struct LifecycleView: View {
 
     var body: some View {
         let inv = report.inventory
-        let now = inv.reportDate
+        let exported = inv.reportDate
+        let now = Lifecycle.supportReference(exportDate: exported)
         let yearAhead = now.addingTimeInterval(365 * 86_400)
         let lifecycleColors: [String: Color] = ["Past end of support": Palette.critical, "Ends within 12 months": Palette.warning, "Supported": Palette.good, "Unknown": Palette.neutral]
         let osRows: [(name: String, count: Int, eos: Date)] = Dictionary(grouping: inv.vms.filter { $0.isVM && $0.os.endOfSupport != nil }, by: \.os.name)
@@ -143,7 +144,8 @@ struct LifecycleView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 LicenseRenewalsCard(report: report)
-                Card("Guest OS support status", subtitle: "Based on built-in vendor end-of-support dates, evaluated at the export date (\(Fmt.date(now)))") {
+                Card("Guest OS support status", subtitle: "Based on built-in vendor end-of-support dates, as of today (\(Fmt.date(now)))"
+                     + (Calendar.current.isDate(now, inSameDayAs: exported) ? "" : " · export taken \(Fmt.date(exported))")) {
                     PartBar(parts: report.dist.osLifecycle.map { PartBar.Part(label: $0.label, value: Double($0.count), color: lifecycleColors[$0.label] ?? Palette.neutral) })
                 }
                 HStack(alignment: .top, spacing: 16) {
@@ -210,7 +212,7 @@ struct LifecycleView: View {
                             GridRow { Text("Status"); Text("Product"); Text("Key"); Text("Used / total"); Text("Expires") }.font(.caption).foregroundStyle(.secondary)
                             ForEach(inv.licenses) { l in
                                 GridRow {
-                                    LicenseStatus(license: l, now: License.renewalReference(exportDate: now), window: report.thresholds.licenseExpiryDays)
+                                    LicenseStatus(license: l, now: License.renewalReference(exportDate: exported), window: report.thresholds.licenseExpiryDays)
                                     Text(l.name)
                                     Text(l.keyMasked).tabular().foregroundStyle(.secondary)
                                     HStack(spacing: 4) {

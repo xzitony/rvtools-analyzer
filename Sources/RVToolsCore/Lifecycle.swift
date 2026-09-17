@@ -139,6 +139,10 @@ public enum Lifecycle {
         return (version, build)
     }
 
+    /// The date support status is judged on: today, or the export date if that's later. Whether a release is still
+    /// supported matters as of now, so an export taken before a support end date still shows it as ended once it has passed.
+    public static func supportReference(exportDate: Date) -> Date { max(exportDate, Date()) }
+
     public static func vsphereEndOfSupport(_ version: String) -> Date? {
         let parts = version.split(separator: ".")
         guard parts.count >= 2 else { return nil }

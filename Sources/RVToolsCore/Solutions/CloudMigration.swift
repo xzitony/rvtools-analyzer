@@ -303,7 +303,7 @@ public struct CloudMigration: PricedSolution {
         let subscriptions = inScope.filter { [.rhel, .suse].contains($0.os.family) && !$0.os.name.lowercased().contains("centos") && !$0.os.name.lowercased().contains("rocky") && !$0.os.name.lowercased().contains("alma") }
         b.list("linuxsub", "Licensing", "RHEL / SUSE subscriptions not included", .info, noun: "VMs priced as plain Linux", affected: subscriptions.map { $0.ref($0.os.name) },
                ready: "No RHEL / SUSE guests", remediation: "Add pay-as-you-go RHEL/SLES image pricing or bring your own subscriptions.")
-        let eol = inScope.compactMap { vm in vm.os.endOfSupport.flatMap { $0 <= inv.reportDate ? vm.ref("\(vm.os.name) — ended \(Fmt.date($0))") : nil } }
+        let eol = inScope.compactMap { vm in vm.os.endOfSupport.flatMap { $0 <= Lifecycle.supportReference(exportDate: inv.reportDate) ? vm.ref("\(vm.os.name) — ended \(Fmt.date($0))") : nil } }
         b.list("eol", "Migration", "Guest OS past end of support", .info, noun: "VMs", affected: eol, ready: "No end-of-support guests",
                remediation: "Check \(provider.name)'s support policy (and any extended security updates) or upgrade during migration.")
         let offVMs = inScope.filter { !$0.isRunning }

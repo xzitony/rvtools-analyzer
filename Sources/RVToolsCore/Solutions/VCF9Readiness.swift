@@ -430,7 +430,7 @@ public struct VCF9Readiness: Solution {
                affected: vms.filter { $0.hwVersion > 0 && $0.hwVersion < 10 }.map { $0.ref(Lifecycle.hardwareLabel($0.hwVersion)) },
                ready: "All VMs are on vmx-10 or newer", remediation: "Upgrade VM compatibility (after Tools) and confirm the oldest version supported by ESXi 9.")
         b.list("vm.guest", vmArea, "Guest OS supported", .warning, noun: "VMs run an end-of-support guest OS",
-               affected: vms.compactMap { vm in vm.os.endOfSupport.flatMap { $0 <= reportDate ? vm.ref("\(vm.os.name) — ended \(Fmt.date($0))") : nil } },
+               affected: vms.compactMap { vm in vm.os.endOfSupport.flatMap { $0 <= Lifecycle.supportReference(exportDate: reportDate) ? vm.ref("\(vm.os.name) — ended \(Fmt.date($0))") : nil } },
                ready: "No end-of-support guests", remediation: "Check the vSphere 9 guest OS compatibility guide; unsupported guests may run but aren't supported.")
         let legacyDev = vms.compactMap { vm -> AffectedObject? in
             var d: [String] = []

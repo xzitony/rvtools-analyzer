@@ -262,7 +262,7 @@ struct HostDetail: View {
                 DetailSection("Software") {
                     KeyValueGrid(rows: [
                         ("ESXi", host.esxVersion + (host.esxBuild.isEmpty ? "" : " build \(host.esxBuild)")),
-                        ("Support ends", eos.map { Fmt.date($0) + ($0 <= inv.reportDate ? " (ended)" : "") } ?? "—"),
+                        ("Support ends", eos.map { Fmt.date($0) + ($0 <= Lifecycle.supportReference(exportDate: inv.reportDate) ? " (ended)" : "") } ?? "—"),
                         ("Boot time", Fmt.dateTime(host.bootTime) + (host.uptimeDays.map { " · up \(Fmt.num($0, 0)) days" } ?? "")),
                         ("EVC", host.evcCurrent.isEmpty ? "Disabled (max \(host.evcMax))" : host.evcCurrent),
                         ("NTP", host.ntpServers.isEmpty ? "Not configured" : host.ntpServers + (host.ntpdRunning == false ? " (not running)" : "")),

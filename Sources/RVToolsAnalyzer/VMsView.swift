@@ -63,13 +63,13 @@ struct VMsView: View {
             }
             .padding(.horizontal, 14).padding(.vertical, 10)
             Divider()
-            let reportDate = report.inventory.reportDate
+            let supportDate = Lifecycle.supportReference(exportDate: report.inventory.reportDate)
             Table(rows, selection: $model.selectedVMID, sortOrder: $sortOrder) {
                 Group {
                     TableColumn("Name", sortUsing: KeyPathComparator(\VM.name)) { (vm: VM) in VMNameCell(vm: vm) }.width(min: 160, ideal: 220)
                     TableColumn("Cluster", sortUsing: KeyPathComparator(\VM.cluster)) { (vm: VM) in Text(vm.cluster) }
                     TableColumn("Host", sortUsing: KeyPathComparator(\VM.host)) { (vm: VM) in Text(VMsView.shortHost(vm)) }
-                    TableColumn("Guest OS", sortUsing: KeyPathComparator(\VM.osName)) { (vm: VM) in GuestOSCell(vm: vm, reportDate: reportDate) }.width(min: 120, ideal: 175)
+                    TableColumn("Guest OS", sortUsing: KeyPathComparator(\VM.osName)) { (vm: VM) in GuestOSCell(vm: vm, supportDate: supportDate) }.width(min: 120, ideal: 175)
                     TableColumn("vCPU", sortUsing: KeyPathComparator(\VM.cpus)) { (vm: VM) in Text("\(vm.cpus)").tabular() }.width(44)
                     TableColumn("Memory", sortUsing: KeyPathComparator(\VM.memoryMiB)) { (vm: VM) in Text(Fmt.memory(mib: vm.memoryMiB)).tabular() }.width(70)
                     TableColumn("Provisioned", sortUsing: KeyPathComparator(\VM.provisionedMiB)) { (vm: VM) in Text(Fmt.capacity(mib: vm.provisionedMiB)).tabular() }.width(80)
@@ -110,11 +110,11 @@ private struct VMNameCell: View {
 
 private struct GuestOSCell: View {
     let vm: VM
-    let reportDate: Date
+    let supportDate: Date
     var body: some View {
         HStack(spacing: 4) {
             Text(vm.os.name)
-            if let e = vm.os.endOfSupport, e <= reportDate {
+            if let e = vm.os.endOfSupport, e <= supportDate {
                 Image(systemName: Severity.warning.symbol).foregroundStyle(Palette.warning).help("Past end of support (\(Fmt.date(e)))")
             }
         }
@@ -140,7 +140,7 @@ struct VMDetail: View {
     let report: Report
 
     var body: some View {
-        let reportDate = report.inventory.reportDate
+        let supportDate = Lifecycle.supportReference(exportDate: report.inventory.reportDate)
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -151,7 +151,7 @@ struct VMDetail: View {
                     }
                     .font(.callout)
                     if let e = vm.os.endOfSupport {
-                        Tag(text: e <= reportDate ? "OS support ended \(Fmt.date(e))" : "OS support ends \(Fmt.date(e))")
+                        Tag(text: e <= supportDate ? "OS support ended \(Fmt.date(e))" : "OS support ends \(Fmt.date(e))")
                     }
                     RelationshipMapButton(focus: .vm(vm.id)).padding(.top, 2)
                 }

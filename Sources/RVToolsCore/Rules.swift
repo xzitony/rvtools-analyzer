@@ -299,7 +299,9 @@ enum Rules {
     static func evaluate(_ inv: Inventory, _ t: Thresholds) -> (findings: [Finding], catalog: [String: RuleDef]) {
         var e = Emitter(catalog: catalog(t))
         let now = inv.reportDate
-        let yearAhead = now.addingTimeInterval(365 * 86_400)
+        // Support end dates are judged from today (or the export date if later), not when the export was taken.
+        let supportDate = Lifecycle.supportReference(exportDate: now)
+        let yearAhead = supportDate.addingTimeInterval(365 * 86_400)
         let hosts = Dictionary(inv.hosts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let clusters = Dictionary(inv.clusters.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let datastores = Dictionary(inv.datastores.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -356,7 +358,7 @@ enum Rules {
             let cs = vm.configStatus.lowercased()
             if cs == "red" || cs == "yellow" { f("vm.status", "Config status: \(vm.configStatus)") }
             if let eol = vm.os.endOfSupport {
-                if eol <= now { f("vm.os.eol", "\(vm.os.name) — support ended \(Fmt.date(eol))") }
+                if eol <= supportDate { f("vm.os.eol", "\(vm.os.name) — support ended \(Fmt.date(eol))") }
                 else if eol <= yearAhead { f("vm.os.eolsoon", "\(vm.os.name) — support ends \(Fmt.date(eol))") }
             }
             if !vm.osConfig.isEmpty, !vm.osTools.isEmpty {
@@ -452,7 +454,7 @@ enum Rules {
             if h.memUsagePct > t.hostMemWarnPct { f("host.mem.high", "Memory \(Fmt.pct(h.memUsagePct)) of \(Fmt.memory(mib: h.memoryMiB))") }
             if h.vcpuPerCore > t.vcpuPerCoreWarn { f("host.vcpuratio", "\(h.vcpuOn) vCPU on \(h.cores) cores (\(Fmt.ratio(h.vcpuPerCore)))") }
             if let eol = Lifecycle.vsphereEndOfSupport(h.esxVersion) {
-                if eol <= now { f("host.esxi.eol", "ESXi \(h.esxVersion) — support ended \(Fmt.date(eol))") }
+                if eol <= supportDate { f("host.esxi.eol", "ESXi \(h.esxVersion) — support ended \(Fmt.date(eol))") }
                 else if eol <= yearAhead { f("host.esxi.eolsoon", "ESXi \(h.esxVersion) — support ends \(Fmt.date(eol))") }
             }
             if h.ntpServers.trimmingCharacters(in: .whitespaces).isEmpty || h.ntpdRunning == false {
@@ -569,7 +571,7 @@ enum Rules {
         for vc in inv.vcenters {
             let v = Lifecycle.parseVMwareVersion(vc.version.isEmpty ? vc.fullName : vc.version).version
             if let eol = Lifecycle.vsphereEndOfSupport(v) {
-                if eol <= now { e.add("vc.eol", .vcenter, vc.id, vc.server, "", "vCenter \(v) — support ended \(Fmt.date(eol))") }
+                if eol <= supportDate { e.add("vc.eol", .vcenter, vc.id, vc.server, "", "vCenter \(v) — support ended \(Fmt.date(eol))") }
                 else if eol <= yearAhead { e.add("vc.eolsoon", .vcenter, vc.id, vc.server, "", "vCenter \(v) — support ends \(Fmt.date(eol))") }
             }
         }
