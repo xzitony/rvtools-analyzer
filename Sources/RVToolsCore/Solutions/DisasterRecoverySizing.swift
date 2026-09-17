@@ -191,7 +191,7 @@ public struct DisasterRecoverySizing: Solution {
         let noTools = vms.filter { $0.isRunning && $0.toolsDisplay != "OK" && $0.toolsDisplay != "Out of date" }.map { $0.ref("Tools \($0.toolsDisplay.lowercased())") }
         b.list("tools", "Recovery", "VMware Tools not running", .info, noun: "VMs", affected: noTools,
                ready: "Tools runs on all powered-on VMs", remediation: "Without Tools there is no quiescing and no guest IP customization at failover.")
-        let eol = vms.compactMap { vm in vm.os.endOfSupport.flatMap { $0 <= inv.reportDate ? vm.ref("\(vm.os.name) — ended \(Fmt.date($0))") : nil } }
+        let eol = vms.compactMap { vm in vm.os.endOfSupport.flatMap { $0 <= Lifecycle.supportReference(exportDate: inv.reportDate) ? vm.ref("\(vm.os.name) — ended \(Fmt.date($0))") : nil } }
         b.list("eol", "Recovery", "Guest OS past end of support", .info, noun: "VMs", affected: eol,
                ready: "No end-of-support guests", remediation: "Unsupported guests may not be supported on the DR platform.")
         if subnetTotal > 0 {

@@ -207,7 +207,7 @@ public enum Analyzer {
         ]
         d.osFamily = ranked(tally(vms, { $0.os.family.rawValue }, { Double($0.cpus) }), top: 9)
         d.osName = ranked(tally(vms, { $0.os.name }), top: 15)
-        let now = inv.reportDate, yearAhead = now.addingTimeInterval(365 * 86_400)
+        let now = Lifecycle.supportReference(exportDate: inv.reportDate), yearAhead = now.addingTimeInterval(365 * 86_400)
         d.osLifecycle = ordered(["Past end of support", "Ends within 12 months", "Supported", "Unknown"], tally(vms) { vm in
             guard let e = vm.os.endOfSupport else { return vm.os.family == .other ? "Unknown" : "Supported" }
             return e <= now ? "Past end of support" : (e <= yearAhead ? "Ends within 12 months" : "Supported")
