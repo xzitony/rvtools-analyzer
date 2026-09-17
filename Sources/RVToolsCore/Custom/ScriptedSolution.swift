@@ -134,6 +134,7 @@ final class ScriptRuntime {
                 "solution": ["id": solution.id, "title": solution.title, "version": solution.version],
                 "selectedCount": selected.count,
                 "reportDate": SolutionAPI.date(inventory.reportDate),
+                "supportDate": SolutionAPI.date(Lifecycle.supportReference(exportDate: inventory.reportDate)),
                 "now": SolutionAPI.date(Date()),
                 "trend": solution.trend.map { t -> Any in
                     let rate = { (v: Double?) -> Any in v ?? NSNull() }
