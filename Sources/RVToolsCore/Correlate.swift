@@ -587,6 +587,10 @@ private final class Builder {
                 guard let di = dsIndex[key(vm.vcenter, name)] else { continue }
                 inv.datastores[di].vmIDs.append(vm.id)
                 inv.datastores[di].vmDiskMiB += perDS[name] ?? 0
+                if vm.isClusterAgent {
+                    inv.datastores[di].agentVMIDs.append(vm.id)
+                    inv.datastores[di].agentDiskMiB += perDS[name] ?? 0
+                }
                 if !vm.hostKey.isEmpty, hostIndex[vm.hostKey] != nil, !inv.datastores[di].hostKeys.contains(vm.hostKey), inv.datastores[di].hostNames.isEmpty {
                     inv.datastores[di].hostKeys.append(vm.hostKey)
                 }

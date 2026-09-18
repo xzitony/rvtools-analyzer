@@ -86,7 +86,7 @@ my-solution.rvasolution/     any folder name works; .rvasolution is the conventi
 | `summary` | | One line under the title. |
 | `version`, `author` | | Shown in Settings › Solutions. |
 | `script` | | Script file name. Default: `solution.js`. |
-| `defaultSelection` | | Which VMs are selected when an export opens: `vms` (default: every VM except templates and SRM placeholders), `poweredOn`, `all` (templates included) or `none`. |
+| `defaultSelection` | | Which VMs are selected when an export opens: `vms` (default: every VM except templates, SRM placeholders and vCLS agent VMs), `poweredOn` (those, powered on), `all` (everything, templates included) or `none`. |
 | `selections` | | Several named VM selections instead of one. See [Several VM selections](#several-vm-selections). |
 | `timeoutSeconds` | | 1–300. Default: 20. |
 | `debug` | | `true` shows everything the script logs with `console.log` under the results. Warnings and errors are always shown. |
@@ -269,6 +269,7 @@ Unknown values are `null`. Fields are only ever added within an API version.
 | `vcenter`, `datacenter`, `cluster`, `clusterId`, `clusterName`, `host`, `hostId`, `folder`, `resourcePool`, `vApp` | `clusterName` is "(no cluster)" for standalone hosts |
 | `powerState` | `on`, `off` or `suspended` |
 | `isRunning`, `isTemplate`, `isSRMPlaceholder`, `consolidationNeeded` | |
+| `isClusterAgent` | A vSphere Cluster Services agent VM ("vCLS-…"), created and managed by vCenter. Left out of the default selections. |
 | `os` | `{ name, family, familyLabel, configured, reportedByTools, endOfSupport }`. `family` is one of `windowsServer`, `windowsDesktop`, `rhel`, `ubuntuDebian`, `suse`, `otherLinux`, `appliance`, `unix` or `other` |
 | `cpus`, `sockets`, `coresPerSocket`, `memoryMiB` | configured size |
 | `provisionedMiB`, `inUseMiB`, `unsharedMiB` | from vInfo |

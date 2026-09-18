@@ -65,6 +65,7 @@ public enum SolutionAPI {
             "isRunning": v.isRunning,
             "isTemplate": v.isTemplate,
             "isSRMPlaceholder": v.isSRMPlaceholder,
+            "isClusterAgent": v.isClusterAgent,
             "consolidationNeeded": v.consolidationNeeded,
             "os": [
                 "name": v.os.name,
