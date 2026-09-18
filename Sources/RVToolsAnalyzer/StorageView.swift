@@ -173,7 +173,7 @@ struct DatastoresPane: View {
             case .nfs:
                 let vmk = p.hosts.map { $0.vmkernels.count }.min() ?? 0
                 return (vmk == 0 ? "NFS" : "\(vmk) vmk", p.summary, !p.noVMKHosts.isEmpty || !p.singleUplinkHosts.isEmpty)
-            case .vsan, .local:
+            case .vsan, .local, .vvol:
                 return ("—", p.summary, false)
             default:
                 guard p.maxPaths > 0 else { return ("—", p.summary, false) }
@@ -242,7 +242,12 @@ struct StoragePathsSection: View {
     let paths: DatastorePaths
 
     var body: some View {
-        if !paths.hosts.isEmpty, paths.transport != .vsan, paths.transport != .local {
+        if !paths.hosts.isEmpty, paths.transport == .vvol {
+            DetailSection("Storage paths") {
+                Text("\(paths.transport.rawValue) · \(paths.summary).").font(.caption).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        } else if !paths.hosts.isEmpty, paths.transport != .vsan, paths.transport != .local {
             DetailSection("Storage paths", count: paths.hosts.count) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("\(paths.transport.rawValue) · \(paths.summary)").font(.caption).foregroundStyle(.secondary)
