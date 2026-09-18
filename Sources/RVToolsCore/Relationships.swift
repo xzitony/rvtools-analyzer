@@ -540,6 +540,27 @@ private struct MapBuilder {
                     d.link(hn.id, kn.id)
                     d.link(kn.id, f.id, h.uplinks > 0 ? "\(h.uplinks) uplinks" : "")
                 }
+            } else if p.transport == .vvol {
+                // vMultiPath has no rows for a vVol container, so the host's own storage adapters are all that is
+                // known: the protocol endpoints run over them, but RVTools doesn't say which or how many paths.
+                let adapters = inv.hbas.filter { hba in
+                    guard hba.hostKey == h.hostKey else { return false }
+                    let type = hba.type.lowercased()
+                    return type.contains("fibre") || type.contains("fcoe") || type.contains("iscsi")
+                }
+                if adapters.isEmpty {
+                    d.link(hn.id, f.id, "no path data for vVols")
+                } else {
+                    for hba in adapters {
+                        let an = RelNode(id: "hba:" + h.hostKey + "|" + hba.device.lowercased(), kind: .storageAdapter,
+                                         name: "\(Self.short(h.host)) · \(hba.device)",
+                                         detail: [hba.type, hba.model].filter { !$0.isEmpty }.joined(separator: " · "),
+                                         alert: hba.status.lowercased() == "offline" ? "offline" : nil)
+                        d.add(an, 1, "Storage adapters")
+                        d.link(hn.id, an.id)
+                        d.link(an.id, f.id, "vVol paths not exported")
+                    }
+                }
             } else if h.adapters.isEmpty {
                 d.link(hn.id, f.id, h.hasPathData ? "\(h.paths) paths" : "no path data")
             } else {

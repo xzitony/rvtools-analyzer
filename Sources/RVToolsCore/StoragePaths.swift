@@ -5,12 +5,14 @@ import Foundation
 /// RVTools reports block storage paths per host in vMultiPath (one row per LUN, up to eight paths with their state),
 /// the adapters in vHBA, and VMkernel adapters in vSC_VMK. NFS has no path rows at all: its redundancy comes from the
 /// VMkernel adapters that reach the server and the uplinks of the switch behind them, so it is assessed differently.
-/// vSAN and local disks are reported here but not assessed.
+/// vSAN, vVol and local disks are reported here but not assessed: vMultiPath covers VMFS extents only, so a vVol
+/// datastore has no rows of its own (its protocol endpoints aren't exported), and only the host's adapters are known.
 public enum StorageTransport: String, Sendable, CaseIterable {
     case fibreChannel = "Fibre Channel"
     case iscsi = "iSCSI"
     case nfs = "NFS"
     case vsan = "vSAN"
+    case vvol = "vVol"
     case local = "Local"
     case unknown = "Unknown"
 
@@ -53,6 +55,9 @@ public struct DatastorePaths: Sendable {
     /// NFS server as RVTools reports it: "nfs01.example.com:/vol/x" → server and export path.
     public var server = ""
     public var exportPath = ""
+    /// vVol: the storage adapter types (from vHBA) on the hosts that mount it — the only clue RVTools gives about
+    /// how the container is reached, since it exports no protocol endpoints.
+    public var adapterTypes: [String] = []
 
     var withData: [HostStoragePaths] { hosts.filter(\.hasPathData) }
     public var minPaths: Int { withData.map(\.paths).min() ?? 0 }
@@ -81,6 +86,9 @@ public struct DatastorePaths: Sendable {
             return "\(hosts.count) host\(hosts.count == 1 ? "" : "s") · \(vmk) VMkernel adapter\(vmk == 1 ? "" : "s") to the server" + mtuText
         case .vsan, .local:
             return "\(transport.rawValue) · no storage paths to check"
+        case .vvol:
+            let via = adapterTypes.isEmpty ? "" : " · hosts have \(adapterTypes.joined(separator: " and ")) adapters"
+            return "RVTools exports no protocol endpoints for vVols, so there are no paths to check" + via
         default:
             guard !withData.isEmpty else { return "No multipathing data in the export" }
             let paths = minPaths == maxPaths ? "\(minPaths) paths each" : "\(minPaths)–\(maxPaths) paths"
@@ -148,6 +156,10 @@ public enum StoragePaths {
                 if !mine.isEmpty { luns[hk] = mine }
             }
             out.transport = transport(ds, luns: luns.values.flatMap { $0 })
+            if out.transport == .vvol {
+                let types = ds.hostKeys.flatMap { hbasByHost[$0] ?? [] }.map { $0.type.trimmingCharacters(in: .whitespaces) }
+                out.adapterTypes = Array(Set(types.filter { !$0.isEmpty && $0.lowercased() != "block scsi" })).sorted()
+            }
 
             for hk in ds.hostKeys {
                 guard let host = hostsByKey[hk] else { continue }
@@ -176,7 +188,7 @@ public enum StoragePaths {
             let type = ds.type.lowercased()
             if type.contains("vsan") { return .vsan }
             if type.contains("nfs") { return .nfs }
-            if type.contains("vvol") { return .unknown }
+            if type.contains("vvol") { return .vvol }
             if ds.isLocal && luns.isEmpty { return .local }
             let names = luns.map { ($0.displayName + " " + $0.model + " " + $0.vendor).lowercased() }
             if names.contains(where: { $0.contains("iscsi") }) { return .iscsi }
