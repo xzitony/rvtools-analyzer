@@ -517,7 +517,10 @@ enum Rules {
                 else if d.freePct < t.datastoreFreeWarnPct { f("ds.free.low", detail) }
                 if d.provisionedPct > t.datastoreOvercommitPct { f("ds.overcommit", "\(Fmt.pct(d.provisionedPct)) provisioned (\(Fmt.capacity(mib: d.provisionedMiB)))") }
             }
-            if d.vmCount == 0 && (d.vmTotalReported ?? 0) == 0 && d.capacityMiB > 0 { f("ds.empty", "\(Fmt.capacity(mib: d.capacityMiB)) \(d.type)") }
+            if d.hasNoWorkload && d.capacityMiB > 0 {
+                let agents = d.agentVMIDs.isEmpty ? "" : " · only \(d.agentVMIDs.count) vCLS agent VM\(d.agentVMIDs.count == 1 ? "" : "s")"
+                f("ds.empty", "\(Fmt.capacity(mib: d.capacityMiB)) \(d.type)" + agents)
+            }
             if d.type.lowercased() == "vmfs" && d.majorVersion > 0 && d.majorVersion < 6 { f("ds.vmfs.old", "VMFS \(d.majorVersion)") }
 
             // Pathing: multipathing for block storage, VMkernel adapters and uplinks for NFS.

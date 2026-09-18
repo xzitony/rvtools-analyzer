@@ -78,10 +78,10 @@ public struct ScriptedSolution: Solution {
     public func defaultSelection(_ inv: Inventory, for selection: SolutionSelection) -> Set<String> {
         let spec = manifest.selections?.first { $0.id == selection.id }
         switch spec?.default ?? (selection.isPrimary ? manifest.defaultSelection : nil) ?? (selection.isPrimary ? "vms" : "none") {
-        case "poweredOn": return Set(inv.vms.filter { $0.isVM && $0.isRunning }.map(\.id))
+        case "poweredOn": return Set(inv.workloadVMs.filter(\.isRunning).map(\.id))
         case "all": return Set(inv.vms.map(\.id))
         case "none": return []
-        default: return Set(inv.vms.filter(\.isVM).map(\.id))
+        default: return Set(inv.workloadVMs.map(\.id))
         }
     }
 

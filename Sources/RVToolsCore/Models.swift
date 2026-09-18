@@ -187,6 +187,13 @@ public struct VM: Identifiable, Sendable {
     // Derived
     public var isRunning: Bool { powerState == .on }
     public var isVM: Bool { !isTemplate && !isSRMPlaceholder }
+    /// A vSphere Cluster Services agent VM ("vCLS-<uuid>"): vCenter creates and manages these, so they aren't
+    /// workload. They still count as VMs everywhere, but are left out of solution selections by default and don't
+    /// make a datastore look used.
+    public var isClusterAgent: Bool {
+        let n = name.lowercased()
+        return n.hasPrefix("vcls-") || n == "vcls" || n.hasPrefix("vcls (")
+    }
     public var diskCapacityMiB: Double { disks.reduce(0) { $0 + $1.capacityMiB } }
     public var guestCapacityMiB: Double { partitions.reduce(0) { $0 + $1.capacityMiB } }
     public var guestConsumedMiB: Double { partitions.reduce(0) { $0 + $1.consumedMiB } }
@@ -365,6 +372,9 @@ public struct Datastore: Identifiable, Sendable {
     // Correlated
     public var hostKeys: [String] = []
     public var vmIDs: [String] = []
+    /// The subset of `vmIDs` that are cluster agent VMs (vCLS), and their disk capacity here.
+    public var agentVMIDs: [String] = []
+    public var agentDiskMiB = 0.0
     public var vmDiskMiB = 0.0
     public var clusters: [String] = []
     public var clusterKeys: [String] = []
@@ -387,7 +397,11 @@ public struct Datastore: Identifiable, Sendable {
 
 public extension Datastore {
     /// A host-local datastore with no VM, template or VM disk on it — typically an ESXi boot or scratch device.
-    var isUnusedLocal: Bool { isLocal && vmIDs.isEmpty && (vmTotalReported ?? 0) == 0 && vmDiskMiB == 0 }
+    /// VMs here that aren't vCenter's own cluster agents.
+    public var workloadVMCount: Int { vmIDs.count - agentVMIDs.count }
+    /// No workload on it: vCLS agents are placed automatically and don't make a datastore "used".
+    public var hasNoWorkload: Bool { workloadVMCount == 0 && (vmTotalReported ?? 0) <= agentVMIDs.count && vmDiskMiB - agentDiskMiB <= 0 }
+    var isUnusedLocal: Bool { isLocal && hasNoWorkload }
 }
 
 public struct PortGroup: Identifiable, Sendable {
@@ -592,9 +606,12 @@ public struct Inventory: Sendable {
     /// Lower-cased names of the tabs in the export (empty for inventories not built from a dataset).
     public var tabsPresent: Set<String> = []
 
+    /// VMs a solution works on by default: not templates, SRM placeholders or vCenter's own cluster agents.
+    public var workloadVMs: [VM] { vms.filter { $0.isVM && !$0.isClusterAgent } }
+
     public var datacenterCount: Int { Set(hosts.map { key($0.vcenter, $0.datacenter) } + vms.map { key($0.vcenter, $0.datacenter) }).count }
 
-    /// Host-local datastores that no VM uses (see `Datastore.isUnusedLocal`).
+    /// Host-local datastores that no workload VM uses (see `Datastore.isUnusedLocal`).
     public var unusedLocalDatastores: [Datastore] { datastores.filter(\.isUnusedLocal) }
 
     /// VMC management datastores whose capacity is the same vSAN capacity as WorkloadDatastore.

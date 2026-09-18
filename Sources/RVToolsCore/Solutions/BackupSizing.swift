@@ -33,7 +33,7 @@ public struct BackupSizing: Solution {
     ] }
 
     public func defaultSelection(_ inventory: Inventory) -> Set<String> {
-        Set(inventory.vms.filter(\.isVM).map(\.id))
+        Set(inventory.workloadVMs.map(\.id))
     }
 
     struct Source {

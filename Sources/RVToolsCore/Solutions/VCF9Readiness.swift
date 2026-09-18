@@ -80,7 +80,7 @@ public struct VCF9Readiness: Solution {
     ] }
 
     public func defaultSelection(_ inventory: Inventory) -> Set<String> {
-        Set(inventory.vms.filter(\.isVM).map(\.id))
+        Set(inventory.workloadVMs.map(\.id))
     }
 
     static func version(_ s: String) -> (Int, Int, Int)? {
@@ -507,7 +507,7 @@ public struct VCF9Readiness: Solution {
 
         var genCounts: [String: Int] = [:]
         for h in hosts { genCounts[cpuGen[h.id]!.name, default: 0] += 1 }
-        sections.append(.bars("Hosts by CPU generation", "", genCounts.map { CountItem(label: $0.key, count: $0.value, value: Double($0.value)) }.sorted { $0.count > $1.count }, .count))
+        sections.append(.bars("Hosts by CPU generation", "", genCounts.map { CountItem(label: $0.key, count: $0.value, value: Double($0.value)) }.sorted { ($0.count, $1.label) > ($1.count, $0.label) }, .count))
 
         sections.append(.notes("About these checks", [
             "Scope: every host in the clusters that run the selected VMs, their vCenter(s) and datastores, plus VM-level checks on the selected VMs.",

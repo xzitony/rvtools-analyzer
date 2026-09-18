@@ -36,7 +36,7 @@ public struct DisasterRecoverySizing: Solution {
     ] }
 
     public func defaultSelection(_ inventory: Inventory) -> Set<String> {
-        Set(inventory.vms.filter { $0.isVM && $0.isRunning }.map(\.id))
+        Set(inventory.workloadVMs.filter(\.isRunning).map(\.id))
     }
 
     func replicated(_ vm: VM, basis: Int) -> Double {
