@@ -154,6 +154,7 @@ public struct VCF9Sizing: Solution {
         let id: String, name: String, cores: Double, ramGiB: Double
         var isNew = false
         var vendor: String
+        var cluster = ""
     }
 
     struct Fit {
@@ -331,16 +332,44 @@ public struct VCF9Sizing: Solution {
         }
 
         let realHosts = inv.hosts.filter { !$0.isVirtual }
-        let hostsByCluster = Dictionary(grouping: realHosts, by: \.clusterKey)
-        let vmsByCluster = Dictionary(grouping: vms, by: \.clusterKey)
-        let picked = p.names("mgmtCluster").first.flatMap(resolve)
+        var hostsByCluster = Dictionary(grouping: realHosts, by: \.clusterKey)
+        var vmsByCluster = Dictionary(grouping: vms, by: \.clusterKey)
+        var picked = p.names("mgmtCluster").first.flatMap(resolve)
         let scopeIDs = Set(vms.map(\.clusterKey)).union(picked.map { [$0.id] } ?? [])
-        let clusters = inv.clusters.filter { scopeIDs.contains($0.id) && !$0.isStandalone && !(hostsByCluster[$0.id] ?? []).isEmpty }
+        var clusters = inv.clusters.filter { scopeIDs.contains($0.id) && !$0.isStandalone && !(hostsByCluster[$0.id] ?? []).isEmpty }
             .sorted { ($0.vcenter.lowercased(), $0.name.lowercased()) < ($1.vcenter.lowercased(), $1.name.lowercased()) }
+
+        // Clusters to merge become one cluster everywhere: a management candidate (peeled or consolidated) and a
+        // workload cluster, with their hosts and workloads combined.
+        let mergeIDs = Set(p.names("merge").compactMap(resolve).map(\.id))
+        let mergeMembers = inv.clusters.filter { mergeIDs.contains($0.id) && !$0.isStandalone && !(hostsByCluster[$0.id] ?? []).isEmpty }
+            .sorted { ($0.vcenter.lowercased(), $0.name.lowercased()) < ($1.vcenter.lowercased(), $1.name.lowercased()) }
+        var memberIDs: [String: [String]] = [:]
+        if mergeMembers.count > 1 {
+            var m = Cluster(id: "merged|" + mergeMembers.map(\.id).joined(separator: ","))
+            m.name = mergeMembers.map(\.name).joined(separator: " + ")
+            var vcs: [String] = []
+            for c in mergeMembers where !vcs.contains(c.vcenter) { vcs.append(c.vcenter) }
+            m.vcenter = vcs.joined(separator: " + ")
+            m.vmCount = mergeMembers.reduce(0) { $0 + $1.vmCount }
+            m.hostCount = mergeMembers.reduce(0) { $0 + $1.hostCount }
+            hostsByCluster[m.id] = mergeMembers.flatMap { hostsByCluster[$0.id] ?? [] }
+            vmsByCluster[m.id] = mergeMembers.flatMap { vmsByCluster[$0.id] ?? [] }
+            memberIDs[m.id] = mergeMembers.map(\.id)
+            clusters = clusters.filter { !mergeIDs.contains($0.id) } + [m]
+            if let pk = picked, mergeIDs.contains(pk.id) { picked = m }
+        }
+        let mergedCluster = clusters.first { memberIDs[$0.id] != nil }
+        func members(_ c: Cluster) -> [String] { memberIDs[c.id] ?? [c.id] }
+        /// A reference for navigation; a merged cluster has no single object to open.
+        func cref(_ c: Cluster, _ detail: String = "") -> AffectedObject {
+            AffectedObject(kind: memberIDs[c.id] == nil ? .cluster : .other, id: c.id, name: c.name, detail: detail)
+        }
+        func onCluster(_ d: Datastore, _ c: Cluster) -> Bool { d.clusterKeys.contains(where: members(c).contains) }
 
         func caps(_ c: Cluster) -> [HostCap] {
             (hostsByCluster[c.id] ?? []).filter { !$0.inferred && $0.cores > 0 && $0.memoryMiB > 0 }
-                .map { HostCap(id: $0.id, name: $0.name, cores: Double($0.cores), ramGiB: $0.memoryMiB / 1024, vendor: VCF9Sizing.vendor($0.cpuModel)) }
+                .map { HostCap(id: $0.id, name: $0.name, cores: Double($0.cores), ramGiB: $0.memoryMiB / 1024, vendor: VCF9Sizing.vendor($0.cpuModel), cluster: $0.cluster) }
         }
         var basisFallback: [String] = []
         func workload(_ c: Cluster) -> Demand {
@@ -357,7 +386,7 @@ public struct VCF9Sizing: Solution {
         }
 
         // Storage type decides the minimum cluster sizes.
-        func hasVSAN(_ c: Cluster) -> Bool { inv.datastores.contains { $0.type.lowercased() == "vsan" && $0.clusterKeys.contains(c.id) } }
+        func hasVSAN(_ c: Cluster) -> Bool { inv.datastores.contains { $0.type.lowercased() == "vsan" && onCluster($0, c) } }
         func storageKind(_ c: Cluster?) -> Int {   // 1 ESA, 2 OSA, 3 external
             let s = p.choice("storage")
             if s > 0 { return s }
@@ -367,13 +396,9 @@ public struct VCF9Sizing: Solution {
         func minWorkload(_ c: Cluster) -> Int { hasVSAN(c) ? 3 : 2 }
 
         // Workload domains and their appliances (independent of which hosts the management domain takes).
-        let mergeIDs = Set(p.names("merge").compactMap(resolve).map(\.id))
         func domains(excluding mgmtCluster: Cluster?) -> [WorkloadDomain] {
-            let wl = clusters.filter { $0.id != mgmtCluster?.id }
+            let rest = clusters.filter { $0.id != mgmtCluster?.id }
             var groups: [(String, [Cluster])] = []
-            let merged = wl.filter { mergeIDs.contains($0.id) }
-            if merged.count > 1 { groups.append(("Merged workload domain", merged)) }
-            let rest = merged.count > 1 ? wl.filter { !mergeIDs.contains($0.id) } : wl
             switch p.choice("wldGroup") {
             case 1: groups += rest.map { ($0.name, [$0]) }
             case 2: if !rest.isEmpty { groups.append(("Workload domain", rest)) }
@@ -505,8 +530,7 @@ public struct VCF9Sizing: Solution {
                     b.add("mgmt.greenfield", "Management domain", "Greenfield management domain capacity", .blocker,
                           "Not enough capacity for a greenfield management domain build: \(plan.newHosts) new host(s) needed (\(split)) — " + (taken == 0 ? "\(chosen.cluster.name) can't spare any of its \(chosen.hosts.count) hosts" : "\(chosen.cluster.name) can spare \(taken) of its \(chosen.hosts.count) hosts"),
                           remediation: "Free capacity on the other hosts (migrate or retire VMs), add hosts, or use a consolidated management domain.",
-                          affected: [AffectedObject(kind: .cluster, id: chosen.cluster.id, name: chosen.cluster.name,
-                                                    detail: "workloads need \(Fmt.pct(chosen.currentLoad * 100)) of today's hosts with \(spare) down")])
+                          affected: [cref(chosen.cluster, "workloads need \(Fmt.pct(chosen.currentLoad * 100)) of today's hosts with \(spare) down")])
                     headline = "Not enough capacity for a greenfield management domain build — \(plan.newHosts) new host(s) needed (\(split))"
                 }
             } else {
@@ -533,19 +557,21 @@ public struct VCF9Sizing: Solution {
 
         // Management storage against what the chosen hosts bring.
         if kind == 3 {
-            let shared = inv.datastores.filter { $0.clusterKeys.contains(chosen.cluster.id) && $0.type.lowercased() != "vsan" && Set($0.hostKeys).count > 1 }
+            let shared = inv.datastores.filter { onCluster($0, chosen.cluster) && $0.type.lowercased() != "vsan" && Set($0.hostKeys).count > 1 }
             let largest = shared.map(\.freeMiB).max() ?? 0
             b.add("mgmt.storage", "Management domain", "Management domain storage", largest >= storageGB * 1024 ? .info : .warning,
                   "\(SFmt.num(storageGB)) GB needed on the principal datastore; largest shared datastore on \(chosen.cluster.name) has \(Fmt.capacity(mib: largest)) free",
                   remediation: "A new management domain on external storage needs its own principal datastore presented to the new hosts.")
-        } else if let ds = inv.datastores.first(where: { $0.type.lowercased() == "vsan" && $0.clusterKeys.contains(chosen.cluster.id) }), chosen.hosts.count > 0 {
-            let perHost = ds.capacityMiB / Double(chosen.hosts.count)
+        } else if case let vsan = inv.datastores.filter({ $0.type.lowercased() == "vsan" && onCluster($0, chosen.cluster) }), !vsan.isEmpty, chosen.hosts.count > 0 {
+            let capacityMiB = vsan.reduce(0) { $0 + $1.capacityMiB }, freeMiB = vsan.reduce(0) { $0 + $1.freeMiB }
+            let dsName = vsan.map(\.name).joined(separator: ", ")
+            let perHost = capacityMiB / Double(chosen.hosts.count)
             let mgmtRaw = perHost * Double(mgmtHostList.count)
             b.add("mgmt.storage", "Management domain", "Management domain vSAN capacity", mgmtRaw >= storageGB * 1024 ? .ready : .warning,
-                  "\(SFmt.num(storageGB)) GB needed; \(mgmtHostList.count) hosts bring about \(Fmt.capacity(mib: mgmtRaw)) of raw vSAN (from \(ds.name))",
+                  "\(SFmt.num(storageGB)) GB needed; \(mgmtHostList.count) hosts bring about \(Fmt.capacity(mib: mgmtRaw)) of raw vSAN (from \(dsName))",
                   remediation: "Add capacity devices to the management hosts, or plan more hosts.")
             if dedicated, let plan = chosen.peel {
-                let usedMiB = ds.capacityMiB - ds.freeMiB
+                let usedMiB = capacityMiB - freeMiB
                 let left = perHost * Double(plan.remaining.count) * (1 - reserve)
                 b.add("mgmt.donorvsan", "Management domain", "vSAN left for \(chosen.cluster.name)", usedMiB <= left ? .ready : .warning,
                       "\(Fmt.capacity(mib: usedMiB)) used today; \(plan.remaining.count) remaining hosts give about \(Fmt.capacity(mib: left)) after the \(SFmt.num(reserve * 100))% reserve",
@@ -564,8 +590,6 @@ public struct VCF9Sizing: Solution {
         // MARK: Workload clusters
         // Merged clusters are sized as one cluster: one set of failover hosts instead of one per cluster.
         let candidateByID = Dictionary(candidates.map { ($0.cluster.id, $0) }, uniquingKeysWith: { a, _ in a })
-        let mergeCands = candidates.filter { mergeIDs.contains($0.cluster.id) && !($0.cluster.id == chosen.cluster.id && !dedicated) }
-        let merging = mergeCands.count > 1
         func liveHosts(_ c: Candidate) -> [HostCap] { dedicated && c.cluster.id == chosen.cluster.id ? (chosen.peel?.remaining ?? c.hosts) : c.hosts }
         /// Hosts the demand needs: drop the largest spare capacity while it still fits, or add hosts until it does.
         func hostsNeeded(_ hs: [HostCap], _ d: Demand, min: Int, typical: HostCap) -> (need: Int, fit: Fit) {
@@ -576,24 +600,13 @@ public struct VCF9Sizing: Solution {
             return (trimmed.count, f)
         }
 
-        struct Unit { let name: String, domain: String, ref: AffectedObject?, hosts: [HostCap], demand: Demand, min: Int, typical: HostCap, note: String }
+        struct Unit { let name: String, domain: String, ref: AffectedObject, hosts: [HostCap], demand: Demand, min: Int, typical: HostCap, note: String }
         var units: [Unit] = []
         for wd in wds {
-            var mergedDone = false
             for c in wd.clusters {
                 guard let cand = candidateByID[c.id] else { continue }
-                if merging && mergeIDs.contains(c.id) {
-                    guard !mergedDone else { continue }
-                    mergedDone = true
-                    let pool = mergeCands.flatMap(liveHosts)
-                    units.append(Unit(name: "Merged: " + mergeCands.map(\.cluster.name).joined(separator: " + "), domain: wd.name, ref: nil, hosts: pool,
-                                      demand: mergeCands.reduce(Demand()) { $0 + $1.workload }, min: mergeCands.contains { hasVSAN($0.cluster) } ? 3 : 2,
-                                      typical: VCF9Sizing.typical(pool) ?? cand.hosts[0], note: ""))
-                } else {
-                    units.append(Unit(name: c.name, domain: wd.name, ref: AffectedObject(kind: .cluster, id: c.id, name: c.name), hosts: liveHosts(cand),
-                                      demand: cand.workload, min: minWorkload(c), typical: VCF9Sizing.typical(cand.hosts)!,
-                                      note: dedicated && c.id == chosen.cluster.id ? " (after peel)" : ""))
-                }
+                units.append(Unit(name: c.name, domain: wd.name, ref: cref(c), hosts: liveHosts(cand), demand: cand.workload, min: minWorkload(c),
+                                  typical: VCF9Sizing.typical(cand.hosts)!, note: dedicated && c.id == chosen.cluster.id ? " (after peel)" : ""))
             }
         }
         var clusterRows: [[String]] = []
@@ -602,7 +615,7 @@ public struct VCF9Sizing: Solution {
         for u in units {
             let (need, f) = hostsNeeded(u.hosts, u.demand, min: u.min, typical: u.typical)
             let l = VCF9Sizing.load(u.hosts, u.demand, spare: spare)
-            let obj = u.ref ?? AffectedObject(kind: .other, id: u.name, name: u.name)
+            let obj = u.ref
             if f.newHosts > 0 {
                 newHostsTotal += f.newHosts
                 overloaded.append(AffectedObject(kind: obj.kind, id: obj.id, name: obj.name, detail: "\(l.isFinite ? Fmt.pct(l * 100) : "no failover host") with \(spare) down — add \(f.newHosts)"))
@@ -612,10 +625,11 @@ public struct VCF9Sizing: Solution {
             }
             let surplus = u.hosts.count - need
             let status = f.newHosts > 0 ? "Add \(f.newHosts) host(s)" : (surplus > 0 ? "\(surplus) host(s) spare" : "Fits")
-            clusterRows.append([u.name, u.domain, "\(u.hosts.count)\(u.note)", SFmt.num(u.demand.cores.rounded()), SFmt.num(u.demand.ramGiB.rounded()),
+            let added = u.hosts.filter(\.isNew).count
+            clusterRows.append([u.name, u.domain, "\(u.hosts.count - added)" + (added > 0 ? " + \(added) new" : "") + u.note, SFmt.num(u.demand.cores.rounded()), SFmt.num(u.demand.ramGiB.rounded()),
                                 l.isFinite ? Fmt.pct(l * 100) : "—", status])
         }
-        let clusterRefs = units.map(\.ref)
+        let clusterRefs: [AffectedObject?] = units.map { $0.ref.kind == .cluster ? $0.ref : nil }
         b.list("wld.capacity", "Workload domains", "Workload cluster capacity", .warning, noun: "clusters are over \(SFmt.num(maxLoad * 100))% with \(spare) host(s) down",
                affected: overloaded, ready: "Every workload cluster fits with \(spare) host(s) down",
                remediation: "Add hosts, rebalance VMs between clusters, or merge clusters so they share failover capacity.")
@@ -623,18 +637,21 @@ public struct VCF9Sizing: Solution {
                ready: "Every workload cluster meets the minimum host count", remediation: "VCF needs 3 hosts per vSAN cluster and 2 with external storage.")
 
         var mergeRows: [[String]] = []
-        if merging {
-            let pool = mergeCands.flatMap(liveHosts)
-            let separate = mergeCands.reduce(0) { $0 + hostsNeeded(liveHosts($1), $1.workload, min: minWorkload($1.cluster), typical: VCF9Sizing.typical($1.hosts)!).need }
-            let mergedNeed = hostsNeeded(pool, mergeCands.reduce(Demand()) { $0 + $1.workload }, min: mergeCands.contains { hasVSAN($0.cluster) } ? 3 : 2,
-                                         typical: VCF9Sizing.typical(pool)!).need
+        if let merged = mergedCluster {
+            let parts = mergeMembers.map { (c: $0, hosts: caps($0), demand: workload($0)) }.filter { !$0.hosts.isEmpty }
+            let pool = parts.flatMap(\.hosts)
+            let separate = parts.reduce(0) { $0 + hostsNeeded($1.hosts, $1.demand, min: minWorkload($1.c), typical: VCF9Sizing.typical($1.hosts)!).need }
+            let together = hostsNeeded(pool, parts.reduce(Demand()) { $0 + $1.demand }, min: minWorkload(merged), typical: VCF9Sizing.typical(pool)!).need
+            let role = merged.id == chosen.cluster.id ? (dedicated ? "gives up the management hosts" : "is the consolidated management cluster") : "is a workload cluster"
             mergeRows = [
-                ["Clusters", mergeCands.map(\.cluster.name).joined(separator: ", ")],
+                ["Clusters", parts.map(\.c.name).joined(separator: ", ")],
+                ["Role in this plan", "The merged cluster " + role],
                 ["Hosts today", "\(pool.count)"],
-                ["Hosts needed as separate clusters", "\(separate)"],
-                ["Hosts needed as one cluster", "\(mergedNeed)"],
-                [separate >= mergedNeed ? "Hosts saved by merging" : "Extra hosts from merging", "\(abs(separate - mergedNeed))"],
+                ["Hosts their workloads need as separate clusters", "\(separate)"],
+                ["Hosts their workloads need as one cluster", "\(together)"],
+                [separate >= together ? "Hosts saved by merging" : "Extra hosts from merging", "\(abs(separate - together))"],
             ]
+            let mergeCands = parts.map { (cluster: $0.c, hosts: $0.hosts) }
             let vendors = Set(pool.map(\.vendor).filter { !$0.isEmpty })
             if vendors.count > 1 {
                 b.add("wld.merge.cpu", "Workload domains", "Merged cluster CPU vendors", .blocker, "The clusters to merge mix \(vendors.sorted().joined(separator: " and ")) CPUs",
@@ -690,7 +707,7 @@ public struct VCF9Sizing: Solution {
             id: "candidates", title: "Management domain candidates",
             subtitle: "Workload load is with \(spare) host(s) down; greenfield peels the smallest hosts off the cluster. Pick a cluster under Assumptions.",
             columns: ["Cluster", "vCenter", "Hosts", "Cores", "RAM (GB)", "Workload load", "Greenfield", "Consolidated", ""],
-            numeric: [2, 3, 4, 5], rows: candRows, rowRefs: candidates.map { AffectedObject(kind: .cluster, id: $0.cluster.id, name: $0.cluster.name) })))
+            numeric: [2, 3, 4, 5], rows: candRows, rowRefs: candidates.map { memberIDs[$0.cluster.id] == nil ? cref($0.cluster) : nil })))
 
         // Appliances.
         var compRows = comps.map { [$0.name, $0.nodes > 0 ? "\($0.nodes)" : "—", SFmt.num($0.cpu), SFmt.num($0.ram), SFmt.num($0.disk), $0.note] }
@@ -701,10 +718,11 @@ public struct VCF9Sizing: Solution {
 
         // Management hosts.
         if !mgmtHostList.isEmpty {
-            let perCPU = mgmtHostList.count > spare ? mgmt.cores / Double(mgmtHostList.count - spare) : .infinity
-            let perRAM = mgmtHostList.count > spare ? mgmt.ramGiB / Double(mgmtHostList.count - spare) : .infinity
-            var rows = mgmtHostList.map { h in [h.name, h.isNew ? "New" : chosen.cluster.name, SFmt.num(h.cores), SFmt.num(h.ramGiB.rounded())] }
-            rows.append(["Management load per host", "\(spare) host(s) down", SFmt.num(perCPU.rounded(.up)), SFmt.num(perRAM.rounded(.up))])
+            let load = dedicated ? mgmt : mgmt + chosen.workload
+            let perCPU = mgmtHostList.count > spare ? load.cores / Double(mgmtHostList.count - spare) : .infinity
+            let perRAM = mgmtHostList.count > spare ? load.ramGiB / Double(mgmtHostList.count - spare) : .infinity
+            var rows = mgmtHostList.map { h in [h.name, h.isNew ? "New" : (h.cluster.isEmpty ? chosen.cluster.name : h.cluster), SFmt.num(h.cores), SFmt.num(h.ramGiB.rounded())] }
+            rows.append([dedicated ? "Management load per host" : "Load per host (appliances + workloads)", "\(spare) host(s) down", SFmt.num(perCPU.rounded(.up)), SFmt.num(perRAM.rounded(.up))])
             sections.append(.table(SolutionTable(
                 id: "mgmt-hosts", title: dedicated ? "Management domain hosts" : "Consolidated cluster hosts",
                 subtitle: dedicated ? "Appliances at \(SFmt.num(mgmtRatio)):1 vCPU per core" : "Appliances at \(SFmt.num(mgmtRatio)):1 plus the cluster's workloads",
@@ -742,7 +760,7 @@ public struct VCF9Sizing: Solution {
                 rows: clusterRows, rowRefs: clusterRefs)))
         }
         if !mergeRows.isEmpty {
-            sections.append(.table(SolutionTable(id: "merge", title: "Merging workload clusters", columns: ["", "Value"], numeric: [1], rows: mergeRows)))
+            sections.append(.table(SolutionTable(id: "merge", title: "Merged cluster", columns: ["", "Value"], numeric: [1], rows: mergeRows)))
         }
 
         // The alternative the user didn't pick, when it matters.
