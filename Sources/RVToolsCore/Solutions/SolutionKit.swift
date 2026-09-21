@@ -62,14 +62,14 @@ public extension Solution {
     func run(vms: [VM], selections: [String: [VM]], inventory: Inventory, values: ParamValues) -> SolutionResult {
         var result = run(vms: vms, selections: selections, inventory: inventory, params: Params(parameters, values))
         result.vmCount = Set(vms.map(\.id) + selections.values.flatMap { $0.map(\.id) }).count
-        result.assumptions = parameters.map { ($0.group + " · " + $0.label, $0.display(values.values[$0.id] ?? $0.defaultValue)) }
+        result.assumptions = parameters.map { ($0.group + " · " + $0.label, $0.display(values.values[$0.id] ?? $0.defaultValue, inventory: inventory)) }
         return result
     }
 }
 
 public enum SolutionCatalog {
     /// The solutions that ship with the app.
-    public static let builtIn: [any Solution] = [BackupSizing(), DisasterRecoverySizing(), VCF9Readiness(), CloudMigration(.azure), CloudMigration(.aws)]
+    public static let builtIn: [any Solution] = [BackupSizing(), DisasterRecoverySizing(), VCF9Readiness(), VCF9Sizing(), CloudMigration(.azure), CloudMigration(.aws)]
     /// Enabled custom solutions, in title order.
     public static var custom: [ScriptedSolution] { SolutionLibrary.shared.enabled }
     /// Built-in solutions followed by enabled custom solutions.
@@ -87,6 +87,8 @@ public enum ParamValue: Codable, Hashable, Sendable {
     case choice(Int)
     case flag(Bool)
     case selection([Int])
+    /// Inventory objects by id (e.g. cluster ids), so a choice survives across exports and projects.
+    case names([String])
 }
 
 public struct SolutionParameter: Identifiable, Sendable {
@@ -95,6 +97,8 @@ public struct SolutionParameter: Identifiable, Sendable {
         case choice([String])
         case toggle
         case multi([String])
+        /// Clusters from the open export, stored by cluster id. `none` labels the empty choice (e.g. "Best fit (automatic)").
+        case clusters(multi: Bool, none: String)
     }
 
     public let id: String
@@ -123,8 +127,17 @@ public struct SolutionParameter: Identifiable, Sendable {
         SolutionParameter(id: id, group: group, label: label, help: help, kind: .multi(options), defaultValue: .selection(selected))
     }
 
-    public func display(_ value: ParamValue) -> String {
+    public static func clusters(_ id: String, _ group: String, _ label: String, multi: Bool, none: String, help: String = "") -> SolutionParameter {
+        SolutionParameter(id: id, group: group, label: label, help: help, kind: .clusters(multi: multi, none: none), defaultValue: .names([]))
+    }
+
+    public func display(_ value: ParamValue, inventory: Inventory? = nil) -> String {
         switch (kind, value) {
+        case (.clusters(_, let none), .names(let ids)):
+            let names = ids.map { id in
+                inventory?.clusters.first { $0.id == id }.map { "\($0.name) (\($0.vcenter))" } ?? String(id.split(separator: "|").last ?? Substring(id))
+            }
+            return names.isEmpty ? none : names.joined(separator: "; ")
         case (.multi(let options), .selection(let chosen)):
             let names = chosen.filter { options.indices.contains($0) }.map { options[$0] }
             return names.isEmpty ? "None" : names.joined(separator: "; ")
@@ -157,6 +170,7 @@ public struct Params {
     public func choice(_ id: String) -> Int { if case .choice(let i)? = value(id) { return i }; return 0 }
     public func flag(_ id: String) -> Bool { if case .flag(let b)? = value(id) { return b }; return false }
     public func multi(_ id: String) -> [Int] { if case .selection(let s)? = value(id) { return s }; return [] }
+    public func names(_ id: String) -> [String] { if case .names(let n)? = value(id) { return n }; return [] }
 }
 
 // MARK: - Results
