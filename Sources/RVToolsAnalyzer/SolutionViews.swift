@@ -492,6 +492,42 @@ private struct ParameterRow: View {
         }
     }
 
+    /// Clusters of the open export (real clusters with hosts), plus any saved choice that isn't in this export.
+    @ViewBuilder private func clusterPicker(multi: Bool, none: String) -> some View {
+        let clusters = (model.report?.inventory.clusters ?? []).filter { !$0.isStandalone && $0.hostCount > 0 }
+            .sorted { ($0.vcenter.lowercased(), $0.name.lowercased()) < ($1.vcenter.lowercased(), $1.name.lowercased()) }
+        let chosen: [String] = { if case .names(let n) = current { return n }; return [] }()
+        let known = Set(clusters.map(\.id))
+        let missing = chosen.filter { !known.contains($0) }
+        let label: (Cluster) -> String = { "\($0.name) (\($0.vcenter)) · \($0.hostCount) hosts" }
+        if multi {
+            Text(parameter.label)
+            if clusters.isEmpty { Text("No clusters in this export.").font(.caption).foregroundStyle(.secondary) }
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 280), alignment: .leading)], alignment: .leading, spacing: 4) {
+                ForEach(clusters) { c in
+                    Toggle(label(c), isOn: Binding<Bool>(
+                        get: { chosen.contains(c.id) },
+                        set: { on in values.values[parameter.id] = .names(on ? chosen + [c.id] : chosen.filter { $0 != c.id }) }))
+                    .toggleStyle(.checkbox)
+                }
+            }
+            if !missing.isEmpty {
+                HStack {
+                    Text("\(missing.count) saved cluster(s) not in this export").font(.caption).foregroundStyle(.secondary)
+                    Button("Clear") { values.values[parameter.id] = .names(chosen.filter(known.contains)) }.controlSize(.small)
+                }
+            }
+        } else {
+            Picker(parameter.label, selection: Binding<String>(
+                get: { chosen.first ?? "" },
+                set: { values.values[parameter.id] = .names($0.isEmpty ? [] : [$0]) })) {
+                Text(none).tag("")
+                ForEach(clusters) { Text(label($0)).tag($0.id) }
+                ForEach(missing, id: \.self) { Text("\(String($0.split(separator: "|").last ?? "")) — not in this export").tag($0) }
+            }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             switch parameter.kind {
@@ -532,6 +568,8 @@ private struct ParameterRow: View {
                         .toggleStyle(.checkbox)
                     }
                 }
+            case .clusters(let multi, let none):
+                clusterPicker(multi: multi, none: none)
             }
             if !parameter.help.isEmpty {
                 Text(parameter.help).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

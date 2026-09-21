@@ -199,6 +199,7 @@ func paramValues(_ s: any Solution) -> ParamValues {
         case .choice: if let x = Int(raw) { v.values[name] = .choice(x) }
         case .toggle: v.values[name] = .flag(["1", "true", "yes", "on"].contains(raw.lowercased()))
         case .multi: v.values[name] = .selection(raw.split(separator: ",").compactMap { Int($0) })
+        case .clusters: v.values[name] = .names(raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
         }
     }
     return v
