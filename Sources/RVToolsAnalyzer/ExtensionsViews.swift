@@ -269,7 +269,7 @@ struct MissingSolutionView: View {
             Text("This project has a VM selection and assumptions for the custom solution “\(id)”, which isn't installed or is turned off on this Mac. They stay in the project: install the solution's .rvasolution pack to see its results.")
         } actions: {
             Button("Manage Solutions…") {
-                UserDefaults.standard.set("solutions", forKey: "settingsTab")
+                AppDefaults.store.set("solutions", forKey: "settingsTab")
                 openSettings()
             }
         }

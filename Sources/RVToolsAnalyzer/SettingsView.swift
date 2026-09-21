@@ -2,7 +2,7 @@ import RVToolsCore
 import SwiftUI
 
 struct SettingsView: View {
-    @AppStorage("settingsTab") private var tab = "findings"
+    @AppStorage("settingsTab", store: AppDefaults.store) private var tab = "findings"
 
     var body: some View {
         TabView(selection: $tab) {

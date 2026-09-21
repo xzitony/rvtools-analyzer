@@ -169,7 +169,7 @@ final class AppModel {
     var solutionSelections: [String: Set<String>] = [:] { didSet { noteChange() } }
     var solutionParams: [String: ParamValues] = AppModel.loadSolutionParams() {
         didSet {
-            if let data = try? JSONEncoder().encode(solutionParams) { UserDefaults.standard.set(data, forKey: "solutionParams") }
+            if let data = try? JSONEncoder().encode(solutionParams) { AppDefaults.store.set(data, forKey: "solutionParams") }
             noteChange()
         }
     }
@@ -221,7 +221,7 @@ final class AppModel {
     var storageUnits: StorageUnits = AppModel.loadPreference("storageUnits", StorageUnits.binary) {
         didSet {
             guard storageUnits != oldValue else { return }
-            UserDefaults.standard.set(storageUnits.rawValue, forKey: "storageUnits")
+            AppDefaults.store.set(storageUnits.rawValue, forKey: "storageUnits")
             Units.storage = storageUnits
             recompute()
             refreshTrend()
@@ -230,7 +230,7 @@ final class AppModel {
     var rateUnits: RateUnits = AppModel.loadPreference("rateUnits", RateUnits.bits) {
         didSet {
             guard rateUnits != oldValue else { return }
-            UserDefaults.standard.set(rateUnits.rawValue, forKey: "rateUnits")
+            AppDefaults.store.set(rateUnits.rawValue, forKey: "rateUnits")
             Units.rate = rateUnits
             recompute()
             refreshTrend()
@@ -248,13 +248,13 @@ final class AppModel {
     }
 
     private static func loadPreference<T: RawRepresentable>(_ key: String, _ fallback: T) -> T where T.RawValue == String {
-        UserDefaults.standard.string(forKey: key).flatMap(T.init(rawValue:)) ?? fallback
+        AppDefaults.store.string(forKey: key).flatMap(T.init(rawValue:)) ?? fallback
     }
 
     var thresholds: Thresholds = AppModel.loadThresholds() {
         didSet {
             guard thresholds != oldValue else { return }
-            if let data = try? JSONEncoder().encode(thresholds) { UserDefaults.standard.set(data, forKey: "thresholds") }
+            if let data = try? JSONEncoder().encode(thresholds) { AppDefaults.store.set(data, forKey: "thresholds") }
             recompute()
             if thresholds.ignoreUnusedLocalDatastores != oldValue.ignoreUnusedLocalDatastores
                 || thresholds.ignoreVMCManagementDatastore != oldValue.ignoreVMCManagementDatastore { refreshTrend() }
@@ -271,7 +271,7 @@ final class AppModel {
     }
 
     private static func loadThresholds() -> Thresholds {
-        guard let data = UserDefaults.standard.data(forKey: "thresholds"), let t = try? JSONDecoder().decode(Thresholds.self, from: data) else { return Thresholds() }
+        guard let data = AppDefaults.store.data(forKey: "thresholds"), let t = try? JSONDecoder().decode(Thresholds.self, from: data) else { return Thresholds() }
         return t
     }
 
@@ -815,7 +815,7 @@ final class AppModel {
     }
 
     private static func loadRecents() -> [URL] {
-        let bookmarks = UserDefaults.standard.array(forKey: "recentProjects") as? [Data] ?? []
+        let bookmarks = AppDefaults.store.array(forKey: "recentProjects") as? [Data] ?? []
         return bookmarks.compactMap { data in
             var stale = false
             return try? URL(resolvingBookmarkData: data, bookmarkDataIsStale: &stale)
@@ -827,12 +827,12 @@ final class AppModel {
         var list = recentProjects.filter { $0.standardizedFileURL.path != url.standardizedFileURL.path }
         list.insert(url, at: 0)
         recentProjects = Array(list.prefix(10))
-        UserDefaults.standard.set(recentProjects.compactMap { try? $0.bookmarkData() }, forKey: "recentProjects")
+        AppDefaults.store.set(recentProjects.compactMap { try? $0.bookmarkData() }, forKey: "recentProjects")
     }
 
     func clearRecentProjects() {
         recentProjects = []
-        UserDefaults.standard.removeObject(forKey: "recentProjects")
+        AppDefaults.store.removeObject(forKey: "recentProjects")
     }
 
     func recompute() {
@@ -944,7 +944,7 @@ final class AppModel {
     // MARK: Solutions
 
     private static func loadSolutionParams() -> [String: ParamValues] {
-        guard let data = UserDefaults.standard.data(forKey: "solutionParams"),
+        guard let data = AppDefaults.store.data(forKey: "solutionParams"),
               let v = try? JSONDecoder().decode([String: ParamValues].self, from: data) else { return [:] }
         return v
     }
@@ -1102,7 +1102,7 @@ final class AppModel {
     var authoringGuideURL: URL? { Bundle.main.url(forResource: "SOLUTIONS", withExtension: "md") }
 
     private func startExtensions() {
-        SolutionLibrary.shared.disabled = Set(UserDefaults.standard.stringArray(forKey: "disabledSolutions") ?? [])
+        SolutionLibrary.shared.disabled = Set(AppDefaults.store.stringArray(forKey: "disabledSolutions") ?? [])
         let fm = FileManager.default
         try? fm.createDirectory(at: SolutionLibrary.directory, withIntermediateDirectories: true)
         try? fm.createDirectory(at: PriceLibrary.directory, withIntermediateDirectories: true)
@@ -1146,7 +1146,7 @@ final class AppModel {
         var disabled = SolutionLibrary.shared.disabled
         if enabled { disabled.remove(id) } else { disabled.insert(id) }
         SolutionLibrary.shared.disabled = disabled
-        UserDefaults.standard.set(disabled.sorted(), forKey: "disabledSolutions")
+        AppDefaults.store.set(disabled.sorted(), forKey: "disabledSolutions")
         extensionsChanged()
     }
 
