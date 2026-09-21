@@ -188,9 +188,10 @@ public struct BackupSizing: Solution {
             b.list("cbt", "Performance", "Changed Block Tracking", .info, noun: "powered-on VMs have CBT disabled", affected: noCBT,
                    ready: "CBT enabled on all powered-on VMs", remediation: "Most backup products enable CBT on first run (it needs a snapshot cycle); confirm that is allowed.")
         }
-        let large = sources.filter { $0.s.mib > 10 * 1024 * 1024 }.map { $0.vm.ref(Fmt.capacity(mib: $0.s.mib)) }
-        b.list("large", "Performance", "Very large VMs (> 10 TB)", .info, noun: "VMs exceed 10 TB of protected data", affected: large,
-               ready: "No VMs over 10 TB", remediation: "Enable per-disk parallel processing and consider seeding the first full.")
+        let largeMiB = 10.0 * 1024 * 1024   // 10 TiB
+        let large = sources.filter { $0.s.mib > largeMiB }.map { $0.vm.ref(Fmt.capacity(mib: $0.s.mib)) }
+        b.list("large", "Performance", "Very large VMs (> \(Fmt.capacity(mib: largeMiB)))", .info, noun: "VMs exceed \(Fmt.capacity(mib: largeMiB)) of protected data", affected: large,
+               ready: "No VMs over \(Fmt.capacity(mib: largeMiB))", remediation: "Enable per-disk parallel processing and consider seeding the first full.")
         let apps = vms.filter { regexMatch($0.name, #"sql|ora|db|mongo|postgres|mysql|exch|sap|hana"#) != nil }.map { $0.ref($0.os.name) }
         if !apps.isEmpty {
             b.add("apps", "Application awareness", "Likely database / application servers", .info, "\(apps.count) VMs by name (SQL, ORA, DB, EXCH, SAP, …)",

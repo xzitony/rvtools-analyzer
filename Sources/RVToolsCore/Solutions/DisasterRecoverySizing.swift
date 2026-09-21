@@ -175,9 +175,12 @@ public struct DisasterRecoverySizing: Solution {
         let oversize = vms.filter { Double($0.cpus) > hostCores || $0.memoryMiB > hostMemMiB }.map { $0.ref("\($0.cpus) vCPU, \(Fmt.memory(mib: $0.memoryMiB))") }
         b.list("oversize", "DR compute", "VMs larger than a DR host", .blocker, noun: "VMs exceed the DR host specification", affected: oversize,
                ready: "Every VM fits on a DR host", remediation: "Increase the DR host specification or right-size these VMs.")
-        let bigDisk = vms.filter { $0.disks.contains { $0.capacityMiB > 62 * 1024 * 1024 } }.map { $0.ref("disk > 62 TB") }
-        b.list("bigdisk", "Replication", "Disks larger than 62 TB", .warning, noun: "VMs", affected: bigDisk,
-               ready: "No disks over 62 TB", remediation: "Very large disks exceed common replication limits; verify with your product.")
+        let bigDiskMiB = 62.0 * 1024 * 1024   // the 62 TiB VMDK maximum
+        let bigDisk = vms.compactMap { vm in
+            vm.disks.map(\.capacityMiB).filter { $0 > bigDiskMiB }.max().map { vm.ref("largest disk \(Fmt.capacity(mib: $0))") }
+        }
+        b.list("bigdisk", "Replication", "Disks larger than \(Fmt.capacity(mib: bigDiskMiB))", .warning, noun: "VMs", affected: bigDisk,
+               ready: "No disks over \(Fmt.capacity(mib: bigDiskMiB))", remediation: "Very large disks exceed common replication limits; verify with your product.")
         let ft = vms.filter { let s = $0.ftState.lowercased(); return !s.isEmpty && s != "notconfigured" && s != "not configured" }.map { $0.ref("FT: \($0.ftState)") }
         b.list("ft", "Replication", "Fault Tolerance", .warning, noun: "VMs use FT", affected: ft,
                ready: "No FT VMs", remediation: "FT-protected VMs usually can't be host-replicated; verify support.")
