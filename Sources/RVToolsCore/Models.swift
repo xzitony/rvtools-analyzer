@@ -396,11 +396,11 @@ public struct Datastore: Identifiable, Sendable {
 }
 
 public extension Datastore {
-    /// A host-local datastore with no VM, template or VM disk on it — typically an ESXi boot or scratch device.
     /// VMs here that aren't vCenter's own cluster agents.
-    public var workloadVMCount: Int { vmIDs.count - agentVMIDs.count }
+    var workloadVMCount: Int { vmIDs.count - agentVMIDs.count }
     /// No workload on it: vCLS agents are placed automatically and don't make a datastore "used".
-    public var hasNoWorkload: Bool { workloadVMCount == 0 && (vmTotalReported ?? 0) <= agentVMIDs.count && vmDiskMiB - agentDiskMiB <= 0 }
+    var hasNoWorkload: Bool { workloadVMCount == 0 && (vmTotalReported ?? 0) <= agentVMIDs.count && vmDiskMiB - agentDiskMiB <= 0 }
+    /// A host-local datastore with no VM, template or VM disk on it — typically an ESXi boot or scratch device.
     var isUnusedLocal: Bool { isLocal && hasNoWorkload }
 }
 
