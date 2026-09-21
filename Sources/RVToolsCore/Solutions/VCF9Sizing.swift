@@ -503,6 +503,7 @@ public struct VCF9Sizing: Solution {
         let protected = (kind == 1 ? interim * 1.5 : (kind == 2 ? interim * 2 : interim)).rounded(.up)
         let reserved = kind == 3 ? protected : (protected * (1 + reserve)).rounded(.up)
         let storageGB = (reserved * (1 + growth)).rounded(.up)
+        let storageMiB = storageGB * 1024   // the workbook's GB are treated as GiB, like the host memory it sizes against
 
         var b = CheckBuilder()
         var sections: [SolutionSection] = []
@@ -574,16 +575,16 @@ public struct VCF9Sizing: Solution {
         if kind == 3 {
             let shared = inv.datastores.filter { onCluster($0, chosen.cluster) && $0.type.lowercased() != "vsan" && Set($0.hostKeys).count > 1 }
             let largest = shared.map(\.freeMiB).max() ?? 0
-            b.add("mgmt.storage", "Management domain", "Management domain storage", largest >= storageGB * 1024 ? .info : .warning,
-                  "\(SFmt.num(storageGB)) GB needed on the principal datastore; largest shared datastore on \(chosen.cluster.name) has \(Fmt.capacity(mib: largest)) free",
+            b.add("mgmt.storage", "Management domain", "Management domain storage", largest >= storageMiB ? .info : .warning,
+                  "\(Fmt.capacity(mib: storageMiB)) needed on the principal datastore; largest shared datastore on \(chosen.cluster.name) has \(Fmt.capacity(mib: largest)) free",
                   remediation: "A new management domain on external storage needs its own principal datastore presented to the new hosts.")
         } else if case let vsan = inv.datastores.filter({ $0.type.lowercased() == "vsan" && onCluster($0, chosen.cluster) }), !vsan.isEmpty, chosen.hosts.count > 0 {
             let capacityMiB = vsan.reduce(0) { $0 + $1.capacityMiB }, freeMiB = vsan.reduce(0) { $0 + $1.freeMiB }
             let dsName = vsan.map(\.name).joined(separator: ", ")
             let perHost = capacityMiB / Double(chosen.hosts.count)
             let mgmtRaw = perHost * Double(mgmtHostList.count)
-            b.add("mgmt.storage", "Management domain", "Management domain vSAN capacity", mgmtRaw >= storageGB * 1024 ? .ready : .warning,
-                  "\(SFmt.num(storageGB)) GB needed; \(mgmtHostList.count) hosts bring about \(Fmt.capacity(mib: mgmtRaw)) of raw vSAN (from \(dsName))",
+            b.add("mgmt.storage", "Management domain", "Management domain vSAN capacity", mgmtRaw >= storageMiB ? .ready : .warning,
+                  "\(Fmt.capacity(mib: storageMiB)) needed; \(mgmtHostList.count) hosts bring about \(Fmt.capacity(mib: mgmtRaw)) of raw vSAN (from \(dsName))",
                   remediation: "Add capacity devices to the management hosts, or plan more hosts.")
             if dedicated, let plan = chosen.peel {
                 let usedMiB = capacityMiB - freeMiB
@@ -594,7 +595,7 @@ public struct VCF9Sizing: Solution {
             }
         } else {
             b.add("mgmt.storage", "Management domain", "Management domain vSAN capacity", .info,
-                  "\(SFmt.num(storageGB)) GB of \(storageName) needed; \(chosen.cluster.name) has no vSAN datastore to compare against",
+                  "\(Fmt.capacity(mib: storageMiB)) of \(storageName) needed; \(chosen.cluster.name) has no vSAN datastore to compare against",
                   remediation: "The management hosts need local capacity devices on the vSAN ESA / OSA compatibility list.")
         }
         if kind != 3 {
@@ -700,7 +701,7 @@ public struct VCF9Sizing: Solution {
                            symbol: "server.rack", status: dedicated ? (greenfieldOK ? .ready : .blocker) : (chosen.consolidated.newHosts == 0 ? .ready : .warning)),
             SolutionMetric("Management appliances", "\(SFmt.num(totCPU)) vCPU", "\(SFmt.num(totRAM)) GB RAM · \(SFmt.num(totDisk)) GB disk", symbol: "cpu"),
             SolutionMetric("Load with \(spare) host(s) down", mgmtLoad.isFinite ? Fmt.pct(mgmtLoad * 100) : "—", dedicated ? "management hosts" : "appliances + workloads", symbol: "gauge.with.dots.needle.50percent"),
-            SolutionMetric("Management storage", "\(Fmt.num(storageGB / 1000, 1)) TB", storageName, symbol: "externaldrive"),
+            SolutionMetric("Management storage", Fmt.capacity(mib: storageMiB), "\(storageName) · \(SFmt.num(storageGB)) GB in workbook terms", symbol: "externaldrive"),
             SolutionMetric("Workload domains", Fmt.int(wds.count), "\(wds.reduce(0) { $0 + $1.clusters.count }) clusters · adds \(SFmt.num(wldAdds.reduce(0) { $0 + $1.cpu })) vCPU to management", symbol: "square.grid.2x2"),
             SolutionMetric("New hosts", Fmt.int(newHostsTotal), newHostsTotal == 0 ? "none needed" : "management and workload clusters", symbol: "plus.square.on.square",
                            status: newHostsTotal == 0 ? .ready : .warning),
