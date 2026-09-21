@@ -699,7 +699,7 @@ public struct VCF9Sizing: Solution {
                                            mgmtHostList.contains(where: \.isNew) ? "\(mgmtHostList.filter(\.isNew).count) new" : ""].filter { !$0.isEmpty }.joined(separator: " + ")
                                      : "consolidated on \(chosen.cluster.name)",
                            symbol: "server.rack", status: dedicated ? (greenfieldOK ? .ready : .blocker) : (chosen.consolidated.newHosts == 0 ? .ready : .warning)),
-            SolutionMetric("Management appliances", "\(SFmt.num(totCPU)) vCPU", "\(SFmt.num(totRAM)) GB RAM · \(SFmt.num(totDisk)) GB disk", symbol: "cpu"),
+            SolutionMetric("Management appliances", "\(SFmt.num(totCPU)) vCPU", "\(Fmt.memory(mib: totRAM * 1024)) RAM · \(Fmt.capacity(mib: totDisk * 1024)) disk", symbol: "cpu"),
             SolutionMetric("Load with \(spare) host(s) down", mgmtLoad.isFinite ? Fmt.pct(mgmtLoad * 100) : "—", dedicated ? "management hosts" : "appliances + workloads", symbol: "gauge.with.dots.needle.50percent"),
             SolutionMetric("Management storage", Fmt.capacity(mib: storageMiB), "\(storageName) · \(SFmt.num(storageGB)) GB in workbook terms", symbol: "externaldrive"),
             SolutionMetric("Workload domains", Fmt.int(wds.count), "\(wds.reduce(0) { $0 + $1.clusters.count }) clusters · adds \(SFmt.num(wldAdds.reduce(0) { $0 + $1.cpu })) vCPU to management", symbol: "square.grid.2x2"),
@@ -748,7 +748,7 @@ public struct VCF9Sizing: Solution {
             id: "candidates", title: "Management domain candidates",
             subtitle: (pending.map { "\($0.name) is waiting to be merged — choose another cluster to merge it with. " } ?? "")
                 + "Workload load is with \(spare) host(s) down; greenfield peels the smallest hosts off the cluster.",
-            columns: ["Cluster", "vCenter", "Hosts", "Cores", "RAM (GB)", "Workload load", "Greenfield", "Consolidated", ""],
+            columns: ["Cluster", "vCenter", "Hosts", "Cores", "RAM (GiB)", "Workload load", "Greenfield", "Consolidated", ""],
             numeric: [2, 3, 4, 5], rows: candRows, rowRefs: candidates.map { memberIDs[$0.cluster.id] == nil ? cref($0.cluster) : nil }, rowActions: candActions)))
 
         // Appliances.
@@ -768,7 +768,7 @@ public struct VCF9Sizing: Solution {
             sections.append(.table(SolutionTable(
                 id: "mgmt-hosts", title: dedicated ? "Management domain hosts" : "Consolidated cluster hosts",
                 subtitle: dedicated ? "Appliances at \(SFmt.num(mgmtRatio)):1 vCPU per core" : "Appliances at \(SFmt.num(mgmtRatio)):1 plus the cluster's workloads",
-                columns: ["Host", "Source", "Cores", "RAM (GB)"], numeric: [2, 3], rows: rows,
+                columns: ["Host", "Source", "Cores", "RAM (GiB)"], numeric: [2, 3], rows: rows,
                 rowRefs: mgmtHostList.map { $0.isNew ? nil : AffectedObject(kind: .host, id: $0.id, name: $0.name) } + [nil], emphasized: [rows.count - 1])))
         }
 
@@ -798,7 +798,7 @@ public struct VCF9Sizing: Solution {
                 columns: ["Domain", "Clusters", "Hosts", "VMs", "vCenter", "NSX Managers", "Adds to management"], numeric: [2, 3], rows: rows)))
             sections.append(.table(SolutionTable(
                 id: "workload-clusters", title: "Workload clusters", subtitle: "Existing workloads with \(spare) host(s) down, at most \(SFmt.num(maxLoad * 100))%",
-                columns: ["Cluster", "Domain", "Hosts", "Demand (cores)", "Demand (GB)", "Load", "Capacity"], numeric: [2, 3, 4, 5],
+                columns: ["Cluster", "Domain", "Hosts", "Demand (cores)", "Demand (GiB)", "Load", "Capacity"], numeric: [2, 3, 4, 5],
                 rows: clusterRows, rowRefs: clusterRefs)))
         }
         if !mergeRows.isEmpty {
