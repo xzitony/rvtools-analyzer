@@ -122,7 +122,7 @@ public struct VCF9Sizing: Solution {
         .choice("basis", "Capacity", "Size existing workloads from", [
             "Measured host usage (vHost CPU and memory %)",
             "Configured vCPU and memory of the selected powered-on VMs",
-        ], help: "Measured usage covers every VM on the hosts; configured sizes follow the VM selection."),
+        ], help: "Measured usage is the hosts' CPU and memory use, scaled to the selected VMs' share of it. Configured sizes use the selected VMs' vCPU and memory."),
         .number("mgmtRatio", "Capacity", "Management appliances — vCPU per core", 2, min: 0.5, max: 8, step: 0.5, unit: ": 1",
                 help: "The workbook recommends 2:1 for a performant management domain."),
         .number("wlRatio", "Capacity", "Workloads — vCPU per core (configured sizes)", 4, min: 0.5, max: 20, step: 0.5, unit: ": 1"),
@@ -382,7 +382,17 @@ public struct VCF9Sizing: Solution {
             let d = Demand(cores: hs.reduce(0) { $0 + Double($1.cores) * $1.cpuUsagePct / 100 },
                            ramGiB: hs.reduce(0) { $0 + $1.memoryMiB / 1024 * $1.memUsagePct / 100 })
             if d.isEmpty && !configured.isEmpty { basisFallback.append(c.name); return configured }
-            return d
+            // Host usage covers every VM on the hosts; keep the selected VMs' share of it, from each VM's own measured
+            // CPU and consumed memory (vCPU / vMemory tabs), or its configured size when those aren't in the export.
+            let selected = (vmsByCluster[c.id] ?? []).filter(\.isRunning)
+            let all = inv.vms.filter { $0.isVM && $0.isRunning && members(c).contains($0.clusterKey) }
+            func share(_ value: (VM) -> Double) -> Double? {
+                let total = all.reduce(0) { $0 + value($1) }
+                return total > 0 ? min(1, selected.reduce(0) { $0 + value($1) } / total) : nil
+            }
+            let cpuShare = share(\.cpuUsageMHz) ?? share { Double($0.cpus) } ?? 1
+            let memShare = share(\.memConsumedMiB) ?? share(\.memoryMiB) ?? 1
+            return Demand(cores: d.cores * cpuShare, ramGiB: d.ramGiB * memShare)
         }
 
         // Storage type decides the minimum cluster sizes.
@@ -823,7 +833,7 @@ public struct VCF9Sizing: Solution {
         var notes = [
             "Management appliance sizes, node counts and the storage steps follow the \(A.source) (Management Domain Sizing tab, first instance). Unlike the workbook, CPU and memory both keep \(spare) host(s) in reserve.",
             "Host fit uses each host's cores and memory from vHost. " + (measured
-                ? "Existing workloads are sized from measured host CPU and memory usage, so they include every VM on those hosts."
+                ? "Existing workloads are sized from measured host CPU and memory usage, scaled to the selected VMs' share of each cluster's measured VM usage."
                 : "Existing workloads are the selected powered-on VMs at \(SFmt.num(wlRatio)):1 vCPU per core and 1:1 memory."),
             "Greenfield assumes the other hosts in the cluster can take its VMs (vMotion / DRS) before hosts are removed for the management domain.",
             "Not in this sizing: Supervisor, Avi, Security Services Platform, VCF Operations for networks and Live Recovery — add them as Other management VMs.",
