@@ -503,11 +503,26 @@ public struct VCF9Sizing: Solution {
         let protected = (kind == 1 ? interim * 1.5 : (kind == 2 ? interim * 2 : interim)).rounded(.up)
         let reserved = kind == 3 ? protected : (protected * (1 + reserve)).rounded(.up)
         let storageGB = (reserved * (1 + growth)).rounded(.up)
+        let storageMiB = storageGB * 1024   // the workbook's GB are treated as GiB, like the host memory it sizes against
 
         var b = CheckBuilder()
         var sections: [SolutionSection] = []
         var headline = ""
         var newHostsTotal = 0
+
+        // One-click alternatives offered with the results.
+        let dedicatedNew = chosen.peel?.newHosts ?? Int.max
+        let toConsolidated: [SolutionAction] = bestCons.consolidated.newHosts >= 0 && bestCons.consolidated.newHosts < dedicatedNew ? [
+            SolutionAction("Switch to consolidated on \(bestCons.cluster.name) — " + (bestCons.consolidated.newHosts == 0
+                                ? "fits on its \(bestCons.consolidated.hosts.count) hosts" : "needs \(bestCons.consolidated.newHosts) new host(s)"),
+                           help: "Sets Management domain to Consolidated and the management cluster to best fit.",
+                           set: ["arch": .choice(1), "mgmtCluster": .names([])]),
+        ] : []
+        let toDedicated: [SolutionAction] = bestPeel.peel.map { plan in plan.newHosts == 0 ? [
+            SolutionAction("Switch to dedicated — \(bestPeel.cluster.name) can spare \(plan.mgmt.count) hosts",
+                           help: "Sets Management domain to Dedicated and the management cluster to best fit.",
+                           set: ["arch": .choice(0), "mgmtCluster": .names([])]),
+        ] : [] } ?? []
 
         // MARK: Management domain hosts
         let mgmtHostList: [HostCap]
@@ -530,14 +545,15 @@ public struct VCF9Sizing: Solution {
                     b.add("mgmt.greenfield", "Management domain", "Greenfield management domain capacity", .blocker,
                           "Not enough capacity for a greenfield management domain build: \(plan.newHosts) new host(s) needed (\(split)) — " + (taken == 0 ? "\(chosen.cluster.name) can't spare any of its \(chosen.hosts.count) hosts" : "\(chosen.cluster.name) can spare \(taken) of its \(chosen.hosts.count) hosts"),
                           remediation: "Free capacity on the other hosts (migrate or retire VMs), add hosts, or use a consolidated management domain.",
-                          affected: [cref(chosen.cluster, "workloads need \(Fmt.pct(chosen.currentLoad * 100)) of today's hosts with \(spare) down")])
+                          affected: [cref(chosen.cluster, "workloads need \(Fmt.pct(chosen.currentLoad * 100)) of today's hosts with \(spare) down")],
+                          actions: toConsolidated)
                     headline = "Not enough capacity for a greenfield management domain build — \(plan.newHosts) new host(s) needed (\(split))"
                 }
             } else {
                 mgmtHostList = []
                 mgmtLoad = .infinity
                 b.add("mgmt.greenfield", "Management domain", "Greenfield management domain capacity", .blocker,
-                      "Not enough capacity for a greenfield management domain build on \(chosen.cluster.name)")
+                      "Not enough capacity for a greenfield management domain build on \(chosen.cluster.name)", actions: toConsolidated)
                 headline = "Not enough capacity for a greenfield management domain build"
             }
         } else {
@@ -549,7 +565,7 @@ public struct VCF9Sizing: Solution {
                   f.newHosts == 0
                     ? "\(chosen.cluster.name) runs the management appliances and its workloads at \(Fmt.pct(f.load * 100)) with \(spare) host(s) down"
                     : "\(chosen.cluster.name) needs \(f.newHosts) more host(s) to run the management appliances alongside its workloads",
-                  remediation: f.newHosts == 0 ? "" : "Add hosts, reduce the workloads, or choose a larger cluster.")
+                  remediation: f.newHosts == 0 ? "" : "Add hosts, reduce the workloads, or choose a larger cluster.", actions: toDedicated)
             headline = f.newHosts == 0
                 ? "Consolidated: management and workloads on \(chosen.cluster.name) (\(f.hosts.count) hosts, \(Fmt.pct(f.load * 100)) with \(spare) down)"
                 : "Consolidated on \(chosen.cluster.name) needs \(f.newHosts) more host(s)"
@@ -559,16 +575,16 @@ public struct VCF9Sizing: Solution {
         if kind == 3 {
             let shared = inv.datastores.filter { onCluster($0, chosen.cluster) && $0.type.lowercased() != "vsan" && Set($0.hostKeys).count > 1 }
             let largest = shared.map(\.freeMiB).max() ?? 0
-            b.add("mgmt.storage", "Management domain", "Management domain storage", largest >= storageGB * 1024 ? .info : .warning,
-                  "\(SFmt.num(storageGB)) GB needed on the principal datastore; largest shared datastore on \(chosen.cluster.name) has \(Fmt.capacity(mib: largest)) free",
+            b.add("mgmt.storage", "Management domain", "Management domain storage", largest >= storageMiB ? .info : .warning,
+                  "\(Fmt.capacity(mib: storageMiB)) needed on the principal datastore; largest shared datastore on \(chosen.cluster.name) has \(Fmt.capacity(mib: largest)) free",
                   remediation: "A new management domain on external storage needs its own principal datastore presented to the new hosts.")
         } else if case let vsan = inv.datastores.filter({ $0.type.lowercased() == "vsan" && onCluster($0, chosen.cluster) }), !vsan.isEmpty, chosen.hosts.count > 0 {
             let capacityMiB = vsan.reduce(0) { $0 + $1.capacityMiB }, freeMiB = vsan.reduce(0) { $0 + $1.freeMiB }
             let dsName = vsan.map(\.name).joined(separator: ", ")
             let perHost = capacityMiB / Double(chosen.hosts.count)
             let mgmtRaw = perHost * Double(mgmtHostList.count)
-            b.add("mgmt.storage", "Management domain", "Management domain vSAN capacity", mgmtRaw >= storageGB * 1024 ? .ready : .warning,
-                  "\(SFmt.num(storageGB)) GB needed; \(mgmtHostList.count) hosts bring about \(Fmt.capacity(mib: mgmtRaw)) of raw vSAN (from \(dsName))",
+            b.add("mgmt.storage", "Management domain", "Management domain vSAN capacity", mgmtRaw >= storageMiB ? .ready : .warning,
+                  "\(Fmt.capacity(mib: storageMiB)) needed; \(mgmtHostList.count) hosts bring about \(Fmt.capacity(mib: mgmtRaw)) of raw vSAN (from \(dsName))",
                   remediation: "Add capacity devices to the management hosts, or plan more hosts.")
             if dedicated, let plan = chosen.peel {
                 let usedMiB = capacityMiB - freeMiB
@@ -579,7 +595,7 @@ public struct VCF9Sizing: Solution {
             }
         } else {
             b.add("mgmt.storage", "Management domain", "Management domain vSAN capacity", .info,
-                  "\(SFmt.num(storageGB)) GB of \(storageName) needed; \(chosen.cluster.name) has no vSAN datastore to compare against",
+                  "\(Fmt.capacity(mib: storageMiB)) of \(storageName) needed; \(chosen.cluster.name) has no vSAN datastore to compare against",
                   remediation: "The management hosts need local capacity devices on the vSAN ESA / OSA compatibility list.")
         }
         if kind != 3 {
@@ -683,9 +699,9 @@ public struct VCF9Sizing: Solution {
                                            mgmtHostList.contains(where: \.isNew) ? "\(mgmtHostList.filter(\.isNew).count) new" : ""].filter { !$0.isEmpty }.joined(separator: " + ")
                                      : "consolidated on \(chosen.cluster.name)",
                            symbol: "server.rack", status: dedicated ? (greenfieldOK ? .ready : .blocker) : (chosen.consolidated.newHosts == 0 ? .ready : .warning)),
-            SolutionMetric("Management appliances", "\(SFmt.num(totCPU)) vCPU", "\(SFmt.num(totRAM)) GB RAM · \(SFmt.num(totDisk)) GB disk", symbol: "cpu"),
+            SolutionMetric("Management appliances", "\(SFmt.num(totCPU)) vCPU", "\(Fmt.memory(mib: totRAM * 1024)) RAM · \(Fmt.capacity(mib: totDisk * 1024)) disk", symbol: "cpu"),
             SolutionMetric("Load with \(spare) host(s) down", mgmtLoad.isFinite ? Fmt.pct(mgmtLoad * 100) : "—", dedicated ? "management hosts" : "appliances + workloads", symbol: "gauge.with.dots.needle.50percent"),
-            SolutionMetric("Management storage", "\(Fmt.num(storageGB / 1000, 1)) TB", storageName, symbol: "externaldrive"),
+            SolutionMetric("Management storage", Fmt.capacity(mib: storageMiB), "\(storageName) · \(SFmt.num(storageGB)) GB in workbook terms", symbol: "externaldrive"),
             SolutionMetric("Workload domains", Fmt.int(wds.count), "\(wds.reduce(0) { $0 + $1.clusters.count }) clusters · adds \(SFmt.num(wldAdds.reduce(0) { $0 + $1.cpu })) vCPU to management", symbol: "square.grid.2x2"),
             SolutionMetric("New hosts", Fmt.int(newHostsTotal), newHostsTotal == 0 ? "none needed" : "management and workload clusters", symbol: "plus.square.on.square",
                            status: newHostsTotal == 0 ? .ready : .warning),
@@ -703,11 +719,37 @@ public struct VCF9Sizing: Solution {
             return [c.cluster.name, c.cluster.vcenter, "\(c.hosts.count)", SFmt.num(c.hosts.reduce(0) { $0 + $1.cores }),
                     SFmt.num(c.hosts.reduce(0) { $0 + $1.ramGiB }.rounded()), c.currentLoad.isFinite ? Fmt.pct(c.currentLoad * 100) : "—", green, cons, mark]
         }
+        let merged = mergeMembers.map(\.id)
+        let pending = memberIDs.isEmpty ? mergeMembers.first : nil   // one cluster ticked, waiting for a second
+        let candActions: [[SolutionAction]] = candidates.map { c in
+            var a: [SolutionAction] = []
+            // Merge first so it lines up in one column; not every row offers "Use for management".
+            if candidates.count + mergeMembers.count > 1 {
+                if memberIDs[c.cluster.id] != nil {
+                    a.append(SolutionAction("Split", symbol: "arrow.triangle.branch", help: "Sizes these clusters separately again.", set: ["merge": .names([])]))
+                } else if pending?.id == c.cluster.id {
+                    a.append(SolutionAction("Cancel merge", symbol: "xmark", set: ["merge": .names([])]))
+                } else {
+                    let with = memberIDs.isEmpty ? pending?.name : mergedCluster?.name
+                    a.append(SolutionAction(with.map { "Merge with \($0)" } ?? "Merge…", symbol: "arrow.triangle.merge",
+                                            help: with == nil ? "Then choose another cluster to merge it with." : "Sizes these clusters as one cluster.",
+                                            set: ["merge": .names(merged + [c.cluster.id])]))
+                }
+            }
+            if c.cluster.id != chosen.cluster.id {
+                a.append(SolutionAction("Use for management", symbol: "star", help: "Makes this the management cluster.",
+                                        set: ["mgmtCluster": .names([memberIDs[c.cluster.id]?.first ?? c.cluster.id])]))
+            } else if !isAuto {
+                a.append(SolutionAction("Use best fit", symbol: "star.slash", set: ["mgmtCluster": .names([])]))
+            }
+            return a
+        }
         sections.append(.table(SolutionTable(
             id: "candidates", title: "Management domain candidates",
-            subtitle: "Workload load is with \(spare) host(s) down; greenfield peels the smallest hosts off the cluster. Pick a cluster under Assumptions.",
-            columns: ["Cluster", "vCenter", "Hosts", "Cores", "RAM (GB)", "Workload load", "Greenfield", "Consolidated", ""],
-            numeric: [2, 3, 4, 5], rows: candRows, rowRefs: candidates.map { memberIDs[$0.cluster.id] == nil ? cref($0.cluster) : nil })))
+            subtitle: (pending.map { "\($0.name) is waiting to be merged — choose another cluster to merge it with. " } ?? "")
+                + "Workload load is with \(spare) host(s) down; greenfield peels the smallest hosts off the cluster.",
+            columns: ["Cluster", "vCenter", "Hosts", "Cores", "RAM (GiB)", "Workload load", "Greenfield", "Consolidated", ""],
+            numeric: [2, 3, 4, 5], rows: candRows, rowRefs: candidates.map { memberIDs[$0.cluster.id] == nil ? cref($0.cluster) : nil }, rowActions: candActions)))
 
         // Appliances.
         var compRows = comps.map { [$0.name, $0.nodes > 0 ? "\($0.nodes)" : "—", SFmt.num($0.cpu), SFmt.num($0.ram), SFmt.num($0.disk), $0.note] }
@@ -726,7 +768,7 @@ public struct VCF9Sizing: Solution {
             sections.append(.table(SolutionTable(
                 id: "mgmt-hosts", title: dedicated ? "Management domain hosts" : "Consolidated cluster hosts",
                 subtitle: dedicated ? "Appliances at \(SFmt.num(mgmtRatio)):1 vCPU per core" : "Appliances at \(SFmt.num(mgmtRatio)):1 plus the cluster's workloads",
-                columns: ["Host", "Source", "Cores", "RAM (GB)"], numeric: [2, 3], rows: rows,
+                columns: ["Host", "Source", "Cores", "RAM (GiB)"], numeric: [2, 3], rows: rows,
                 rowRefs: mgmtHostList.map { $0.isNew ? nil : AffectedObject(kind: .host, id: $0.id, name: $0.name) } + [nil], emphasized: [rows.count - 1])))
         }
 
@@ -756,7 +798,7 @@ public struct VCF9Sizing: Solution {
                 columns: ["Domain", "Clusters", "Hosts", "VMs", "vCenter", "NSX Managers", "Adds to management"], numeric: [2, 3], rows: rows)))
             sections.append(.table(SolutionTable(
                 id: "workload-clusters", title: "Workload clusters", subtitle: "Existing workloads with \(spare) host(s) down, at most \(SFmt.num(maxLoad * 100))%",
-                columns: ["Cluster", "Domain", "Hosts", "Demand (cores)", "Demand (GB)", "Load", "Capacity"], numeric: [2, 3, 4, 5],
+                columns: ["Cluster", "Domain", "Hosts", "Demand (cores)", "Demand (GiB)", "Load", "Capacity"], numeric: [2, 3, 4, 5],
                 rows: clusterRows, rowRefs: clusterRefs)))
         }
         if !mergeRows.isEmpty {

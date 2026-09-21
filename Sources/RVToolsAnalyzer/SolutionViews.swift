@@ -134,6 +134,11 @@ struct SolutionView: View {
                 let _ = model.extensionsVersion
                 if let result = model.result(for: solution) {
                     SolutionResultView(result: result)
+                        .environment(\.applySolutionAction) { action in
+                            var v = values.wrappedValue
+                            for (id, value) in action.values { v.values[id] = value }
+                            values.wrappedValue = v
+                        }
                 } else if let previous = model.latestScriptResults[solution.id] {
                     SolutionResultView(result: previous)
                         .opacity(0.5)
@@ -208,7 +213,7 @@ private struct CustomSolutionMenu: View {
             Button("Show in Finder") { model.showInFinder(solution.packURL) }
             Divider()
             Button("Manage Solutions…") {
-                UserDefaults.standard.set("solutions", forKey: "settingsTab")
+                AppDefaults.store.set("solutions", forKey: "settingsTab")
                 openSettings()
             }
         } label: {
@@ -581,6 +586,37 @@ private struct ParameterRow: View {
 
 // MARK: - Results
 
+private struct ApplySolutionActionKey: EnvironmentKey {
+    static let defaultValue: ((SolutionAction) -> Void)? = nil
+}
+
+extension EnvironmentValues {
+    /// Applies a result's suggested change to the solution's assumptions (nil where results can't be changed).
+    var applySolutionAction: ((SolutionAction) -> Void)? {
+        get { self[ApplySolutionActionKey.self] }
+        set { self[ApplySolutionActionKey.self] = newValue }
+    }
+}
+
+/// Buttons for a result's suggested changes; nothing when the results are read-only.
+private struct ActionButtons: View {
+    @Environment(\.applySolutionAction) private var apply
+    let actions: [SolutionAction]
+
+    var body: some View {
+        if let apply, !actions.isEmpty {
+            HStack(spacing: 6) {
+                ForEach(actions, id: \.self) { a in
+                    Button { apply(a) } label: { Label(a.label, systemImage: a.symbol) }
+                        .help(a.help.isEmpty ? "Changes this solution's assumptions" : a.help)
+                }
+            }
+            .controlSize(.small)
+            .buttonStyle(.bordered)
+        }
+    }
+}
+
 struct SolutionResultView: View {
     let result: SolutionResult
 
@@ -713,6 +749,7 @@ private struct CheckRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(check.title).font(.body.weight(.medium))
                 Text(check.summary).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                ActionButtons(actions: check.actions).padding(.top, 4)
             }
             Spacer()
             if !check.affected.isEmpty { Text(Fmt.int(check.affected.count)).font(.callout.weight(.semibold)).tabular() }
@@ -734,11 +771,13 @@ private struct TableCard: View {
                                 Text(table.columns[j]).font(.caption).foregroundStyle(.secondary)
                                     .gridColumnAlignment(table.numericColumns.contains(j) ? .trailing : .leading)
                             }
+                            if !table.rowActions.isEmpty { Text("") }
                         }
                         Divider().gridCellUnsizedAxes(.horizontal)
                         ForEach(table.rows.indices, id: \.self) { i in
                             GridRow {
                                 ForEach(table.columns.indices, id: \.self) { j in cell(i, j) }
+                                if !table.rowActions.isEmpty { ActionButtons(actions: i < table.rowActions.count ? table.rowActions[i] : []) }
                             }
                             .fontWeight(table.emphasized.contains(i) ? .semibold : .regular)
                         }
