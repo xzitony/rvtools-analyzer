@@ -12,7 +12,8 @@ CLI="$(swift build -c release --show-bin-path)/rvtools-cli"
 APP="$PWD/build/RVTools Analyzer Dev.app"
 SUPPORT="RVTools Analyzer Docs"
 TMP="$(mktemp -d)"
-trap 'rm -rf "$TMP" "$HOME/Library/Application Support/$SUPPORT"' EXIT
+# RVTA_SUPPORT_FOLDER also gives the run its own preferences domain (AppDefaults in App.swift); remove it afterwards.
+trap 'rm -rf "$TMP" "$HOME/Library/Application Support/$SUPPORT"; defaults delete "local.rvtools-analyzer.isolated.${SUPPORT//[^A-Za-z0-9]/}" 2>/dev/null || true' EXIT
 ENV=(--env RVTA_SNAPSHOT_QUIT=1 --env RVTA_HIDE_DEV_BADGE=1 --env "RVTA_SUPPORT_FOLDER=$SUPPORT")
 
 echo "▸ Capturing dashboards and solutions…"
@@ -26,20 +27,24 @@ open -W -n --env "RVTA_SNAPSHOT_DIR=$TMP/trend" "${ENV[@]}" -a "$APP" "$TMP/Samp
 
 echo "▸ Writing docs/images…"
 mkdir -p docs/images
+# Captures are numbered in page order, and the numbers shift when a solution is added, so they're matched by name.
 while read -r src dst; do
-  sips -Z 1600 "$TMP/$src" --out "docs/images/$dst" >/dev/null
+  file=$(ls "$TMP"/$src 2>/dev/null | head -1)
+  [ -n "$file" ] || { echo "✗ No capture matches $src" >&2; exit 1; }
+  sips -Z 1600 "$file" --out "docs/images/$dst" >/dev/null
 done <<'LIST'
-main/01-overview.png overview.png
-main/02-issues.png issues.png
-main/03-compute-clusters.png compute.png
-main/05-vms.png virtual-machines.png
-main/06-storage.png storage.png
-main/22-backup-results.png backup-sizing.png
-main/31-azure-results.png azure-migration.png
-main/36-cloud-compare-assumptions.png custom-solution-assumptions.png
-main/37-cloud-compare-results.png custom-solution-results.png
-main/51-map-host.png relationship-map.png
-trend/30-trend-summary.png trend-summary.png
-trend/31-trend-changes.png trend-changes.png
+main/*-overview.png overview.png
+main/*-issues.png issues.png
+main/*-compute-clusters.png compute.png
+main/*-vms.png virtual-machines.png
+main/*-storage.png storage.png
+main/*-backup-results.png backup-sizing.png
+main/*-vcfsizing-results.png vcf-sizing.png
+main/*-azure-results.png azure-migration.png
+main/*-cloud-compare-assumptions.png custom-solution-assumptions.png
+main/*-cloud-compare-results.png custom-solution-results.png
+main/*-map-host.png relationship-map.png
+trend/*-trend-summary.png trend-summary.png
+trend/*-trend-changes.png trend-changes.png
 LIST
 echo "✓ Updated docs/images"
