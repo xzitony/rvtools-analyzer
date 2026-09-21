@@ -213,7 +213,7 @@ private struct CustomSolutionMenu: View {
             Button("Show in Finder") { model.showInFinder(solution.packURL) }
             Divider()
             Button("Manage Solutions…") {
-                UserDefaults.standard.set("solutions", forKey: "settingsTab")
+                AppDefaults.store.set("solutions", forKey: "settingsTab")
                 openSettings()
             }
         } label: {

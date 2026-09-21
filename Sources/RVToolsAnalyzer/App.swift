@@ -132,6 +132,19 @@ struct WindowCloseGuard: NSViewRepresentable {
 }
 
 /// Which build is running, from keys `scripts/build-app.sh` writes into Info.plist.
+/// Where the app keeps its preferences (assumptions, units, thresholds, recent projects, disabled solutions).
+/// A run with `RVTA_SUPPORT_FOLDER` (documentation screenshots, isolated test runs) gets its own domain, cleared at
+/// launch, so it starts from the defaults and never reads or changes the preferences of the app it was built as.
+enum AppDefaults {
+    static let store: UserDefaults = {
+        guard let folder = ProcessInfo.processInfo.environment["RVTA_SUPPORT_FOLDER"], !folder.isEmpty else { return .standard }
+        let name = "local.rvtools-analyzer.isolated." + folder.filter { $0.isLetter || $0.isNumber }
+        guard let d = UserDefaults(suiteName: name) else { return .standard }
+        d.removePersistentDomain(forName: name)
+        return d
+    }()
+}
+
 enum BuildInfo {
     private static func info(_ key: String) -> String? { Bundle.main.object(forInfoDictionaryKey: key) as? String }
 
