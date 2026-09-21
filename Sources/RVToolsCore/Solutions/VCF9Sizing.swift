@@ -528,11 +528,15 @@ public struct VCF9Sizing: Solution {
                            help: "Sets Management domain to Consolidated and the management cluster to best fit.",
                            set: ["arch": .choice(1), "mgmtCluster": .names([])]),
         ] : []
-        let toDedicated: [SolutionAction] = bestPeel.peel.map { plan in plan.newHosts == 0 ? [
-            SolutionAction("Switch to dedicated — \(bestPeel.cluster.name) can spare \(plan.mgmt.count) hosts",
+        let toDedicated: [SolutionAction] = bestPeel.peel.map { plan in [
+            SolutionAction("Switch to dedicated — " + (plan.newHosts == 0 ? "\(bestPeel.cluster.name) can spare \(plan.mgmt.count) hosts"
+                                                                          : "needs \(plan.newHosts) new host(s)"),
                            help: "Sets Management domain to Dedicated and the management cluster to best fit.",
                            set: ["arch": .choice(0), "mgmtCluster": .names([])]),
-        ] : [] } ?? []
+        ] } ?? []
+        // A dedicated management domain is the recommended design; a consolidated one is pushed towards it when hosts can be spared.
+        let dedicatedFits = bestPeel.peel?.newHosts == 0
+        let recommendation = "A dedicated management domain is the recommended VCF design: the management appliances don't compete with workloads for CPU and memory, and management and workload domains are upgraded, patched and scaled independently. Consolidate only when the hosts can't be spared."
 
         // MARK: Management domain hosts
         let mgmtHostList: [HostCap]
@@ -575,7 +579,14 @@ public struct VCF9Sizing: Solution {
                   f.newHosts == 0
                     ? "\(chosen.cluster.name) runs the management appliances and its workloads at \(Fmt.pct(f.load * 100)) with \(spare) host(s) down"
                     : "\(chosen.cluster.name) needs \(f.newHosts) more host(s) to run the management appliances alongside its workloads",
-                  remediation: f.newHosts == 0 ? "" : "Add hosts, reduce the workloads, or choose a larger cluster.", actions: toDedicated)
+                  remediation: f.newHosts == 0 ? "" : "Add hosts, reduce the workloads, or choose a larger cluster.")
+            if let plan = bestPeel.peel {
+                b.add("mgmt.recommend", "Management domain", "Dedicated management domain recommended", dedicatedFits ? .warning : .info,
+                      dedicatedFits
+                        ? "\(bestPeel.cluster.name) can give up \(plan.mgmt.count) hosts for a dedicated management domain and still carry its workloads at \(Fmt.pct(plan.remainingLoad * 100)) with \(spare) down — no new hosts needed"
+                        : "A dedicated management domain needs \(plan.newHosts) new host(s): \(bestPeel.cluster.name) can't spare enough hosts and still carry its workloads",
+                      remediation: recommendation, actions: toDedicated)
+            }
             headline = f.newHosts == 0
                 ? "Consolidated: management and workloads on \(chosen.cluster.name) (\(f.hosts.count) hosts, \(Fmt.pct(f.load * 100)) with \(spare) down)"
                 : "Consolidated on \(chosen.cluster.name) needs \(f.newHosts) more host(s)"
@@ -707,8 +718,8 @@ public struct VCF9Sizing: Solution {
             SolutionMetric("Management domain", "\(mgmtHostList.count) hosts",
                            dedicated ? [mgmtHostList.contains { !$0.isNew } ? "\(mgmtHostList.filter { !$0.isNew }.count) from \(chosen.cluster.name)" : "",
                                            mgmtHostList.contains(where: \.isNew) ? "\(mgmtHostList.filter(\.isNew).count) new" : ""].filter { !$0.isEmpty }.joined(separator: " + ")
-                                     : "consolidated on \(chosen.cluster.name)",
-                           symbol: "server.rack", status: dedicated ? (greenfieldOK ? .ready : .blocker) : (chosen.consolidated.newHosts == 0 ? .ready : .warning)),
+                                     : "consolidated on \(chosen.cluster.name)" + (dedicatedFits ? " · dedicated recommended" : ""),
+                           symbol: "server.rack", status: dedicated ? (greenfieldOK ? .ready : .blocker) : (chosen.consolidated.newHosts == 0 && !dedicatedFits ? .ready : .warning)),
             SolutionMetric("Management appliances", "\(SFmt.num(totCPU)) vCPU", "\(Fmt.memory(mib: totRAM * 1024)) RAM · \(Fmt.capacity(mib: totDisk * 1024)) disk", symbol: "cpu"),
             SolutionMetric("Load with \(spare) host(s) down", mgmtLoad.isFinite ? Fmt.pct(mgmtLoad * 100) : "—", dedicated ? "management hosts" : "appliances + workloads", symbol: "gauge.with.dots.needle.50percent"),
             SolutionMetric("Management storage", Fmt.capacity(mib: storageMiB), "\(storageName) · \(SFmt.num(storageGB)) GB in workbook terms", symbol: "externaldrive"),
@@ -824,10 +835,6 @@ public struct VCF9Sizing: Solution {
                     : "The best consolidated option, \(bestCons.cluster.name), needs \(max(f.newHosts, 0)) more host(s).",
                 "Switch Management domain to Consolidated under Assumptions to size it in full.",
             ]))
-        } else if !dedicated, let plan = bestPeel.peel, plan.newHosts == 0 {
-            sections.append(.notes("Alternative: dedicated management domain", [
-                "\(bestPeel.cluster.name) can give up \(plan.mgmt.count) hosts for a greenfield management domain and still carry its workloads at \(Fmt.pct(plan.remainingLoad * 100)).",
-            ]))
         }
 
         var notes = [
@@ -843,6 +850,7 @@ public struct VCF9Sizing: Solution {
 
         if headline.isEmpty { headline = "\(clusters.count) clusters sized" }
         headline += " · \(wds.count) workload domain(s)" + (newHostsTotal > 0 ? " · \(newHostsTotal) new host(s) overall" : "")
+        if !dedicated && dedicatedFits { headline += " · a dedicated management domain fits without new hosts (recommended)" }
         return SolutionResult(headline: headline, sections: sections)
     }
 }
