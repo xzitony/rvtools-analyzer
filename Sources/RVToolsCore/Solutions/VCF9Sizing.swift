@@ -509,6 +509,20 @@ public struct VCF9Sizing: Solution {
         var headline = ""
         var newHostsTotal = 0
 
+        // One-click alternatives offered with the results.
+        let dedicatedNew = chosen.peel?.newHosts ?? Int.max
+        let toConsolidated: [SolutionAction] = bestCons.consolidated.newHosts >= 0 && bestCons.consolidated.newHosts < dedicatedNew ? [
+            SolutionAction("Switch to consolidated on \(bestCons.cluster.name) — " + (bestCons.consolidated.newHosts == 0
+                                ? "fits on its \(bestCons.consolidated.hosts.count) hosts" : "needs \(bestCons.consolidated.newHosts) new host(s)"),
+                           help: "Sets Management domain to Consolidated and the management cluster to best fit.",
+                           set: ["arch": .choice(1), "mgmtCluster": .names([])]),
+        ] : []
+        let toDedicated: [SolutionAction] = bestPeel.peel.map { plan in plan.newHosts == 0 ? [
+            SolutionAction("Switch to dedicated — \(bestPeel.cluster.name) can spare \(plan.mgmt.count) hosts",
+                           help: "Sets Management domain to Dedicated and the management cluster to best fit.",
+                           set: ["arch": .choice(0), "mgmtCluster": .names([])]),
+        ] : [] } ?? []
+
         // MARK: Management domain hosts
         let mgmtHostList: [HostCap]
         let mgmtLoad: Double
@@ -530,14 +544,15 @@ public struct VCF9Sizing: Solution {
                     b.add("mgmt.greenfield", "Management domain", "Greenfield management domain capacity", .blocker,
                           "Not enough capacity for a greenfield management domain build: \(plan.newHosts) new host(s) needed (\(split)) — " + (taken == 0 ? "\(chosen.cluster.name) can't spare any of its \(chosen.hosts.count) hosts" : "\(chosen.cluster.name) can spare \(taken) of its \(chosen.hosts.count) hosts"),
                           remediation: "Free capacity on the other hosts (migrate or retire VMs), add hosts, or use a consolidated management domain.",
-                          affected: [cref(chosen.cluster, "workloads need \(Fmt.pct(chosen.currentLoad * 100)) of today's hosts with \(spare) down")])
+                          affected: [cref(chosen.cluster, "workloads need \(Fmt.pct(chosen.currentLoad * 100)) of today's hosts with \(spare) down")],
+                          actions: toConsolidated)
                     headline = "Not enough capacity for a greenfield management domain build — \(plan.newHosts) new host(s) needed (\(split))"
                 }
             } else {
                 mgmtHostList = []
                 mgmtLoad = .infinity
                 b.add("mgmt.greenfield", "Management domain", "Greenfield management domain capacity", .blocker,
-                      "Not enough capacity for a greenfield management domain build on \(chosen.cluster.name)")
+                      "Not enough capacity for a greenfield management domain build on \(chosen.cluster.name)", actions: toConsolidated)
                 headline = "Not enough capacity for a greenfield management domain build"
             }
         } else {
@@ -549,7 +564,7 @@ public struct VCF9Sizing: Solution {
                   f.newHosts == 0
                     ? "\(chosen.cluster.name) runs the management appliances and its workloads at \(Fmt.pct(f.load * 100)) with \(spare) host(s) down"
                     : "\(chosen.cluster.name) needs \(f.newHosts) more host(s) to run the management appliances alongside its workloads",
-                  remediation: f.newHosts == 0 ? "" : "Add hosts, reduce the workloads, or choose a larger cluster.")
+                  remediation: f.newHosts == 0 ? "" : "Add hosts, reduce the workloads, or choose a larger cluster.", actions: toDedicated)
             headline = f.newHosts == 0
                 ? "Consolidated: management and workloads on \(chosen.cluster.name) (\(f.hosts.count) hosts, \(Fmt.pct(f.load * 100)) with \(spare) down)"
                 : "Consolidated on \(chosen.cluster.name) needs \(f.newHosts) more host(s)"
@@ -703,11 +718,37 @@ public struct VCF9Sizing: Solution {
             return [c.cluster.name, c.cluster.vcenter, "\(c.hosts.count)", SFmt.num(c.hosts.reduce(0) { $0 + $1.cores }),
                     SFmt.num(c.hosts.reduce(0) { $0 + $1.ramGiB }.rounded()), c.currentLoad.isFinite ? Fmt.pct(c.currentLoad * 100) : "—", green, cons, mark]
         }
+        let merged = mergeMembers.map(\.id)
+        let pending = memberIDs.isEmpty ? mergeMembers.first : nil   // one cluster ticked, waiting for a second
+        let candActions: [[SolutionAction]] = candidates.map { c in
+            var a: [SolutionAction] = []
+            // Merge first so it lines up in one column; not every row offers "Use for management".
+            if candidates.count + mergeMembers.count > 1 {
+                if memberIDs[c.cluster.id] != nil {
+                    a.append(SolutionAction("Split", symbol: "arrow.triangle.branch", help: "Sizes these clusters separately again.", set: ["merge": .names([])]))
+                } else if pending?.id == c.cluster.id {
+                    a.append(SolutionAction("Cancel merge", symbol: "xmark", set: ["merge": .names([])]))
+                } else {
+                    let with = memberIDs.isEmpty ? pending?.name : mergedCluster?.name
+                    a.append(SolutionAction(with.map { "Merge with \($0)" } ?? "Merge…", symbol: "arrow.triangle.merge",
+                                            help: with == nil ? "Then choose another cluster to merge it with." : "Sizes these clusters as one cluster.",
+                                            set: ["merge": .names(merged + [c.cluster.id])]))
+                }
+            }
+            if c.cluster.id != chosen.cluster.id {
+                a.append(SolutionAction("Use for management", symbol: "star", help: "Makes this the management cluster.",
+                                        set: ["mgmtCluster": .names([memberIDs[c.cluster.id]?.first ?? c.cluster.id])]))
+            } else if !isAuto {
+                a.append(SolutionAction("Use best fit", symbol: "star.slash", set: ["mgmtCluster": .names([])]))
+            }
+            return a
+        }
         sections.append(.table(SolutionTable(
             id: "candidates", title: "Management domain candidates",
-            subtitle: "Workload load is with \(spare) host(s) down; greenfield peels the smallest hosts off the cluster. Pick a cluster under Assumptions.",
+            subtitle: (pending.map { "\($0.name) is waiting to be merged — choose another cluster to merge it with. " } ?? "")
+                + "Workload load is with \(spare) host(s) down; greenfield peels the smallest hosts off the cluster.",
             columns: ["Cluster", "vCenter", "Hosts", "Cores", "RAM (GB)", "Workload load", "Greenfield", "Consolidated", ""],
-            numeric: [2, 3, 4, 5], rows: candRows, rowRefs: candidates.map { memberIDs[$0.cluster.id] == nil ? cref($0.cluster) : nil })))
+            numeric: [2, 3, 4, 5], rows: candRows, rowRefs: candidates.map { memberIDs[$0.cluster.id] == nil ? cref($0.cluster) : nil }, rowActions: candActions)))
 
         // Appliances.
         var compRows = comps.map { [$0.name, $0.nodes > 0 ? "\($0.nodes)" : "—", SFmt.num($0.cpu), SFmt.num($0.ram), SFmt.num($0.disk), $0.note] }

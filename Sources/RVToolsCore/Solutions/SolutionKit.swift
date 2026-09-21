@@ -201,6 +201,20 @@ public struct SolutionCheck: Identifiable, Sendable {
     public let summary: String
     public let remediation: String
     public let affected: [AffectedObject]
+    /// One-click changes to the assumptions offered with this check (e.g. "Switch to consolidated").
+    public var actions: [SolutionAction] = []
+}
+
+/// A change to a solution's assumptions offered next to a result, so the user can try it without going back to
+/// Assumptions. The app applies `values` over the current assumptions and the result recalculates.
+public struct SolutionAction: Hashable, Sendable {
+    public let label: String
+    public let symbol: String
+    public let help: String
+    public let values: [String: ParamValue]
+    public init(_ label: String, symbol: String = "arrow.triangle.2.circlepath", help: String = "", set values: [String: ParamValue]) {
+        self.label = label; self.symbol = symbol; self.help = help; self.values = values
+    }
 }
 
 public struct SolutionMetric: Sendable {
@@ -233,11 +247,13 @@ public struct SolutionTable: Sendable {
     public let rowRefs: [AffectedObject?]
     /// Rows rendered in bold (totals).
     public let emphasized: Set<Int>
+    /// Optional actions per row, shown as buttons after the last column; empty or same length as `rows`.
+    public let rowActions: [[SolutionAction]]
 
     public init(id: String, title: String, subtitle: String = "", columns: [String], numeric: Set<Int> = [], rows: [[String]],
-                rowRefs: [AffectedObject?] = [], emphasized: Set<Int> = []) {
+                rowRefs: [AffectedObject?] = [], emphasized: Set<Int> = [], rowActions: [[SolutionAction]] = []) {
         self.id = id; self.title = title; self.subtitle = subtitle; self.columns = columns; self.numericColumns = numeric
-        self.rows = rows; self.rowRefs = rowRefs; self.emphasized = emphasized
+        self.rows = rows; self.rowRefs = rowRefs; self.emphasized = emphasized; self.rowActions = rowActions
     }
 }
 
@@ -271,8 +287,8 @@ struct CheckBuilder {
     var checks: [SolutionCheck] = []
 
     mutating func add(_ id: String, _ area: String, _ title: String, _ status: CheckStatus, _ summary: String,
-                      remediation: String = "", affected: [AffectedObject] = []) {
-        checks.append(SolutionCheck(id: id, area: area, title: title, status: status, summary: summary, remediation: remediation, affected: affected))
+                      remediation: String = "", affected: [AffectedObject] = [], actions: [SolutionAction] = []) {
+        checks.append(SolutionCheck(id: id, area: area, title: title, status: status, summary: summary, remediation: remediation, affected: affected, actions: actions))
     }
 
     /// One check over many objects: status is the most severe non-ready item; only non-ready items are listed.
