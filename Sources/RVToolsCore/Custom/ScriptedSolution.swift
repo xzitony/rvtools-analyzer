@@ -12,6 +12,17 @@ public struct ScriptedSolution: Solution {
     public let script: String
     /// Rates of the loaded trend, passed to the script as `context.trend` (nil outside trend mode).
     public var trend: TrendRates? = nil
+    /// The app's findings for the inventory in scope (acknowledged ones left out), passed as `context.findings`.
+    /// nil = worked out from the inventory with the default thresholds.
+    public var findings: [FindingGroup]? = nil
+    /// Results of the solutions listed under `solutions` in the manifest, for `context.solutions`. The app sets this so they use
+    /// its selections and assumptions; nil = each runs on its default selection and assumptions.
+    public var companionResults: (@Sendable (String) -> SolutionResult?)? = nil
+    /// Set when this solution runs for another one's `context.solutions`; its own `context.solutions` is then empty, so
+    /// solutions that read each other can't loop.
+    public var isCompanion = false
+    /// Ids of the other solutions the script reads.
+    public var companions: [String] { (manifest.solutions ?? []).filter { $0 != id } }
 
     public var id: String { manifest.id }
     public var title: String { manifest.title }
@@ -142,6 +153,8 @@ final class ScriptRuntime {
                             "annualGrowthPct": rate(t.annualGrowthPct), "organicGrowthPct": rate(t.organicGrowthPct),
                             "netDailyGrowthPct": rate(t.netDailyGrowthPct)] as [String: Any]
                 } ?? NSNull(),
+                "findings": SolutionAPI.findings(solution.findings ?? Analyzer.run(inventory).groups),
+                "solutions": companionsJSON(),
             ]
             // Every declared selection, by id (the primary one is also `vms`).
             var selectionIDs: [String: [String]] = [:]
@@ -176,6 +189,21 @@ final class ScriptRuntime {
         } catch {
             return failure("run() returned a result the app can't show", error.localizedDescription)
         }
+    }
+
+    /// `context.solutions`: each declared solution's result, or null when it's unknown or this run is itself a companion.
+    private func companionsJSON() -> [String: Any] {
+        var out: [String: Any] = [:]
+        for id in solution.companions {
+            guard !solution.isCompanion else { out[id] = NSNull(); continue }
+            let result = solution.companionResults?(id) ?? SolutionCatalog.runCompanion(id: id, inventory: inventory)
+            if result == nil && logs.count < 2000 {
+                logs.append("warn: context.solutions: no solution with id “\(id)” is installed")
+                warnings += 1
+            }
+            out[id] = result.map { SolutionAPI.result($0, id: id) } ?? NSNull()
+        }
+        return out
     }
 
     private func json(_ object: Any) throws -> String {
@@ -428,7 +456,7 @@ enum ResultMapper {
                                          status: status, summary: c["summary"]?.text ?? "", remediation: c["remediation"]?.text ?? "",
                                          affected: (c["affected"]?.array ?? []).compactMap(ref))
                 }
-                out.append(.checks(title, checks))
+                out.append(.checks(title, checks, subtitle: s["subtitle"]?.text ?? ""))
             case "table":
                 let columns = try list(s["columns"], "\(at).columns").map(\.text)
                 let rows = try list(s["rows"], "\(at).rows").enumerated().map { j, r -> [String] in

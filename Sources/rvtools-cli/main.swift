@@ -270,8 +270,9 @@ do {
                 exit(1)
             }
             var s = found
-            if var scripted = found as? ScriptedSolution { scripted.trend = trend.rates; s = scripted }
-            let inv = Analyzer.run(trend.last.inventory, thresholds: Thresholds(), acknowledgements: []).inventory
+            let analyzed = Analyzer.run(trend.last.inventory, thresholds: Thresholds(), acknowledgements: [])
+            if var scripted = found as? ScriptedSolution { scripted.trend = trend.rates; scripted.findings = analyzed.groups; s = scripted }
+            let inv = analyzed.inventory
             let resolved = resolveSelections(s, inv)
             var selections: [String: [VM]] = [:]
             for sel in s.selections {
@@ -374,7 +375,9 @@ do {
             }
         }
         let started = Date()
-        let result = s.run(vms: selections[s.selections[0].id] ?? [], selections: selections, inventory: r.inventory, values: paramValues(s))
+        var runnable = s
+        if var scripted = s as? ScriptedSolution { scripted.findings = r.groups; runnable = scripted }
+        let result = runnable.run(vms: selections[s.selections[0].id] ?? [], selections: selections, inventory: r.inventory, values: paramValues(s))
         print(result.markdown(title: s.title, subtitle: "\(ds.sources.map(\.lastPathComponent).joined(separator: ", ")) · exported \(Fmt.dateTime(ds.reportDate))"))
         writeDeck(result, s, subtitle: ds.sources.map(\.lastPathComponent).joined(separator: ", "), date: "Exported \(Fmt.dateTime(ds.reportDate))")
         if s is ScriptedSolution {

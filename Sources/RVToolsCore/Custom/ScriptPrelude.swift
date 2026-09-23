@@ -189,7 +189,7 @@ globalThis.rva = (() => {
         return api.add(id, area, title, bad[0][0], summary, { remediation: o.remediation, affected: bad.map((i) => i[1]) });
       },
       get checks() { return list; },
-      section(title) { return { type: "checks", title, checks: list }; },
+      section(title, subtitle) { return subtitle ? { type: "checks", title, subtitle, checks: list } : { type: "checks", title, checks: list }; },
     };
     return api;
   }
@@ -211,13 +211,71 @@ globalThis.rva = (() => {
     },
   };
 
+  // The app's findings (context.findings): filter, rank and turn them into checks.
+  const findings = (() => {
+    const rank = { critical: 0, warning: 1, info: 2 };
+    const nouns = { vm: ["VM", "VMs"], host: ["host", "hosts"], cluster: ["cluster", "clusters"], datastore: ["datastore", "datastores"],
+                    network: ["port group", "port groups"], vcenter: ["vCenter", "vCenters"] };
+    const lower = (list) => (list ? new Set([].concat(list).map((x) => String(x).toLowerCase())) : null);
+    function counted(objects) {
+      const kinds = uniq(objects.map((o) => o.kind));
+      const n = objects.length, noun = kinds.length === 1 && nouns[kinds[0]] ? nouns[kinds[0]][n === 1 ? 0 : 1] : (n === 1 ? "object" : "objects");
+      return int(n) + " " + noun;
+    }
+    const api = {
+      // Object kinds for the usual review areas.
+      areas: Object.freeze({ compute: ["vm", "host", "cluster"], storage: ["datastore"], network: ["network"], management: ["vcenter"] }),
+      // Groups matching every option given, worst first, then by objects affected. Filtering by kinds keeps only those objects.
+      top(groups, options) {
+        const o = options || {};
+        const kinds = lower(o.kinds), categories = lower(o.categories), severities = lower(o.severities);
+        const rules = o.rules ? [].concat(o.rules).map(String) : null;
+        const exclude = o.exclude ? [].concat(o.exclude).map(String) : [];
+        const matches = (rule, list) => list.some((p) => rule === p || (p.endsWith(".") ? rule.startsWith(p) : rule.startsWith(p + ".")));
+        const out = [];
+        for (const g of groups || []) {
+          if (severities && !severities.has(g.severity) && !severities.has(g.status)) continue;
+          if (categories && !categories.has(g.category.toLowerCase())) continue;
+          if (rules && !matches(g.rule, rules)) continue;
+          if (matches(g.rule, exclude)) continue;
+          const objects = kinds ? g.objects.filter((x) => kinds.has(x.kind)) : g.objects;
+          if (objects.length === 0) continue;
+          out.push(objects.length === g.objects.length ? g : Object.assign({}, g, { objects, count: objects.length, kinds: uniq(objects.map((x) => x.kind)) }));
+        }
+        out.sort((a, b) => rank[a.severity] - rank[b.severity] || b.count - a.count || a.title.localeCompare(b.title));
+        return o.limit ? out.slice(0, o.limit) : out;
+      },
+      // One finding group as a check: status, "12 VMs", the recommendation and the affected objects.
+      check(g, options) {
+        const o = options || {};
+        const objects = o.maxObjects ? g.objects.slice(0, o.maxObjects) : g.objects;
+        return { id: g.rule, area: o.area || g.category, title: g.title, status: g.status, summary: counted(g.objects),
+                 remediation: g.recommendation, affected: objects.map((x) => ({ kind: x.kind, id: x.id, name: x.name, detail: x.detail || x.location })) };
+      },
+      checks(groups, options) { return (groups || []).map((g) => api.check(g, options)); },
+      section(title, groups, options) {
+        const s = { type: "checks", title, checks: api.checks(groups, options) };
+        if (options && options.subtitle) s.subtitle = options.subtitle;
+        return s;
+      },
+      // Totals by severity, e.g. { critical: 3, warning: 12, info: 40, groups: 20 }; counts objects unless { by: "groups" }.
+      counts(groups, options) {
+        const byGroups = options && options.by === "groups";
+        const c = { critical: 0, warning: 0, info: 0, groups: (groups || []).length };
+        for (const g of groups || []) c[g.severity] += byGroups ? 1 : g.count;
+        return c;
+      },
+    };
+    return api;
+  })();
+
   return {
     apiVersion: 1,
     int, num, pct, capacity, memory, gib: (mib) => mib / 1024, money, mbps, rate, units, duration, date, daysBetween,
     sum, groupBy, countBy, sortBy, uniq, index,
     ref, vmRef, hostRef, clusterRef, datastoreRef, isWindows, fields, field, hints,
     metric, metrics, table, bars, notes, checks,
-    cloud,
+    cloud, findings,
   };
 })();
 

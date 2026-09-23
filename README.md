@@ -191,6 +191,7 @@ Anyone can add a solution to a packaged copy of the app, without Xcode or a rebu
 - **Safe to share.** Scripts run in a sandboxed JavaScriptCore context: no network, files or processes, and a time limit. A shared solution can't send customer data anywhere.
 - **Prices without internet access.** A solution can read the Azure and AWS list prices the app has already downloaded, and use the same right-sizing and best-fit code as the built-in migration solutions (`rva.cloud`). It can also read **price lists** (`.rvaprices`): negotiated discounts on the list prices, or complete private-cloud or partner rate cards.
 - **Installing.** Drop a pack or price list on the app, or use the **Solutions** menu or **Settings › Solutions / Price Lists**. Packs live in `~/Library/Application Support/RVTools Analyzer/` and reload automatically when edited.
+- **Builds on the app.** A solution can read the findings on the Issues page (`context.findings`, with helpers to pick, for example, the top five compute or storage issues). It can also read other solutions' results (`context.solutions`), using the selections and assumptions set on their pages. That makes it easy to build roll-ups such as a review deck.
 - **Examples.** **Solutions › Install Examples** installs *Storage Refresh* and *Cloud Cost Compare* (Azure vs AWS vs a negotiated-rate list and a private cloud rate card) from `examples/`.
 
 ![A custom solution: Cloud Cost Compare](docs/images/custom-solution-results.png)

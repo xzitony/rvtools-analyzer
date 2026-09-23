@@ -667,8 +667,8 @@ private struct SectionView: View {
                     }
                 }
             }
-        case .checks(let title, let checks):
-            ChecksCard(title: title, checks: checks)
+        case .checks(let title, let checks, let subtitle):
+            ChecksCard(title: title, subtitle: subtitle, checks: checks)
         case .table(let table):
             TableCard(table: table)
         case .bars(let title, let subtitle, let items, let format):
@@ -689,13 +689,14 @@ private struct SectionView: View {
 
 private struct ChecksCard: View {
     let title: String
+    var subtitle = ""
     let checks: [SolutionCheck]
 
     var body: some View {
         var seen = Set<String>()
         let areas = checks.map(\.area).filter { seen.insert($0).inserted }
         let counts = Dictionary(grouping: checks, by: \.status).mapValues(\.count)
-        return Card(title) {
+        return Card(title, subtitle: subtitle.isEmpty ? nil : subtitle) {
             HStack(spacing: 16) {
                 ForEach(CheckStatus.allCases) { s in
                     if let n = counts[s] {
