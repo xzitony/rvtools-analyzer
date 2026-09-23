@@ -27,6 +27,8 @@ final class ZipArchive {
     private let data: Data
     private var entries: [String: ZipEntry] = [:]
     private var lowercased: [String: ZipEntry] = [:]
+    /// Entry names in central-directory order.
+    private(set) var names: [String] = []
 
     init(url: URL) throws {
         do { data = try Data(contentsOf: url, options: .mappedIfSafe) } catch {
@@ -121,6 +123,7 @@ final class ZipArchive {
                 e += 4 + size
             }
             let entry = ZipEntry(name: name, method: method, compressedSize: csize, uncompressedSize: usize, localHeaderOffset: offset)
+            if entries[name] == nil { names.append(name) }
             entries[name] = entry
             lowercased[name.lowercased()] = entry
             q = extraEnd + commentLen

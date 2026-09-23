@@ -4,7 +4,7 @@ RVTools Analyzer ships with six built-in solutions: Backup Sizing, DR Sizing, VC
 
 A custom solution gets the same treatment as a built-in one:
 - the same three steps: **Select VMs**, **Assumptions** and **Results**
-- the same **Export Report…** (Markdown plus CSV)
+- the same **Export…** (Markdown plus CSV, or a PowerPoint deck)
 - saving with the project
 - click-through from results to VMs, hosts and datastores
 
@@ -239,6 +239,22 @@ rva.notes("Method", ["Growth compounds yearly.", "RAID overhead is not included.
 ```
 
 The app adds the **Assumptions used** table to the results and to the export itself.
+
+### In a PowerPoint deck
+
+**Export… › PowerPoint Deck…** turns the same sections into slides:
+
+| Section | Slides |
+|---|---|
+| `metrics` | Tiles, up to eight a slide. The first metrics slide also shows the `headline`. Tiles with `status` `blocker` or `warning` are outlined in red or amber. |
+| `checks` | A table of the checks that aren't `ready`, worst first. After it comes a slide for each of the top checks: its summary, `remediation` and `affected` objects. The export sheet sets how many. |
+| `table` | A native table, continued over as many slides as it needs. The deck shows the first 40 rows and says where the rest are. |
+| `bars` | A bar chart of the first 12 items. |
+| `notes` | Bullets. |
+
+Titles and `subtitle`s become slide titles and captions, so keep them short enough to fit on a slide. Check statuses set the order, worst first, and metric statuses color the tiles.
+
+The deck takes its look from the template chosen in the export sheet. What a template needs is in the README under [PowerPoint decks](../README.md#powerpoint-decks). A solution doesn't have to do anything to support decks.
 
 ## Inventory reference
 

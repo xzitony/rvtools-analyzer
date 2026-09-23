@@ -132,7 +132,7 @@ The **Solutions** section of the sidebar turns a chosen set of VMs and editable 
 
 1. **Select VMs** — filter by name, cluster, power state or OS family, then add or remove the shown or highlighted VMs, or tick them one by one. Each solution keeps its own selection. A solution can also ask for several selections (for example *DR scope* and *Pilot light*): a picker above the list chooses which one the checkboxes edit, and VMs show a badge for the other selections they're in.
 2. **Assumptions** — change rates, retention, host specs and so on. They are saved and reused for every export you open.
-3. **Results** — headline figures, sizing tables, a checklist with the affected objects, and a per-VM breakdown. Some results offer buttons that change an assumption on the spot, such as **Switch to consolidated** or **Merge** in VCF 9 Sizing; the Assumptions step shows the change. **Export Report…** writes a Markdown report plus CSV tables and the list of selected VMs.
+3. **Results** — headline figures, sizing tables, a checklist with the affected objects, and a per-VM breakdown. Some results offer buttons that change an assumption on the spot, such as **Switch to consolidated** or **Merge** in VCF 9 Sizing; the Assumptions step shows the change. **Export…** writes a Markdown report plus CSV tables and the list of selected VMs. Its menu also has **PowerPoint Deck…** (see [PowerPoint decks](#powerpoint-decks)).
 
 ![Azure Migration results](docs/images/azure-migration.png)
 
@@ -151,6 +151,38 @@ The **Solutions** section of the sidebar turns a chosen set of VMs and editable 
 ![Backup Sizing results](docs/images/backup-sizing.png)
 
 The rules and defaults are built in; confirm them against current vendor documentation. VCF 9 upgrade paths and CPU support are the ones most likely to need checking. `rvtools-cli <export> --solution backup|dr|vcf9|vcfsizing|azure|aws` prints a report from the terminal.
+
+### PowerPoint decks
+
+**Export… › PowerPoint Deck…** turns any solution's results, built-in or custom, into a slide deck for a customer review:
+
+- a title slide
+- the headline and its figures as tiles
+- tables, continued over as many slides as they need, and bar charts
+- the checks table, worst first
+- a slide for each of the top checks, with what was found, the recommendation and the affected objects
+
+The export sheet sets:
+- the title slide's three lines (title, subtitle and date line)
+- how many check slides to add
+- whether passed checks are listed
+- whether the deck ends with the assumptions
+- the template
+
+The app remembers everything except the title lines.
+
+**Templates.** Without a template, the deck uses a plain built-in look. To use your company's branding, choose a .pptx or .potx under **Template**. Any ordinary PowerPoint template works as it is:
+
+- **Layouts it uses.** The deck uses the first slide master's title-slide layout for the cover and its **Title Only** layout for everything else. If there's no Title Only layout, it uses Title and Content, or else any layout with a title. To choose another cover, move that layout first or make it the title-slide layout. PowerPoint's own Title Slide layout already is.
+- **Styling.** Slide size, theme colors, fonts, title style and backgrounds all come from the template. Tables, tiles and bars use the theme's accent colors. Only the blocker, warning, info and ready colors are fixed.
+- **Footers.** Content stops above the footer placeholders, and above small logos and footer text on the master or layout. Large background artwork is ignored.
+- **Your file isn't changed.** The template is only read. Its sample slides, their notes and media, and any sections aren't copied into the deck.
+- **Size.** By default the deck keeps only the one master and the two layouts it uses. Templates often carry photo layouts, so this can take a deck from tens of megabytes to one or two. Turn on **Keep all of the template's layouts** to keep them all, if you plan to add slides in the template's style.
+- **Where to keep it.** The sheet remembers the template's path, so keep the file somewhere stable, such as a shared or synced folder, rather than Downloads. If the file moves, the sheet says it's missing and falls back to the built-in look until you choose it again.
+
+From the command line: `rvtools-cli <export> --solution <id> --pptx deck.pptx [--template brand.potx]`.
+
+For how each result section becomes slides, see [docs/SOLUTIONS.md](docs/SOLUTIONS.md#in-a-powerpoint-deck).
 
 ### Custom solutions
 
@@ -195,7 +227,7 @@ This prints the inventory, cluster headroom, join coverage, consistency checks, 
 
 `--map vm:NAME` (or `host:`, `cluster:`, `datastore:`, `portgroup:`) prints an object's relationship map as text; with `--export <dir>` it also writes the map's CSV.
 
-`rvtools-cli <export or project> --solution <id>` prints a solution's report. `--set name=value` overrides an assumption (a choice takes its option number, a cluster choice takes cluster names separated by commas), and `--select <selection>=<all|vms|poweredOn|none|VM names>` overrides a VM selection; both are also applied by `--save-project <path>`.
+`rvtools-cli <export or project> --solution <id>` prints a solution's report. `--set name=value` overrides an assumption (a choice takes its option number, a cluster choice takes cluster names separated by commas), and `--select <selection>=<all|vms|poweredOn|none|VM names>` overrides a VM selection; both are also applied by `--save-project <path>`. `--pptx <file>` also writes the results as a PowerPoint deck, and `--template <file.pptx|potx>` gives that deck a template's look.
 
 Custom solutions: `--list-solutions` shows installed packs, price lists and cached prices; `--validate-solution <pack> [export]` checks a pack and runs it with its console output; `--solutions <dir>` and `--price-list <file>` load packs and price lists without installing them. See [docs/SOLUTIONS.md](docs/SOLUTIONS.md#testing-from-the-command-line).
 
@@ -223,7 +255,8 @@ Add `--env RVTA_APPEARANCE=dark` to capture in dark mode.
 ## Project layout
 
 ```
-Sources/RVToolsCore/          parsing (Zip, XLSX, CSV, Dataset), Correlate, Rules, Analysis, Lifecycle, Export
+Sources/RVToolsCore/          parsing (Zip, XLSX, CSV, Dataset), Correlate, Rules, Analysis, Lifecycle, Export,
+                              PowerPoint decks (PPTX*, ZipWriter)
 Sources/RVToolsCore/Solutions built-in solutions, SolutionKit (parameters/results), cloud pricing and sizing
 Sources/RVToolsCore/Custom    custom solutions: pack loading, JavaScript runtime and helpers, inventory API, price lists
 Sources/RVToolsAnalyzer/      SwiftUI app (one file per page + shared components/theme)

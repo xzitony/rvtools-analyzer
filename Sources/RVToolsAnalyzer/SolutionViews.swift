@@ -1,5 +1,6 @@
 import RVToolsCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 extension CheckStatus {
     var color: Color {
@@ -42,6 +43,7 @@ struct SolutionView: View {
     let solution: any Solution
     let report: Report
     @State private var activeSelection = 0
+    @State private var showDeckSheet = false
 
     private var active: SolutionSelection {
         let list = solution.selections
@@ -90,8 +92,18 @@ struct SolutionView: View {
                         Text("\(selected.count - inScope) outside the current scope").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Button { model.exportSolution(solution) } label: { Label("Export Report…", systemImage: "square.and.arrow.up") }
-                    .disabled(inScope == 0)
+                Menu {
+                    Button("Report (Markdown and CSV)…") { model.exportSolution(solution) }
+                    Button("PowerPoint Deck…") { showDeckSheet = true }
+                } label: {
+                    Label("Export…", systemImage: "square.and.arrow.up")
+                } primaryAction: {
+                    model.exportSolution(solution)
+                }
+                .menuStyle(.borderedButton).fixedSize()
+                .help("Export the report as Markdown and CSV, or pick PowerPoint from the menu")
+                .disabled(inScope == 0)
+                .sheet(isPresented: $showDeckSheet) { DeckExportSheet(solution: solution).environment(model) }
                 if let custom = solution as? ScriptedSolution { CustomSolutionMenu(solution: custom) }
             }
             .padding(.horizontal, 20).padding(.vertical, 12)
@@ -802,5 +814,95 @@ private struct TableCard: View {
         } else {
             Text(text).tabular().textSelection(.enabled)
         }
+    }
+}
+
+/// Options for exporting a solution's results as a PowerPoint deck. Choices other than the title lines are remembered.
+struct DeckExportSheet: View {
+    @Environment(AppModel.self) private var model
+    @Environment(\.dismiss) private var dismiss
+    let solution: any Solution
+    @State private var title = ""
+    @State private var subtitle = ""
+    @State private var date = ""
+    @AppStorage("deckIssueDetails", store: AppDefaults.store) private var issueDetails = 5
+    @AppStorage("deckReadyChecks", store: AppDefaults.store) private var readyChecks = false
+    @AppStorage("deckAssumptions", store: AppDefaults.store) private var assumptions = true
+    @AppStorage("deckTemplate", store: AppDefaults.store) private var templatePath = ""
+    @AppStorage("deckKeepLayouts", store: AppDefaults.store) private var keepLayouts = false
+
+    private var template: URL? {
+        guard !templatePath.isEmpty, FileManager.default.fileExists(atPath: templatePath) else { return nil }
+        return URL(fileURLWithPath: templatePath)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Export \(solution.title) as PowerPoint").font(.title3.weight(.semibold))
+            Form {
+                Section("Title slide") {
+                    TextField("Title", text: $title)
+                    TextField("Subtitle", text: $subtitle, prompt: Text("Customer or project"))
+                    TextField("Date line", text: $date)
+                }
+                Section("Content") {
+                    Stepper(value: $issueDetails, in: 0...25) {
+                        Text(issueDetails == 0 ? "No slides for individual checks" : "A slide for each of the top \(issueDetails) checks")
+                    }
+                    .help("Blockers first, then warnings, then info: what was found, the recommendation and the affected objects")
+                    Toggle("List passed checks in checks tables", isOn: $readyChecks)
+                    Toggle("End with the assumptions", isOn: $assumptions)
+                }
+                Section("Design") {
+                    LabeledContent("Template") {
+                        HStack {
+                            Text(template?.lastPathComponent ?? "Built-in").lineLimit(1).truncationMode(.middle)
+                            Spacer()
+                            if template != nil { Button("Use Built-in") { templatePath = "" } }
+                            Button("Choose…") { chooseTemplate() }
+                        }
+                    }
+                    Text("A .pptx or .potx whose theme, fonts and layouts the deck uses. Its own slides aren't copied. The deck uses its Title Slide and Title Only layouts.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                    if template != nil {
+                        Toggle("Keep all of the template's layouts", isOn: $keepLayouts)
+                            .help("Lets you add more slides in the template's style later, but layout photos can make the deck much larger")
+                    }
+                    if !templatePath.isEmpty && template == nil {
+                        Label("The saved template is missing: \(templatePath)", systemImage: "exclamationmark.triangle")
+                            .font(.caption).foregroundStyle(Palette.warning)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Export…") {
+                    let options = DeckOptions(title: title.isEmpty ? solution.title : title, subtitle: subtitle, date: date, issueDetails: issueDetails,
+                                              includeReadyChecks: readyChecks, includeAssumptions: assumptions, template: template,
+                                              keepTemplateLayouts: keepLayouts)
+                    dismiss()
+                    // Let the sheet close before the save panel opens.
+                    DispatchQueue.main.async { model.exportDeck(solution, options) }
+                }
+                .keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding(20)
+        .frame(width: 520)
+        .onAppear {
+            let defaults = model.deckDefaults(solution)
+            title = solution.title; subtitle = defaults.subtitle; date = defaults.date
+        }
+    }
+
+    private func chooseTemplate() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose a PowerPoint Template"
+        panel.allowedContentTypes = ["pptx", "potx"].compactMap { UTType(filenameExtension: $0) }
+        if let template { panel.directoryURL = template.deletingLastPathComponent() }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        templatePath = url.path
     }
 }
