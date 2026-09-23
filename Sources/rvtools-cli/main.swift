@@ -16,6 +16,24 @@ if let i = args.firstIndex(of: "--solution"), i + 1 < args.count {
     solutionID = args[i + 1]
     args.removeSubrange(i...(i + 1))
 }
+// --pptx <file> [--template <file>]: with --solution, also write the results as a PowerPoint deck (optionally using a .pptx/.potx's theme and layouts).
+var pptxPath: String?, templatePath: String?
+for flag in ["--pptx", "--template"] {
+    guard let i = args.firstIndex(of: flag), i + 1 < args.count else { continue }
+    if flag == "--pptx" { pptxPath = args[i + 1] } else { templatePath = args[i + 1] }
+    args.removeSubrange(i...(i + 1))
+}
+func writeDeck(_ result: SolutionResult, _ s: any Solution, subtitle: String, date: String) {
+    guard let path = pptxPath else { return }
+    let options = DeckOptions(title: s.title, subtitle: subtitle, date: date, template: templatePath.map { URL(fileURLWithPath: $0) })
+    do {
+        try result.pptx(options).write(to: URL(fileURLWithPath: path))
+        FileHandle.standardError.write("Wrote \(path)\n".data(using: .utf8)!)
+    } catch {
+        FileHandle.standardError.write("Could not write \(path): \(error.localizedDescription)\n".data(using: .utf8)!)
+        exit(1)
+    }
+}
 // --map <kind>:<name>: print the relationship map of a vm, host, cluster, datastore or portgroup (with --export, also its CSV).
 var mapSpec: String?
 if let i = args.firstIndex(of: "--map"), i + 1 < args.count {
@@ -223,7 +241,7 @@ if let i = args.firstIndex(of: "--prices"), i + 1 < args.count {
 
 guard !args.isEmpty else {
     print("usage: rvtools-cli <RVTools export .xlsx | folder of RVTools_tab*.csv | project.rvaproj> [...] [--export <dir>]")
-    print("       [--solution <id>] [--set name=value ...] [--select selection=vms ...] [--save-project <path>] [--trend] [--map kind:name] [--units binary|decimal] [--rate bits|bytes]")
+    print("       [--solution <id> [--pptx <file> [--template <file>]]] [--set name=value ...] [--select selection=vms ...] [--save-project <path>] [--trend] [--map kind:name] [--units binary|decimal] [--rate bits|bytes]")
     print("       --list-solutions | --validate-solution <pack> [export] | --solutions <dir> | --price-list <file> | --prices azure|aws")
     exit(1)
 }
@@ -262,6 +280,7 @@ do {
             }
             let result = s.run(vms: selections[s.selections[0].id] ?? [], selections: selections, inventory: inv, values: paramValues(s))
             print(result.markdown(title: s.title, subtitle: "Trend of \(trend.snapshots.count) snapshots over \(Fmt.num(trend.spanDays, 0)) days · latest exported \(Fmt.dateTime(trend.last.date))"))
+            writeDeck(result, s, subtitle: "Trend of \(trend.snapshots.count) snapshots", date: "Latest export \(Fmt.dateTime(trend.last.date))")
             result.log.forEach { stderr("  " + $0) }
             exit(result.failed ? 3 : 0)
         }
@@ -357,6 +376,7 @@ do {
         let started = Date()
         let result = s.run(vms: selections[s.selections[0].id] ?? [], selections: selections, inventory: r.inventory, values: paramValues(s))
         print(result.markdown(title: s.title, subtitle: "\(ds.sources.map(\.lastPathComponent).joined(separator: ", ")) · exported \(Fmt.dateTime(ds.reportDate))"))
+        writeDeck(result, s, subtitle: ds.sources.map(\.lastPathComponent).joined(separator: ", "), date: "Exported \(Fmt.dateTime(ds.reportDate))")
         if s is ScriptedSolution {
             stderr("── \(s.title): \(String(format: "%.0f ms", Date().timeIntervalSince(started) * 1000)), \(result.log.count) console lines, prices read: "
                 + (result.priceRefs.isEmpty ? "none" : result.priceRefs.map { "\($0.provider)/\($0.region)" }.joined(separator: " ")))

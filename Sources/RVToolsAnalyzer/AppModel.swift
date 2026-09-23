@@ -1053,6 +1053,31 @@ final class AppModel {
         NSWorkspace.shared.activateFileViewerSelecting([dir.appendingPathComponent(base + ".md")])
     }
 
+    /// Title-slide lines suggested for a solution's deck.
+    func deckDefaults(_ s: any Solution) -> (subtitle: String, date: String) {
+        let date = report.map { "Exported \(Fmt.date($0.inventory.reportDate))" } ?? ""
+        return (projectName.isEmpty ? sourceSummary : projectName, scopeID == "all" ? date : date + " · " + scopeLabel)
+    }
+
+    func exportDeck(_ s: any Solution, _ options: DeckOptions) {
+        guard let result = result(for: s) else { return }
+        let data: Data
+        do { data = try result.pptx(options) } catch {
+            errorMessage = "Could not build the deck: \(error.localizedDescription)"
+            return
+        }
+        let panel = NSSavePanel()
+        panel.title = "Export \(s.title) as PowerPoint"
+        panel.allowedContentTypes = [UTType(filenameExtension: "pptx") ?? .data]
+        panel.nameFieldStringValue = "\(exportBaseName)_\(s.id).pptx"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do { try data.write(to: url, options: .atomic) } catch {
+            errorMessage = "Could not write \(url.lastPathComponent): \(error.localizedDescription)"
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+
     func canReveal(_ kind: ObjectKind, _ id: String) -> Bool {
         switch kind {
         case .vm: return lookup.vms[id] != nil
