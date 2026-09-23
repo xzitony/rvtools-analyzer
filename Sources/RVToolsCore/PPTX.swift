@@ -82,8 +82,8 @@ enum DeckBlocks {
             switch section {
             case .metrics(let t, let metrics):
                 out.append(.metrics(t.isEmpty ? "Summary" : t, headline, metrics)); headline = nil
-            case .checks(let t, let checks):
-                out += checkBlocks(t.isEmpty ? "Checks" : t, checks, o)
+            case .checks(let t, let checks, let subtitle):
+                out += checkBlocks(t.isEmpty ? "Checks" : t, checks, o, subtitle: subtitle)
             case .table(let t):
                 if t.rows.isEmpty { continue }
                 let rows = t.rows.prefix(maxTableRows).enumerated().map { i, row in
@@ -112,7 +112,8 @@ enum DeckBlocks {
         return out
     }
 
-    static func checkBlocks(_ title: String, _ checks: [SolutionCheck], _ o: DeckOptions) -> [DeckBlock] {
+    /// `subtitle` replaces the generated "n of m checks need attention" caption.
+    static func checkBlocks(_ title: String, _ checks: [SolutionCheck], _ o: DeckOptions, subtitle caption: String = "") -> [DeckBlock] {
         // Stable sort, worst first.
         let sorted = checks.enumerated().sorted { ($0.element.status, $0.offset) < ($1.element.status, $1.offset) }.map(\.element)
         let open = sorted.filter { $0.status != .ready }
@@ -120,7 +121,8 @@ enum DeckBlocks {
         let passed = checks.count - open.count
         var subtitle = open.isEmpty ? "All \(checks.count) checks passed" : "\(open.count) of \(checks.count) checks need attention"
         if !open.isEmpty && passed > 0 && !o.includeReadyChecks { subtitle += " · \(passed) passed (not listed)" }
-        guard !shown.isEmpty else { return [.bullets(title, [subtitle + "."])] }
+        if !caption.isEmpty { subtitle = caption }
+        guard !shown.isEmpty else { return [.bullets(title, [subtitle + (caption.isEmpty ? "." : "")])] }
         let rows = shown.map { c in
             [DeckCell(text: c.status.label, bold: true, fill: .status(c.status), color: .rgb("FFFFFF")),
              DeckCell(text: c.area), DeckCell(text: c.title, bold: true), DeckCell(text: c.summary)]

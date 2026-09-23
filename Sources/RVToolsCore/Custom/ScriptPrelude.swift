@@ -189,7 +189,7 @@ globalThis.rva = (() => {
         return api.add(id, area, title, bad[0][0], summary, { remediation: o.remediation, affected: bad.map((i) => i[1]) });
       },
       get checks() { return list; },
-      section(title) { return { type: "checks", title, checks: list }; },
+      section(title, subtitle) { return subtitle ? { type: "checks", title, subtitle, checks: list } : { type: "checks", title, checks: list }; },
     };
     return api;
   }
@@ -253,7 +253,11 @@ globalThis.rva = (() => {
                  remediation: g.recommendation, affected: objects.map((x) => ({ kind: x.kind, id: x.id, name: x.name, detail: x.detail || x.location })) };
       },
       checks(groups, options) { return (groups || []).map((g) => api.check(g, options)); },
-      section(title, groups, options) { return { type: "checks", title, checks: api.checks(groups, options) }; },
+      section(title, groups, options) {
+        const s = { type: "checks", title, checks: api.checks(groups, options) };
+        if (options && options.subtitle) s.subtitle = options.subtitle;
+        return s;
+      },
       // Totals by severity, e.g. { critical: 3, warning: 12, info: 40, groups: 20 }; counts objects unless { by: "groups" }.
       counts(groups, options) {
         const byGroups = options && options.by === "groups";

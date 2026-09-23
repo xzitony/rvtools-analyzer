@@ -69,8 +69,8 @@ public enum SolutionAPI {
                 return ["type": "metrics", "title": title, "items": items.map { m in
                     ["label": m.label, "value": m.value, "detail": m.detail, "symbol": m.symbol ?? NSNull(), "status": m.status.map(status) ?? NSNull()] as [String: Any]
                 }]
-            case .checks(let title, let checks):
-                return ["type": "checks", "title": title, "checks": checks.map { c in
+            case .checks(let title, let checks, let subtitle):
+                return ["type": "checks", "title": title, "subtitle": subtitle, "checks": checks.map { c in
                     ["id": c.id, "area": c.area, "title": c.title, "status": status(c.status), "summary": c.summary, "remediation": c.remediation,
                      "affected": c.affected.map { ref($0) }] as [String: Any]
                 }]

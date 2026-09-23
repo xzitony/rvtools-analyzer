@@ -196,7 +196,7 @@ Add an optional **`status`** (`blocker`, `warning`, `info` or `ready`) to flag a
 ### checks: a readiness or considerations checklist
 
 ```js
-{ type: "checks", title: "Considerations", checks: [
+{ type: "checks", title: "Considerations", subtitle: "optional", checks: [
   { id: "rdm", area: "Scope", title: "Raw device mappings", status: "warning",
     summary: "3 VMs have RDMs", remediation: "Size RDM LUNs separately.",
     affected: [ { kind: "vm", id: vm.id, name: vm.name, detail: "2 TiB" } ] }
@@ -205,7 +205,8 @@ Add an optional **`status`** (`blocker`, `warning`, `info` or `ready`) to flag a
 
 - **`status`:** `blocker`, `warning`, `info` or `ready`.
 - **Affected objects** are listed under the check and link to the object in the app. `kind` is one of `vm`, `host`, `cluster`, `datastore`, `network` or `vcenter`, with the object's `id`. Use `rva.vmRef(vm, detail)`, `rva.hostRef`, `rva.clusterRef` or `rva.datastoreRef`.
-- **`rva.checks()`** is a builder. `add(...)` adds one check. `list(...)` gives "ready when nothing is affected, otherwise *n* affected". `aggregate(...)` gives the worst status across many objects. Finish with `.section(title)`.
+- **`subtitle`** (optional) is a caption under the title. In a PowerPoint deck it replaces the generated "3 of 12 checks need attention", which suits a list such as "The top 5 of 23 issues".
+- **`rva.checks()`** is a builder. `add(...)` adds one check. `list(...)` gives "ready when nothing is affected, otherwise *n* affected". `aggregate(...)` gives the worst status across many objects. Finish with `.section(title, subtitle?)`.
 
 ### table
 
@@ -249,7 +250,7 @@ The app adds the **Assumptions used** table to the results and to the export its
 | Section | Slides |
 |---|---|
 | `metrics` | Tiles, up to eight a slide. The first metrics slide also shows the `headline`. Tiles with `status` `blocker` or `warning` are outlined in red or amber. |
-| `checks` | A table of the checks that aren't `ready`, worst first. After it comes a slide for each of the top checks: its summary, `remediation` and `affected` objects. The export sheet sets how many. |
+| `checks` | A table of the checks that aren't `ready`, worst first, under the section's `subtitle` or a generated "n of m need attention". After it comes a slide for each of the top checks: its summary, `remediation` and `affected` objects. The export sheet sets how many. |
 | `table` | A native table, continued over as many slides as it needs. The deck shows the first 40 rows and says where the rest are. |
 | `bars` | A bar chart of the first 12 items. |
 | `notes` | Bullets. |
@@ -284,7 +285,7 @@ The Issues page's findings for the inventory in scope, grouped by check. Acknowl
 | `rva.findings.top(groups, options?)` | Groups matching every option given, worst first, then by count. Options: `kinds` (keeps only those objects in each group), `categories`, `severities` (`critical`/`warning`/`info` or check statuses), `rules` (ids or prefixes such as `"host"` or `"ds.path"`), `exclude` (the same, to leave out) and `limit` |
 | `rva.findings.areas` | `{ compute: ["vm", "host", "cluster"], storage: ["datastore"], network: ["network"], management: ["vcenter"] }`, to pass as `kinds` |
 | `rva.findings.check(group, options?)`, `.checks(groups, options?)` | Groups as checks: status, "12 VMs", the recommendation and the affected objects. Options: `area` (default: the category) and `maxObjects` |
-| `rva.findings.section(title, groups, options?)` | A `checks` section |
+| `rva.findings.section(title, groups, options?)` | A `checks` section; `options.subtitle` sets its caption |
 | `rva.findings.counts(groups, options?)` | `{ critical, warning, info, groups }` objects by severity, or groups with `{ by: "groups" }` |
 
 ```js

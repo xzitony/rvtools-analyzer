@@ -273,7 +273,8 @@ public struct SolutionTable: Sendable {
 
 public enum SolutionSection: Sendable {
     case metrics(String, [SolutionMetric])
-    case checks(String, [SolutionCheck])
+    /// Title, checks and an optional caption (shown under the title and in exports).
+    case checks(String, [SolutionCheck], subtitle: String = "")
     case table(SolutionTable)
     case bars(String, String, [CountItem], ValueFormat)
     case notes(String, [String])
@@ -422,8 +423,8 @@ public extension SolutionResult {
                 md += "## \(t.isEmpty ? "Summary" : t)\n\n" + table(["Metric", "Value", "Detail"], metrics.map { m in
                     [m.label, m.value + (m.status == .blocker || m.status == .warning ? " (\(m.status!.label))" : ""), m.detail]
                 })
-            case .checks(let t, let checks):
-                md += "## \(t)\n\n" + table(["Status", "Area", "Check", "Result"], checks.map { [$0.status.label, $0.area, $0.title, $0.summary] })
+            case .checks(let t, let checks, let subtitle):
+                md += "## \(t)\n\n" + (subtitle.isEmpty ? "" : "_\(subtitle)_\n\n") + table(["Status", "Area", "Check", "Result"], checks.map { [$0.status.label, $0.area, $0.title, $0.summary] })
                 for c in checks where c.status != .ready && (!c.affected.isEmpty || !c.remediation.isEmpty) {
                     md += "\n### \(c.status.label): \(c.title)\n\n"
                     if !c.remediation.isEmpty { md += "\(c.remediation)\n\n" }
@@ -461,7 +462,7 @@ public extension SolutionResult {
         for section in sections {
             switch section {
             case .metrics(_, let metrics): summary += metrics.map { [$0.label, $0.value, $0.detail] }
-            case .checks(_, let checks):
+            case .checks(_, let checks, _):
                 for c in checks {
                     if c.affected.isEmpty {
                         checkRows.append([c.status.label, c.area, c.title, c.summary, c.remediation, "", "", ""])

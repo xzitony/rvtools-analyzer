@@ -456,7 +456,7 @@ enum ResultMapper {
                                          status: status, summary: c["summary"]?.text ?? "", remediation: c["remediation"]?.text ?? "",
                                          affected: (c["affected"]?.array ?? []).compactMap(ref))
                 }
-                out.append(.checks(title, checks))
+                out.append(.checks(title, checks, subtitle: s["subtitle"]?.text ?? ""))
             case "table":
                 let columns = try list(s["columns"], "\(at).columns").map(\.text)
                 let rows = try list(s["rows"], "\(at).rows").enumerated().map { j, r -> [String] in
