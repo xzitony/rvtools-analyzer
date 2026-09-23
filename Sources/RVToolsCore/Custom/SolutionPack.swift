@@ -20,6 +20,8 @@ public struct SolutionManifest: Codable, Sendable {
     public var parameters: [Parameter]?
     /// Several named VM selections (e.g. "DR scope" and "Pilot light"); the first is the primary one. Default: one selection.
     public var selections: [Selection]?
+    /// Other solutions (built-in or custom ids) whose results the script reads from `context.solutions`.
+    public var solutions: [String]?
 
     public struct Selection: Codable, Sendable {
         public var id: String

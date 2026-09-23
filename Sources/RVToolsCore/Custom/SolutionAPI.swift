@@ -24,6 +24,86 @@ public enum SolutionAPI {
 
     public static func familyKey(_ f: OSFamily) -> String { String(describing: f) }
 
+    /// Object kinds as scripts name them (the `kind` of affected objects).
+    static func kind(_ k: ObjectKind) -> String {
+        switch k {
+        case .vm: return "vm"
+        case .host: return "host"
+        case .cluster: return "cluster"
+        case .datastore: return "datastore"
+        case .network: return "network"
+        case .vcenter: return "vcenter"
+        case .other: return "other"
+        }
+    }
+
+    static func status(_ s: CheckStatus) -> String { ["blocker", "warning", "info", "ready"][s.rawValue] }
+
+    /// `context.findings`: the app's findings grouped by rule, worst first, then by how many objects each affects.
+    static func findings(_ groups: [FindingGroup]) -> [[String: Any]] {
+        groups.sorted { ($0.severity, -$0.count, $0.title) < ($1.severity, -$1.count, $1.title) }.map { g in
+            [
+                "rule": g.rule,
+                "title": g.title,
+                "severity": ["critical", "warning", "info"][g.severity.rawValue],
+                "status": ["blocker", "warning", "info"][g.severity.rawValue],
+                "category": g.category.rawValue,
+                "recommendation": g.recommendation,
+                "count": g.count,
+                "kinds": Array(Set(g.findings.map { kind($0.kind) })).sorted(),
+                "objects": g.findings.map { f in
+                    ["kind": kind(f.kind), "id": f.objectID, "name": f.objectName, "location": f.location, "detail": f.detail] as [String: Any]
+                },
+            ] as [String: Any]
+        }
+    }
+
+    /// Another solution's result for `context.solutions`, with sections in the same shape a script returns them.
+    static func result(_ r: SolutionResult, id: String) -> [String: Any] {
+        func ref(_ a: AffectedObject?) -> Any {
+            a.map { ["kind": kind($0.kind), "id": $0.id, "name": $0.name, "detail": $0.detail] as [String: Any] } ?? NSNull()
+        }
+        let sections: [[String: Any]] = r.sections.map { section in
+            switch section {
+            case .metrics(let title, let items):
+                return ["type": "metrics", "title": title, "items": items.map { m in
+                    ["label": m.label, "value": m.value, "detail": m.detail, "symbol": m.symbol ?? NSNull(), "status": m.status.map(status) ?? NSNull()] as [String: Any]
+                }]
+            case .checks(let title, let checks):
+                return ["type": "checks", "title": title, "checks": checks.map { c in
+                    ["id": c.id, "area": c.area, "title": c.title, "status": status(c.status), "summary": c.summary, "remediation": c.remediation,
+                     "affected": c.affected.map { ref($0) }] as [String: Any]
+                }]
+            case .table(let t):
+                var table: [String: Any] = ["type": "table", "id": t.id, "title": t.title, "subtitle": t.subtitle, "columns": t.columns,
+                                            "numeric": t.numericColumns.sorted(), "rows": t.rows, "emphasized": t.emphasized.sorted()]
+                if !t.rowRefs.isEmpty { table["rowRefs"] = t.rowRefs.map(ref) }
+                return table
+            case .bars(let title, let subtitle, let items, let format):
+                var bars: [String: Any] = ["type": "bars", "title": title, "subtitle": subtitle,
+                                           "items": items.map { ["label": $0.label, "value": num($0.value), "count": $0.count] as [String: Any] }]
+                switch format {
+                case .count: bars["format"] = "count"
+                case .capacityMiB: bars["format"] = "capacityMiB"
+                case .currency: bars["format"] = "currency"
+                case .number(let unit): bars["format"] = "number"; bars["unit"] = unit
+                }
+                return bars
+            case .notes(let title, let lines):
+                return ["type": "notes", "title": title, "lines": lines]
+            }
+        }
+        return [
+            "id": id,
+            "title": SolutionCatalog.solution(id: id)?.title ?? id,
+            "headline": r.headline,
+            "sections": sections,
+            "assumptions": r.assumptions.map { ["label": $0.0, "value": $0.1] },
+            "vmCount": r.vmCount,
+            "failed": r.failed,
+        ]
+    }
+
     /// The whole inventory as JSON text (parsed once inside the script runtime).
     public static func inventoryJSON(_ inv: Inventory) throws -> String {
         let data = try JSONSerialization.data(withJSONObject: inventory(inv), options: [])

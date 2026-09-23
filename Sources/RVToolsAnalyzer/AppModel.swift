@@ -958,7 +958,19 @@ final class AppModel {
         let custom = s is ScriptedSolution
         let prices = custom ? "\(priceVersion).\(PriceLibrary.shared.version).\(extensionsVersion)" : "\(PriceStore.shared.version)"
         let rates = custom ? trend?.rates : nil
-        let key = "\(s.id)|\(reportVersion)|\(prices)|\(sets.map { String($0.hashValue) }.joined(separator: ","))|\(values.hashValue)|\(rates?.hashValue ?? 0)"
+        // Solutions a custom one reads (context.solutions) run with their own selections and assumptions, so those are part of the key.
+        let companions = (s as? ScriptedSolution)?.companions ?? []
+        let companionState: [String: (selections: [String: Set<String>], values: ParamValues)] = Dictionary(uniqueKeysWithValues: companions.compactMap { id in
+            SolutionCatalog.solution(id: id).map { c in
+                (id, (Dictionary(uniqueKeysWithValues: c.selections.compactMap { sel in solutionSelections[sel.key(id)].map { (sel.id, $0) } }),
+                      solutionParams[id] ?? ParamValues()))
+            }
+        })
+        let companionKey = companions.map { id in
+            let state = companionState[id]
+            return "\(id):\(state?.values.hashValue ?? 0):\(state?.selections.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value.hashValue)" }.joined(separator: ";") ?? "")"
+        }.joined(separator: ",") + (companions.isEmpty ? "" : "|\(PriceStore.shared.version)")
+        let key = "\(s.id)|\(reportVersion)|\(prices)|\(sets.map { String($0.hashValue) }.joined(separator: ","))|\(values.hashValue)|\(rates?.hashValue ?? 0)|\(companionKey)"
         if let cached = solutionCache[key] { return cached }
         var selected: [String: [VM]] = [:]
         for (sel, ids) in zip(s.selections, sets) { selected[sel.id] = r.inventory.vms.filter { ids.contains($0.id) } }
@@ -971,9 +983,16 @@ final class AppModel {
         }
         if runningScripts.insert(key).inserted {
             let inventory = r.inventory
+            let groups = r.groups
             let runnable: any Solution = {
                 guard var scripted = s as? ScriptedSolution else { return s }
                 scripted.trend = rates
+                scripted.findings = groups
+                scripted.companionResults = { id in
+                    let state = companionState[id]
+                    return SolutionCatalog.runCompanion(id: id, inventory: inventory, selections: state.map { $0.selections.isEmpty ? nil : $0.selections } ?? nil,
+                                                        values: state?.values ?? ParamValues())
+                }
                 return scripted
             }()
             Task.detached(priority: .userInitiated) {

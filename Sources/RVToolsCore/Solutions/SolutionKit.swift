@@ -76,6 +76,20 @@ public enum SolutionCatalog {
     public static var all: [any Solution] { builtIn + custom.map { $0 as any Solution } }
     public static func solution(id: String) -> (any Solution)? { builtIn.first { $0.id == id } ?? custom.first { $0.id == id } }
     public static func isBuiltIn(_ id: String) -> Bool { builtIn.contains { $0.id == id } }
+
+    /// Runs a solution for another solution's `context.solutions`: on the given selections (VM ids by selection id, the
+    /// defaults when nil) and assumptions. A custom solution run this way gets no `context.solutions` of its own.
+    public static func runCompanion(id: String, inventory: Inventory, selections: [String: Set<String>]? = nil,
+                                    values: ParamValues = ParamValues()) -> SolutionResult? {
+        guard var s = solution(id: id) else { return nil }
+        if var scripted = s as? ScriptedSolution { scripted.isCompanion = true; s = scripted }
+        var selected: [String: [VM]] = [:]
+        for sel in s.selections {
+            let ids = selections?[sel.id] ?? s.defaultSelection(inventory, for: sel)
+            selected[sel.id] = inventory.vms.filter { ids.contains($0.id) }
+        }
+        return s.run(vms: selected[s.selections[0].id] ?? [], selections: selected, inventory: inventory, values: values)
+    }
     /// The solution a stored selection key belongs to (see `SolutionSelection.key`).
     public static func solutionID(fromSelectionKey key: String) -> String { String(key.prefix { $0 != "#" }) }
 }

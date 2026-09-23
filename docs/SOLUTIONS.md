@@ -19,6 +19,7 @@ It can also read the Azure and AWS prices the app already has, and your own pric
 - [Parameters](#parameters)
 - [The script](#the-script)
 - [Results](#results)
+- [Findings and other solutions](#findings-and-other-solutions)
 - [Inventory reference](#inventory-reference)
 - [The `rva` helpers](#the-rva-helpers)
 - [Prices](#prices)
@@ -93,6 +94,7 @@ my-solution.rvasolution/     any folder name works; .rvasolution is the conventi
 | `pricing.providers` | | Price providers the script may read: `azure`, `aws` and/or price list ids. See [Prices](#prices). |
 | `pricing.allowDownload` | | Default `true`. Set it to `false` to hide **Download Prices**, so the solution only uses prices already downloaded, for example through the built-in Azure and AWS solutions. |
 | `parameters` | | The Assumptions step. See [Parameters](#parameters). |
+| `solutions` | | Ids of other solutions whose results the script reads from `context.solutions`, built-in (`vcf9`, `vcfsizing`, `backup`, `dr`, `azure`, `aws`) or custom. See [Findings and other solutions](#findings-and-other-solutions). |
 
 ## Parameters
 
@@ -170,7 +172,7 @@ function run(vms, inventory, params, context) {
 | `vms` | The selected VMs that are in the current scope: objects from `inventory.vms`. |
 | `inventory` | The whole inventory in scope. See [Inventory reference](#inventory-reference). |
 | `params` | Parameter values by id (see the table above). |
-| `context` | `{ apiVersion, solution: { id, title, version }, selectedCount, reportDate, supportDate, now, labels, selections, trend }`. `selections` has every VM selection by id (see [Several VM selections](#several-vm-selections)). `trend` is `null` unless a trend is loaded; then it's `{ snapshots, from, to, spanDays, annualGrowthPct, organicGrowthPct, netDailyGrowthPct }`, where each rate can be `null` when the trend is too short to measure it (growth needs 14 days). `netDailyGrowthPct` is a floor for a daily change rate, not a measurement of it. `selectedCount` counts the whole selection, including VMs outside the current scope. `reportDate` is the export timestamp: measure ages from it, not from `now`. `supportDate` is the date to judge end of support and renewals on: today, or the export date if later, as the built-in solutions do (compare with `vm.os.endOfSupport`). |
+| `context` | `{ apiVersion, solution: { id, title, version }, selectedCount, reportDate, supportDate, now, labels, selections, trend, findings, solutions }`. `selections` has every VM selection by id (see [Several VM selections](#several-vm-selections)). `trend` is `null` unless a trend is loaded; then it's `{ snapshots, from, to, spanDays, annualGrowthPct, organicGrowthPct, netDailyGrowthPct }`, where each rate can be `null` when the trend is too short to measure it (growth needs 14 days). `netDailyGrowthPct` is a floor for a daily change rate, not a measurement of it. `selectedCount` counts the whole selection, including VMs outside the current scope. `reportDate` is the export timestamp: measure ages from it, not from `now`. `supportDate` is the date to judge end of support and renewals on: today, or the export date if later, as the built-in solutions do (compare with `vm.os.endOfSupport`). `findings` is the app's findings and `solutions` the results of the solutions the manifest lists; see [Findings and other solutions](#findings-and-other-solutions). |
 
 The script is modern JavaScript (ES2020+): `const`/`let`, arrow functions, template strings, destructuring, spread, `Map`/`Set`, `Array.prototype.flatMap` and so on. There is no `require`/`import`, `fetch`, `setTimeout` or DOM. You can split code into several top-level functions in the file. `console.log`, `console.warn` and `console.error` go to the script console (see `debug`).
 
@@ -255,6 +257,63 @@ The app adds the **Assumptions used** table to the results and to the export its
 Titles and `subtitle`s become slide titles and captions, so keep them short enough to fit on a slide. Check statuses set the order, worst first, and metric statuses color the tiles.
 
 The deck takes its look from the template chosen in the export sheet. What a template needs is in the README under [PowerPoint decks](../README.md#powerpoint-decks). A solution doesn't have to do anything to support decks.
+
+## Findings and other solutions
+
+A solution can build on what the app already knows, which is handy for review decks and roll-ups: the findings on the **Issues** page, and other solutions' results.
+
+### `context.findings`
+
+The Issues page's findings for the inventory in scope, grouped by check. Acknowledged findings are left out, and the thresholds come from Settings. Groups are ordered worst first, then by how many objects they affect.
+
+```js
+{ rule: "ds.free.low", title: "Datastore free space below 20%", severity: "warning", status: "warning",
+  category: "Capacity", recommendation: "…", count: 5, kinds: ["datastore"],
+  objects: [ { kind: "datastore", id: "…", name: "DS-01", location: "vc01 / DC-East", detail: "12% free" } ] }
+```
+
+- **`severity`:** `critical`, `warning` or `info`. `status` is the same as a check status: `blocker`, `warning` or `info`.
+- **`category`:** Availability, Capacity, Performance, Configuration, Lifecycle, Data protection, Security, Hygiene or Migration readiness.
+- **`kind`:** `vm`, `host`, `cluster`, `datastore`, `network` or `vcenter`.
+- **`rule`:** ids start with the object they check: `vm.`, `host.`, `cluster.`, `ds.`, `net.`, `vc.`, `lic.` or `vhealth.`. They don't change, so a script can map them to its own areas. Titles can change: they include thresholds.
+
+`rva.findings` helps with the usual jobs:
+
+| Helper | |
+|---|---|
+| `rva.findings.top(groups, options?)` | Groups matching every option given, worst first, then by count. Options: `kinds` (keeps only those objects in each group), `categories`, `severities` (`critical`/`warning`/`info` or check statuses), `rules` (ids or prefixes such as `"host"` or `"ds.path"`), `exclude` (the same, to leave out) and `limit` |
+| `rva.findings.areas` | `{ compute: ["vm", "host", "cluster"], storage: ["datastore"], network: ["network"], management: ["vcenter"] }`, to pass as `kinds` |
+| `rva.findings.check(group, options?)`, `.checks(groups, options?)` | Groups as checks: status, "12 VMs", the recommendation and the affected objects. Options: `area` (default: the category) and `maxObjects` |
+| `rva.findings.section(title, groups, options?)` | A `checks` section |
+| `rva.findings.counts(groups, options?)` | `{ critical, warning, info, groups }` objects by severity, or groups with `{ by: "groups" }` |
+
+```js
+const f = rva.findings;
+const compute = f.top(context.findings, { kinds: f.areas.compute, limit: 5 });
+const storage = f.top(context.findings, { kinds: f.areas.storage, exclude: "ds.empty", limit: 5 });
+return {
+  headline: `${compute.length + storage.length} priority issues`,
+  sections: [f.section("Top compute issues", compute), f.section("Top storage issues", storage)],
+};
+```
+
+### `context.solutions`
+
+List other solutions under `solutions` in the manifest, and `context.solutions[id]` has each one's result:
+
+```js
+{ id: "vcf9", title: "VCF 9 Readiness", headline: "12 hosts in 3 clusters · 6 blockers · …", vmCount: 348, failed: false,
+  assumptions: [ { label: "Upgrade path · Minimum version for a direct upgrade to 9", value: "8.0 U1" } ],
+  sections: [ { type: "metrics", title: "…", items: [ … ] }, { type: "checks", title: "Readiness checks", checks: [ … ] }, … ] }
+```
+
+- **Same shape as your own results.** Sections come in the shape a script returns them, so you can pass them straight through (`sections.push(...context.solutions.vcf9.sections)`) or pick out figures and checks.
+- **Settings.** In the app, each solution runs with the VM selection and assumptions it has there, so the result matches its own page. From the command line it uses its defaults.
+- **Unknown ids.** An id that isn't installed is `null`, and the console notes it. So is a solution's own id.
+- **Loops.** If a listed solution is a custom one that reads others in turn, its own `context.solutions` entries are `null`, so solutions that read each other can't loop.
+- **Prices.** The Azure and AWS solutions use prices already downloaded. Use them after **Download Prices** on their own pages.
+
+These solutions run each time yours does, and count towards its time limit.
 
 ## Inventory reference
 
@@ -347,6 +406,7 @@ const first = byName.get(vm.vcenter + "|" + vm.datastores[0]);
 | `rva.vmRef(vm, detail?)`, `rva.hostRef`, `rva.clusterRef`, `rva.datastoreRef`, `rva.ref(kind, obj, detail?)` | affected objects and row links |
 | `rva.metric`, `rva.metrics`, `rva.table`, `rva.bars`, `rva.notes`, `rva.checks()` | result builders |
 | `rva.cloud.*` | cloud sizing, see [Prices](#prices) |
+| `rva.findings.*` | filter, rank and present the app's findings, see [Findings and other solutions](#findings-and-other-solutions) |
 
 Their output matches the built-in solutions, so custom reports look the same.
 
@@ -543,6 +603,6 @@ Custom solutions never download from the command line. Use `rvtools-cli --prices
 ## Limits and compatibility
 
 - **Built-in solutions don't change** through this mechanism. Their ids are reserved, and a pack can't replace one.
-- **`apiVersion` 1** is the inventory, parameters, results, `rva` and `pricing` as documented here. New fields and helpers may be added within version 1. Anything that would break a published solution (renaming or removing a field, changing units) gets a new API version. A pack that needs a newer version than the app supports is listed under *Couldn't load* with a message to update the app.
+- **`apiVersion` 1** is the inventory, parameters, results, `rva`, `pricing`, `context.findings` and `context.solutions` as documented here. New fields and helpers may be added within version 1. Anything that would break a published solution (renaming or removing a field, changing units) gets a new API version. A pack that needs a newer version than the app supports is listed under *Couldn't load* with a message to update the app.
 - **Performance:** each run parses the inventory once (a few milliseconds per thousand VMs) and has 20 seconds by default. Avoid work that grows with VMs × VMs, and build `Map`s instead of searching lists inside loops.
 - **Point in time:** RVTools is a snapshot. Usage-based sizing (CPU, consumed memory) should be validated with performance history, and results should say so.
