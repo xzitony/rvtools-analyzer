@@ -307,6 +307,9 @@ struct VMDetail: View {
             }
             .padding(16)
         }
+        // Kept off the top edge: a scroll view that runs under the toolbar gets its 52pt inset counted twice when macOS 27
+        // hit-tests it, so clicks land on whatever is drawn that far below (the Relationship Map button hit the findings).
+        .padding(.top, 1)
     }
 }
 
