@@ -184,6 +184,43 @@ From the command line: `rvtools-cli <export> --solution <id> --pptx deck.pptx [-
 
 For how each result section becomes slides, see [docs/SOLUTIONS.md](docs/SOLUTIONS.md#in-a-powerpoint-deck).
 
+### Deck recipes and the upload page
+
+A **deck recipe** (`.rvadecks`) lists the decks to make from one export, so a set of decks you hand over after every assessment can be made in one step:
+
+```json
+{
+  "title": "VCF 9 assessment decks",
+  "template": "Brand Template.potx",
+  "decks": [
+    { "solution": "vcf9" },
+    { "solution": "vcfsizing", "name": "VCF 9 Sizing", "set": { "vcfOps": "0" } }
+  ]
+}
+```
+
+- `solution` is any built-in or custom solution id (`rvtools-cli --list-solutions`).
+- `name` sets the deck's title and file name. It defaults to the solution's title.
+- `set` overrides assumptions, as `--set` does. Otherwise each deck uses the solution's default VM selection and assumptions.
+- `template` is optional. A relative path resolves from the recipe's folder, so the recipe and the template can sit together in a synced folder.
+
+See [examples/decks.rvadecks](examples/decks.rvadecks).
+
+**From the command line:** `rvtools-cli <export> --decks recipe.rvadecks [--customer "Name"] [--out <dir> | --zip decks.zip]`. The export is read once for every deck. By default the decks go into a "*export* Decks" folder next to the export. The customer name goes on the title slides and at the front of the file names.
+
+**The upload page.** `rvtools-decks-server` serves a web page from your Mac. Anyone who can reach the Mac uploads their RVTools export there, chooses the decks and gets them back as a .zip. They need only a browser, on any OS.
+
+```bash
+swift build -c release --product rvtools-decks-server
+.build/release/rvtools-decks-server --recipe recipe.rvadecks
+```
+
+- **Where the data goes.** Everything runs on your Mac. Each upload goes into a temporary folder, which is deleted as soon as the zip is sent. The server keeps nothing except one log line per request (file name, size, customer name, which decks were made).
+- **Passcode.** Each start prints a new six-character passcode, which the page asks for. Use `--passcode <code>` to set your own, or `--no-passcode` to turn it off.
+- **Who can reach it.** At start the server prints its addresses (`http://<this Mac's IP>:8080`). Anyone on the same network or VPN can open one. The first time, macOS asks whether to allow incoming connections. `--local-only` listens on this Mac only. The page is plain HTTP, so use it on networks you trust.
+- **Other options:** `--port <n>` (default 8080), `--max-mb <n>` (upload limit, default 500), and `--solutions <dir>` to load packs that aren't installed. Installed custom solutions are found as they are by the CLI.
+- Uploads must be RVTools `.xlsx` exports. Several files (one per vCenter) are merged, as in the app.
+
 ### Custom solutions
 
 Anyone can add a solution to a packaged copy of the app, without Xcode or a rebuild: a folder (`Name.rvasolution`) with a `manifest.json` that declares its assumptions and a JavaScript file whose `run(vms, inventory, params, context)` returns the results. Custom solutions appear under **Custom Solutions** in the sidebar and get the same VM selection, assumptions form, results, export and project saving as the built-in ones. The built-in solutions are fixed as of v1.0, and their ids are reserved.
@@ -228,7 +265,7 @@ This prints the inventory, cluster headroom, join coverage, consistency checks, 
 
 `--map vm:NAME` (or `host:`, `cluster:`, `datastore:`, `portgroup:`) prints an object's relationship map as text; with `--export <dir>` it also writes the map's CSV.
 
-`rvtools-cli <export or project> --solution <id>` prints a solution's report. `--set name=value` overrides an assumption (a choice takes its option number, a cluster choice takes cluster names separated by commas), and `--select <selection>=<all|vms|poweredOn|none|VM names>` overrides a VM selection; both are also applied by `--save-project <path>`. `--pptx <file>` also writes the results as a PowerPoint deck, and `--template <file.pptx|potx>` gives that deck a template's look.
+`rvtools-cli <export or project> --solution <id>` prints a solution's report. `--set name=value` overrides an assumption (a choice takes its option number, a cluster choice takes cluster names separated by commas), and `--select <selection>=<all|vms|poweredOn|none|VM names>` overrides a VM selection; both are also applied by `--save-project <path>`. `--pptx <file>` also writes the results as a PowerPoint deck, and `--template <file.pptx|potx>` gives that deck a template's look. `--decks <recipe>` makes every deck a recipe lists (see [Deck recipes](#deck-recipes-and-the-upload-page)).
 
 Custom solutions: `--list-solutions` shows installed packs, price lists and cached prices; `--validate-solution <pack> [export]` checks a pack and runs it with its console output; `--solutions <dir>` and `--price-list <file>` load packs and price lists without installing them. See [docs/SOLUTIONS.md](docs/SOLUTIONS.md#testing-from-the-command-line).
 
@@ -262,9 +299,10 @@ Sources/RVToolsCore/Solutions built-in solutions, SolutionKit (parameters/result
 Sources/RVToolsCore/Custom    custom solutions: pack loading, JavaScript runtime and helpers, inventory API, price lists
 Sources/RVToolsAnalyzer/      SwiftUI app (one file per page + shared components/theme)
 Sources/rvtools-cli/          headless runner
+Sources/rvtools-decks-server/ upload page that turns an export into a recipe's decks (DeckBatch in RVToolsCore)
 docs/SOLUTIONS.md             custom solution authoring guide
 docs/images/                  screenshots (scripts/docs-screenshots.sh)
-examples/                     example solution packs and price lists (bundled into the app)
+examples/                     example solution packs and price lists (bundled into the app), example deck recipe
 scripts/                      build-app.sh, install-app.sh, check-solutions.sh, docs-screenshots.sh, make_icon.swift, generate_sample.py, generate_series.py
 ```
 

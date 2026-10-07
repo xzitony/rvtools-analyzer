@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .executable(name: "RVToolsAnalyzer", targets: ["RVToolsAnalyzer"]),
         .executable(name: "rvtools-cli", targets: ["rvtools-cli"]),
+        .executable(name: "rvtools-decks-server", targets: ["rvtools-decks-server"]),
     ],
     targets: [
         // Parsing (xlsx / csv), correlation engine, rollups and findings. No UI, no dependencies.
@@ -15,5 +16,7 @@ let package = Package(
         .executableTarget(name: "RVToolsAnalyzer", dependencies: ["RVToolsCore"]),
         // Headless runner: prints the same analysis to the terminal (handy for testing / scripting).
         .executableTarget(name: "rvtools-cli", dependencies: ["RVToolsCore"]),
+        // A small web page, served from this Mac, where people upload an RVTools export and get a recipe's decks back as a .zip.
+        .executableTarget(name: "rvtools-decks-server", dependencies: ["RVToolsCore"]),
     ]
 )
