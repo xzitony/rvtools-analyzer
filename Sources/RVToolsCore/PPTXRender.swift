@@ -66,9 +66,9 @@ struct DeckRenderer {
                 let r = Rect(x: c.x + (i % cols) * (w + gap), y: top + (i / cols) * (h + gap), w: w, h: h)
                 let valueSize: Double = m.value.count > 24 ? 16 : (m.value.count > 14 ? 20 : 28)
                 let flagged = m.status == .blocker || m.status == .warning
-                var paras = [para([Run(text: m.label, size: 12, color: .muted)]),
+                var paras = [para([Run(text: m.label, size: 11, bold: true, color: pkg.heading, caps: true)]),
                              para([Run(text: m.value, size: valueSize, bold: true, color: flagged ? .status(m.status!) : .scheme("tx2"))], spaceBefore: 2)]
-                if !m.detail.isEmpty { paras.append(para([Run(text: m.detail, size: 11, color: .muted)], spaceBefore: 2)) }
+                if !m.detail.isEmpty { paras.append(para([Run(text: m.detail, size: 11, color: .muted, italic: true)], spaceBefore: 2)) }
                 s.shape(r, paras: paras, geom: "roundRect", fill: .tile, line: flagged ? .status(m.status!) : .hairline, inset: inch(0.14), autofit: true)
             }
             return s
@@ -104,14 +104,14 @@ struct DeckRenderer {
             var s = slide(p == 0 ? t.title : t.title + " (cont.)")
             var top = c.y
             if p == 0 && subH > 0 {
-                s.shape(Rect(x: c.x, y: top, w: c.w, h: subH), paras: [para([Run(text: t.subtitle, size: 14, color: .muted)])], inset: 0)
+                s.shape(Rect(x: c.x, y: top, w: c.w, h: subH), paras: [para([Run(text: t.subtitle, size: 14, color: .muted, italic: true)])], inset: 0)
                 top += subH
             }
             let pageRows = [header] + indices.map { rows[$0] }
             s.table(Rect(x: c.x, y: top, w: c.w, h: 0), widths: widths, heights: pageRows.map { height($0, size) },
                     rows: pageRows, header: 1, numeric: t.numeric, size: size)
             if p == pages.count - 1 && footH > 0 {
-                s.shape(Rect(x: c.x, y: c.y + c.h - footH + inch(0.06), w: c.w, h: footH), paras: [para([Run(text: t.footnote, size: 10, color: .muted)])], inset: 0)
+                s.shape(Rect(x: c.x, y: c.y + c.h - footH + inch(0.06), w: c.w, h: footH), paras: [para([Run(text: t.footnote, size: 10, color: .muted, italic: true)])], inset: 0)
             }
             return s
         }
@@ -152,7 +152,7 @@ struct DeckRenderer {
         var top = c.y
         if !subtitle.isEmpty {
             let h = TextFit.height(subtitle, width: c.w, size: 14) + inch(0.12)
-            s.shape(Rect(x: c.x, y: top, w: c.w, h: h), paras: [para([Run(text: subtitle, size: 14, color: .muted)])], inset: 0)
+            s.shape(Rect(x: c.x, y: top, w: c.w, h: h), paras: [para([Run(text: subtitle, size: 14, color: .muted, italic: true)])], inset: 0)
             top += h
         }
         let footH = more > 0 ? TextFit.lineHeight(10) + inch(0.12) : 0
@@ -171,7 +171,7 @@ struct DeckRenderer {
         }
         if more > 0 {
             s.shape(Rect(x: c.x, y: c.y + c.h - footH + inch(0.06), w: c.w, h: footH),
-                    paras: [para([Run(text: "\(more) more not shown. The CSV export has them all.", size: 10, color: .muted)])], inset: 0)
+                    paras: [para([Run(text: "\(more) more not shown. The CSV export has them all.", size: 10, color: .muted, italic: true)])], inset: 0)
         }
         return s
     }
@@ -201,7 +201,7 @@ struct DeckRenderer {
                 geom: "roundRect", fill: .status(check.status), anchor: "ctr", inset: 0)
         if !check.area.isEmpty {
             s.shape(Rect(x: c.x + pillW + inch(0.15), y: c.y, w: c.w - pillW - inch(0.15), h: pillH),
-                    paras: [para([Run(text: check.area, size: 14, color: .muted)])], anchor: "ctr", inset: 0)
+                    paras: [para([Run(text: check.area, size: 13, bold: true, color: pkg.heading, caps: true)])], anchor: "ctr", inset: 0)
         }
         let top = c.y + pillH + inch(0.25)
         let hasObjects = !check.affected.isEmpty
@@ -216,7 +216,7 @@ struct DeckRenderer {
         let k = stride(from: 1.0, through: 0.6, by: -0.05).first { height($0) <= boxH } ?? 0.6
         var paras = [para([Run(text: summary, size: (20 * k).rounded(), color: .scheme("tx2"))])]
         if !remediation.isEmpty {
-            paras.append(para([Run(text: "Recommendation", size: (14 * k).rounded(), bold: true, color: .muted)], spaceBefore: 18 * k))
+            paras.append(para([Run(text: "Recommendation", size: (14 * k).rounded(), bold: true, color: pkg.heading, caps: true)], spaceBefore: 18 * k))
             paras.append(para([Run(text: remediation, size: (15 * k).rounded())], spaceBefore: 4 * k))
         }
         s.shape(Rect(x: c.x, y: top, w: leftW, h: boxH), paras: paras, inset: 0, autofit: true)
@@ -224,7 +224,7 @@ struct DeckRenderer {
         guard hasObjects else { return s }
         let x = c.x + leftW + gap, w = c.w - leftW - gap
         let labelH = inch(0.4)
-        s.shape(Rect(x: x, y: top, w: w, h: labelH), paras: [para([Run(text: "Affected (\(Fmt.int(check.affected.count)))", size: 14, bold: true, color: .muted)])], inset: 0)
+        s.shape(Rect(x: x, y: top, w: w, h: labelH), paras: [para([Run(text: "Affected (\(Fmt.int(check.affected.count)))", size: 14, bold: true, color: pkg.heading, caps: true)])], inset: 0)
         let kinds = Set(check.affected.map(\.kind))
         let hasDetail = check.affected.contains { !$0.detail.isEmpty }
         var columns = ["Name"]

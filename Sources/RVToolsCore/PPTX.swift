@@ -203,9 +203,13 @@ struct Run {
     var size: Double
     var bold = false
     var color: DeckColor?
+    var italic = false
+    /// Shown in capitals (the text itself is unchanged, so it can still be edited or searched as written).
+    var caps = false
 
     var xml: String {
-        "<a:r><a:rPr lang=\"en-US\" sz=\"\(Int(size * 100))\"\(bold ? " b=\"1\"" : "") dirty=\"0\">\(color.map(\.fill) ?? "")</a:rPr><a:t>\(xmlEscape(text))</a:t></a:r>"
+        "<a:r><a:rPr lang=\"en-US\" sz=\"\(Int(size * 100))\"\(bold ? " b=\"1\"" : "")\(italic ? " i=\"1\"" : "")\(caps ? " cap=\"all\"" : "") dirty=\"0\">"
+            + "\(color.map(\.fill) ?? "")</a:rPr><a:t>\(xmlEscape(text))</a:t></a:r>"
     }
 }
 
