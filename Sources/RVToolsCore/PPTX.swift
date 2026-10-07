@@ -147,14 +147,15 @@ enum DeckBlocks {
 
 enum DeckColor {
     case scheme(String)
-    /// A scheme colour lightened or darkened: lumMod/lumOff in percent.
-    case tint(String, Int, Int)
+    /// A scheme colour at an opacity in percent. Washes and muted text use this rather than a tint so they read on
+    /// dark templates too: a tint towards white turns into white-on-white when the template's text is light.
+    case alpha(String, Int)
     case rgb(String)
 
-    static let muted = DeckColor.tint("tx1", 65, 35)
-    static let hairline = DeckColor.tint("tx1", 25, 75)
-    static let band = DeckColor.tint("accent1", 20, 80)
-    static let tile = DeckColor.tint("accent1", 10, 90)
+    static let muted = DeckColor.alpha("tx1", 72)
+    static let hairline = DeckColor.alpha("tx1", 25)
+    static let band = DeckColor.alpha("accent1", 18)
+    static let tile = DeckColor.alpha("accent1", 12)
 
     static func status(_ s: CheckStatus) -> DeckColor {
         switch s {
@@ -168,8 +169,7 @@ enum DeckColor {
     var xml: String {
         switch self {
         case .scheme(let v): return "<a:schemeClr val=\"\(v)\"/>"
-        case .tint(let v, let mod, let off):
-            return "<a:schemeClr val=\"\(v)\"><a:lumMod val=\"\(mod * 1000)\"/>" + (off > 0 ? "<a:lumOff val=\"\(off * 1000)\"/>" : "") + "</a:schemeClr>"
+        case .alpha(let v, let pct): return "<a:schemeClr val=\"\(v)\"><a:alpha val=\"\(pct * 1000)\"/></a:schemeClr>"
         case .rgb(let hex): return "<a:srgbClr val=\"\(hex)\"/>"
         }
     }
@@ -203,9 +203,13 @@ struct Run {
     var size: Double
     var bold = false
     var color: DeckColor?
+    var italic = false
+    /// Shown in capitals (the text itself is unchanged, so it can still be edited or searched as written).
+    var caps = false
 
     var xml: String {
-        "<a:r><a:rPr lang=\"en-US\" sz=\"\(Int(size * 100))\"\(bold ? " b=\"1\"" : "") dirty=\"0\">\(color.map(\.fill) ?? "")</a:rPr><a:t>\(xmlEscape(text))</a:t></a:r>"
+        "<a:r><a:rPr lang=\"en-US\" sz=\"\(Int(size * 100))\"\(bold ? " b=\"1\"" : "")\(italic ? " i=\"1\"" : "")\(caps ? " cap=\"all\"" : "") dirty=\"0\">"
+            + "\(color.map(\.fill) ?? "")</a:rPr><a:t>\(xmlEscape(text))</a:t></a:r>"
     }
 }
 

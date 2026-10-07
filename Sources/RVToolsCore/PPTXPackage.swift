@@ -37,6 +37,9 @@ struct DeckPackage {
     var masterPath = ""
     /// The master's title font size in points, to shrink titles that won't fit.
     var titleSize = 44.0
+    /// The colour of sub-headings and labels. Templates conventionally keep their second brand colour in accent 2;
+    /// the built-in theme's accent 2 is an orange that reads as a warning, so it uses accent 1.
+    var heading = DeckColor.scheme("accent1")
 
     // MARK: Loading
 
@@ -68,6 +71,7 @@ struct DeckPackage {
             width = Int(attr(size, "cx") ?? "") ?? width
             height = Int(attr(size, "cy") ?? "") ?? height
         }
+        heading = .scheme("accent2")
         try locateLayouts()
     }
 
