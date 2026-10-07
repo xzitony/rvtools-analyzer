@@ -69,7 +69,7 @@ struct DeckRenderer {
                 var paras = [para([Run(text: m.label, size: 12, color: .muted)]),
                              para([Run(text: m.value, size: valueSize, bold: true, color: flagged ? .status(m.status!) : .scheme("tx2"))], spaceBefore: 2)]
                 if !m.detail.isEmpty { paras.append(para([Run(text: m.detail, size: 11, color: .muted)], spaceBefore: 2)) }
-                s.shape(r, paras: paras, geom: "roundRect", fill: .tile, line: flagged ? .status(m.status!) : nil, inset: inch(0.14), autofit: true)
+                s.shape(r, paras: paras, geom: "roundRect", fill: .tile, line: flagged ? .status(m.status!) : .hairline, inset: inch(0.14), autofit: true)
             }
             return s
         }
