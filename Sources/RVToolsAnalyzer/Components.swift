@@ -319,6 +319,16 @@ struct ColumnChart: View {
     @State private var hovered: String?
 
     var body: some View {
+        // Swift Charts asserts when hover selection runs over an empty categorical domain (e.g. no creation dates).
+        if items.isEmpty {
+            Text("No data").font(.callout).foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: height, alignment: .center)
+        } else {
+            chart
+        }
+    }
+
+    private var chart: some View {
         Chart(items) { item in
             BarMark(x: .value("Bucket", item.label), y: .value("Count", item.count), width: .ratio(0.7))
                 .foregroundStyle(color.opacity(hovered == nil || hovered == item.label ? 1 : 0.4))
