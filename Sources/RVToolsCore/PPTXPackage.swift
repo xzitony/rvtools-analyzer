@@ -188,7 +188,7 @@ struct DeckPackage {
         if parts["docProps/core.xml"] != nil {
             let now = ISO8601DateFormatter().string(from: Date())
             set("docProps/core.xml", xmlDecl + "<cp:coreProperties xmlns:cp=\"http://schemas.openxmlformats.org/package/2006/metadata/core-properties\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\" xmlns:dcterms=\"http://purl.org/dc/terms/\" xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">"
-                + "<dc:title>\(xmlEscape(title))</dc:title><dc:creator>RVTools Analyzer</dc:creator>"
+                + "<dc:title>\(xmlEscape(title))</dc:title><dc:creator>RVTools Analyzer</dc:creator><dc:description>\(xmlEscape(AppVersion.generatedLine()))</dc:description>"
                 + "<dcterms:created xsi:type=\"dcterms:W3CDTF\">\(now)</dcterms:created><dcterms:modified xsi:type=\"dcterms:W3CDTF\">\(now)</dcterms:modified></cp:coreProperties>")
         }
 

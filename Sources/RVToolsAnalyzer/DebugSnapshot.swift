@@ -2,7 +2,7 @@ import AppKit
 import RVToolsCore
 
 /// Developer aid: renders every page to PNG after an export loads, without needing Screen Recording permission.
-///   RVTA_SNAPSHOT_DIR=/tmp/shots [RVTA_APPEARANCE=dark] [RVTA_SNAPSHOT_QUIT=1] RVToolsAnalyzer <export>
+///   RVTA_SNAPSHOT_DIR=/tmp/shots [RVTA_APPEARANCE=light|dark] [RVTA_SNAPSHOT_QUIT=1] RVToolsAnalyzer <export>
 @MainActor
 enum DebugSnapshot {
     private static var started = false
@@ -13,7 +13,11 @@ enum DebugSnapshot {
         started = true
         let base = URL(fileURLWithPath: dir)
         try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        if env["RVTA_APPEARANCE"] == "dark" { NSApp.appearance = NSAppearance(named: .darkAqua) }
+        switch env["RVTA_APPEARANCE"] {
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        default: break   // follow the system
+        }
 
         let logURL = base.appendingPathComponent("snapshot.log")
         func log(_ s: String) {
@@ -57,7 +61,15 @@ enum DebugSnapshot {
                 [("\(20 + i * 3)-\(s.id)-select", { model.solutionTab[s.id] = 0; model.sidebar = .solution(s) }),
                  ("\(21 + i * 3)-\(s.id)-assumptions", { model.solutionTab[s.id] = 1; model.sidebar = .solution(s) }),
                  ("\(22 + i * 3)-\(s.id)-results", { model.solutionTab[s.id] = 2; model.sidebar = .solution(s) })]
-            }
+            } + (SolutionCatalog.solution(id: "vcfsizing").map { s -> [(String, () -> Void)] in
+                // VCF 9 Sizing again with the vSphere Foundation edition, then back to its defaults.
+                [("60-vcfsizing-vvf-results", {
+                    model.solutionParams[s.id, default: ParamValues()].values["edition"] = .choice(1)
+                    model.solutionTab[s.id] = 2
+                    model.sidebar = .solution(s)
+                 }),
+                 ("61-vcfsizing-reset", { model.solutionParams[s.id]?.values["edition"] = nil; model.sidebar = .overview })]
+            } ?? [])
             if let trend = model.trend {
                 let resized = trend.changes.first { $0.kind == .resized }?.key
                 steps = [

@@ -14,7 +14,8 @@ SUPPORT="RVTools Analyzer Docs"
 TMP="$(mktemp -d)"
 # RVTA_SUPPORT_FOLDER also gives the run its own preferences domain (AppDefaults in App.swift); remove it afterwards.
 trap 'rm -rf "$TMP" "$HOME/Library/Application Support/$SUPPORT"; defaults delete "local.rvtools-analyzer.isolated.${SUPPORT//[^A-Za-z0-9]/}" 2>/dev/null || true' EXIT
-ENV=(--env RVTA_SNAPSHOT_QUIT=1 --env RVTA_HIDE_DEV_BADGE=1 --env "RVTA_SUPPORT_FOLDER=$SUPPORT")
+# Light mode whatever the Mac is set to, so the screenshots match each other.
+ENV=(--env RVTA_SNAPSHOT_QUIT=1 --env RVTA_HIDE_DEV_BADGE=1 --env RVTA_APPEARANCE=light --env "RVTA_SUPPORT_FOLDER=$SUPPORT")
 
 echo "▸ Capturing dashboards and solutions…"
 open -W -n --env "RVTA_SNAPSHOT_DIR=$TMP/main" "${ENV[@]}" --env "RVTOOLS_SOLUTIONS_PATH=$PWD/examples/solutions" \
@@ -40,6 +41,7 @@ main/*-vms.png virtual-machines.png
 main/*-storage.png storage.png
 main/*-backup-results.png backup-sizing.png
 main/*-vcfsizing-results.png vcf-sizing.png
+main/60-vcfsizing-vvf-results.png vvf-sizing.png
 main/*-azure-results.png azure-migration.png
 main/*-cloud-compare-assumptions.png custom-solution-assumptions.png
 main/*-cloud-compare-results.png custom-solution-results.png
