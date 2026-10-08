@@ -110,13 +110,11 @@ public final class Dataset: @unchecked Sendable {
     public private(set) var sources: [URL] = []
     public private(set) var reportDate: Date = Date()
     public private(set) var rvtoolsVersion: String = ""
-    /// "Nutanix Collector 7.1.1" or "Live Optics 27.2.3.275" when the data came from another tool than RVTools
-    /// (see `NutanixCollector`, `LiveOptics`).
-    public private(set) var collectorVersion: String = ""
+    /// Tools other than RVTools the data was translated from (Nutanix Collector, Live Optics), once each.
+    public private(set) var sourceTools: [SourceTool] = []
     /// What produced the data, for "Exported … · <tool>" lines.
     public var toolLabel: String {
-        if !collectorVersion.isEmpty { return rvtoolsVersion.isEmpty ? collectorVersion : "RVTools \(rvtoolsVersion) + \(collectorVersion)" }
-        return rvtoolsVersion.isEmpty ? "" : "RVTools \(rvtoolsVersion)"
+        ((rvtoolsVersion.isEmpty ? [] : ["RVTools \(rvtoolsVersion)"]) + sourceTools.map(\.label)).joined(separator: " + ")
     }
     public private(set) var warnings: [String] = []
     /// Rows skipped as already loaded, per file and tab (see `Table.merge`).
@@ -140,7 +138,7 @@ public final class Dataset: @unchecked Sendable {
                 let items = (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []
                 files = items.filter { ["csv", "xlsx", "xlsm"].contains($0.pathExtension.lowercased()) }
                     .sorted { $0.lastPathComponent < $1.lastPathComponent }
-                if files.isEmpty { throw RVToolsError.notRVTools("No RVTools .xlsx or .csv files found in \(url.lastPathComponent)") }
+                if files.isEmpty { throw RVToolsError.notRVTools("No .xlsx or .csv exports found in \(url.lastPathComponent)") }
             } else {
                 files = [url]
             }
@@ -170,13 +168,13 @@ public final class Dataset: @unchecked Sendable {
                 let r = NutanixCollector.translate(raws, mapping: mapping, file: file.lastPathComponent)
                 for raw in r.tables { ds.add(raw, from: file.lastPathComponent) }
                 ds.warnings += r.warnings
-                if ds.collectorVersion.isEmpty { ds.collectorVersion = NutanixCollector.tool + (r.version.isEmpty ? "" : " \(r.version)") }
+                ds.addSourceTool(NutanixCollector.sourceTool(version: r.version))
                 if let d = r.collected { collectorDates.append(d); continue }
             } else if LiveOptics.isLiveOptics(raws) {
                 let r = LiveOptics.translate(raws, file: file.lastPathComponent)
                 for raw in r.tables { ds.add(raw, from: file.lastPathComponent) }
                 ds.warnings += r.warnings
-                if ds.collectorVersion.isEmpty { ds.collectorVersion = LiveOptics.tool + (r.version.isEmpty ? "" : " \(r.version)") }
+                ds.addSourceTool(LiveOptics.sourceTool(version: r.version))
                 if let d = r.collected { collectorDates.append(d); continue }
             } else {
                 for raw in raws where !raw.headers.isEmpty { ds.add(raw, from: file.lastPathComponent) }
@@ -191,7 +189,7 @@ public final class Dataset: @unchecked Sendable {
             if !mapping.isEmpty {
                 throw RVToolsError.notRVTools("This is a Nutanix Collector mapping file — open it together with the anonymized ntnxcollector export it belongs to")
             }
-            throw RVToolsError.notRVTools("No vInfo tab found — this doesn't look like an RVTools export (tabs found: \(ds.tableNames.joined(separator: ", ")))")
+            throw RVToolsError.notRVTools("No vInfo tab found — this doesn't look like an RVTools, Nutanix Collector or Live Optics export (tabs found: \(ds.tableNames.joined(separator: ", ")))")
         }
         ds.tableNames.sort { a, b in
             let ia = knownSheets.firstIndex { $0.caseInsensitiveCompare(a) == .orderedSame } ?? Int.max
@@ -216,6 +214,10 @@ public final class Dataset: @unchecked Sendable {
             ds.warnings.append("\(file): \(Fmt.int(total)) row(s) were already loaded from another file and were counted once (\(detail))")
         }
         return ds
+    }
+
+    private func addSourceTool(_ t: SourceTool) {
+        if !sourceTools.contains(where: { $0.name == t.name }) { sourceTools.append(t) }
     }
 
     private func add(_ raw: RawTable, from file: String) {

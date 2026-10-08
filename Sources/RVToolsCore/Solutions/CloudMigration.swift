@@ -54,7 +54,7 @@ public struct CloudMigration: PricedSolution {
             .choice("off", "Scope", "Powered-off VMs", ["Storage only (deallocated)", "Price as running", "Exclude"]),
             .multi("families", "Instances", "Instance families", familyLabels, selected: provider == .azure ? [0, 1, 2, 3, 4] : [0, 1, 2, 4, 5, 6, 8, 9, 10]),
             .choice("cpu", "Right-sizing", "vCPU sizing", ["As configured", "From CPU usage in the export (+ buffer)"],
-                    help: "RVTools is a point-in-time snapshot — validate right-sizing with performance history before committing."),
+                    help: "The export is a point-in-time inventory — validate right-sizing with performance history before committing."),
             .choice("mem", "Right-sizing", "Memory sizing", ["As configured", "From consumed memory in the export (+ buffer)"]),
             .number("buffer", "Right-sizing", "Right-sizing buffer", 25, min: 0, max: 200, unit: "%"),
             .number("minCPU", "Right-sizing", "Minimum vCPU", 2, min: 1, max: 16),

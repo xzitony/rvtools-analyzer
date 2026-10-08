@@ -11,6 +11,34 @@ enum LiveOptics {
     static let tool = "Live Optics"
     typealias Sheet = NutanixCollector.Sheet
 
+    static func sourceTool(version: String) -> SourceTool {
+        SourceTool(name: tool, version: version, notCollected: [
+            "vCenter name (the datacenter name stands in)",
+            "VM networks and NICs: port groups, MAC addresses, adapter types",
+            "Virtual disks: per-disk sizes, thin / thick provisioning, controllers, RDMs",
+            "Snapshots",
+            "HA / DRS and other cluster settings",
+            "EVC mode",
+            "VM folders, resource pools and vApps",
+            "VM hardware version, firmware, Secure Boot and CBT",
+            "VMware Tools status, beyond whether it's installed",
+            "Standard and distributed switches, port groups and VMkernel adapters",
+            "HBAs and storage multipathing",
+            "Host NTP, DNS, time zone and certificates",
+            "License keys, counts and expiry dates",
+            "VM notes",
+            "RVTools vHealth messages (zombie files, folder-name mismatches…)",
+        ], measuredDifferently: [
+            "VM CPU use and active memory are averages over the collection when the VM Performance tab is present. RVTools reports a single point-in-time reading.",
+            "Host CPU and memory usage % are averages over the collection.",
+            "VM provisioned and in-use storage are Live Optics' virtual disk totals per VM.",
+            "Each VM is placed on the first datastore it lists. Live Optics gives no file paths, so per-datastore VM counts and usage can be understated.",
+            "Datastore type is only Local or Shared (vSAN is recognised by name), not VMFS / NFS / vVol.",
+            "Datastore capacity and free space are reported in whole GiB.",
+            "The guest OS is what VMware Tools reports when it's running, otherwise vCenter's configured OS.",
+        ])
+    }
+
     static func isLiveOptics(_ raws: [RawTable]) -> Bool {
         guard let details = raws.first(where: { $0.name.caseInsensitiveCompare("Details") == .orderedSame }),
               raws.contains(where: { $0.name.caseInsensitiveCompare("VMs") == .orderedSame }) else { return false }

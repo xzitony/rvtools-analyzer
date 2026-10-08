@@ -11,6 +11,27 @@ import Foundation
 enum NutanixCollector {
     static let tool = "Nutanix Collector"
 
+    static func sourceTool(version: String) -> SourceTool {
+        SourceTool(name: tool, version: version, notCollected: [
+            "vCenter name (the datacenter name stands in)",
+            "HA / DRS and other cluster settings",
+            "EVC mode",
+            "VM folders and vApps",
+            "VMware Tools version, and the guest OS as Tools reports it",
+            "VM creation and power-on dates",
+            "Host NTP, DNS and time zone",
+            "Host certificates",
+            "VMkernel adapters",
+            "License expiry dates (Collector reports the same past date on every license, so they're ignored)",
+            "RVTools vHealth messages (zombie files, folder-name mismatches…)",
+        ], measuredDifferently: [
+            "VM provisioned and in-use storage are rebuilt from virtual disk capacity and guest partitions. Collector has no per-VM storage totals.",
+            "VM active memory is Collector's 95th-percentile usage over the collection period. RVTools reports a single point-in-time reading.",
+            "VM CPU readiness is a 95th percentile over the collection period.",
+            "Host memory is converted from GiB to MiB.",
+        ])
+    }
+
     static func isCollector(_ raws: [RawTable]) -> Bool {
         guard let meta = raws.first(where: { $0.name.caseInsensitiveCompare("Metadata") == .orderedSame }) else { return false }
         return meta.headers.contains { Table.normalize($0) == "collectorversion" }

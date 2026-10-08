@@ -51,13 +51,13 @@ struct WelcomeView: View {
             VStack(spacing: 6) {
                 Text("RVTools Analyzer").font(.largeTitle.weight(.semibold))
                 DevBuildBadge()
-                Text("Correlates every RVTools tab into one model of your vSphere estate and rolls it up into\ncapacity, utilization, configuration, lifecycle and health dashboards.")
+                Text("Correlates every tab of an RVTools, Nutanix Collector or Live Optics export into one model of your vSphere estate and rolls it up into\ncapacity, utilization, configuration, lifecycle and health dashboards.")
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
             }
             VStack(spacing: 10) {
                 Image(systemName: "arrow.down.doc").font(.system(size: 28)).foregroundStyle(.secondary)
-                Text("Drop an RVTools .xlsx export, a folder of RVTools_tab*.csv files, or a saved project here").font(.callout)
+                Text("Drop an RVTools .xlsx export, a folder of RVTools_tab*.csv files, a Nutanix Collector or Live Optics export, or a saved project here").font(.callout)
                 Text("Drop several exports at once to merge multiple vCenters; exports taken at different times can be compared as snapshots instead.")
                     .font(.caption).foregroundStyle(.secondary)
             }
@@ -88,7 +88,7 @@ struct WelcomeView: View {
                 }
             }
             RecentProjectsList()
-            Text("Your RVTools data stays on this Mac — cloud solutions only download public price lists.").font(.caption).foregroundStyle(.secondary)
+            Text("Your data stays on this Mac — cloud solutions only download public price lists.").font(.caption).foregroundStyle(.secondary)
         }
         .padding(40)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -295,7 +295,7 @@ struct MainView: View {
                 } label: {
                     Label("Open", systemImage: "folder")
                 }
-                .help("Open another RVTools export")
+                .help("Open another export")
             }
         }
     }

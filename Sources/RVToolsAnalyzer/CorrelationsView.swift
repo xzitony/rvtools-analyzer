@@ -19,7 +19,9 @@ struct CorrelationsView: View {
         let inv = report.inventory
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
+                if !inv.sourceTools.isEmpty { SourceToolCaution(tools: inv.sourceTools) }
                 DataConfidenceCard(quality: report.dataQuality)
+                ForEach(inv.sourceTools, id: \.name) { SourceToolGapsCard(tool: $0) }
 
                 Card("Entity graph", subtitle: "Every tab is joined into this object model (counts for the current scope)") {
                     VStack(alignment: .leading, spacing: 14) {
@@ -73,7 +75,7 @@ struct CorrelationsView: View {
                     }
                 }
 
-                Card("Consistency checks", subtitle: "Figures RVTools reports in one tab vs the same figure derived from other tabs") {
+                Card("Consistency checks", subtitle: "Figures the export reports in one tab vs the same figure derived from other tabs") {
                     Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 16, verticalSpacing: 7) {
                         GridRow { Text(""); Text("Check"); Text("Reported"); Text("Derived"); Text("Note") }.font(.caption).foregroundStyle(.secondary)
                         Divider().gridCellUnsizedAxes(.horizontal)

@@ -32,6 +32,7 @@ private final class Builder {
         self.ds = ds
         inv.reportDate = ds.reportDate
         inv.tabsPresent = Set(ds.tableNames.map { $0.lowercased() })
+        inv.sourceTools = ds.sourceTools
     }
 
     func run() -> Inventory {
@@ -526,6 +527,7 @@ private final class Builder {
                 d.type = r.s(cType)
                 d.capacityMiB = r.d0(cCap)
                 d.provisionedMiB = r.d0(cProv)
+                d.provisionedReported = cProv != nil
                 d.inUseMiB = r.d0(cUsed)
                 d.freeMiB = r.d(cFree) ?? max(0, d.capacityMiB - d.inUseMiB)
                 d.freePct = r.d(cPct) ?? (d.capacityMiB > 0 ? d.freeMiB / d.capacityMiB * 100 : 0)

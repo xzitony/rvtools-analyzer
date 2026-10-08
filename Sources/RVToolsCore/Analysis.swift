@@ -21,6 +21,8 @@ public struct Totals: Sendable {
     public var physMemMiB = 0.0, cpuMHz = 0.0, cpuUsedMHz = 0.0, memUsedMiB = 0.0
     public var vcpuAll = 0, vcpuOn = 0, vramAllMiB = 0.0, vramOnMiB = 0.0
     public var datastores = 0, dsCapacityMiB = 0.0, dsFreeMiB = 0.0, dsProvisionedMiB = 0.0
+    /// False when no datastore in scope has a provisioned figure.
+    public var dsProvisionedKnown = true
     public var vmProvisionedMiB = 0.0, vmInUseMiB = 0.0, guestCapacityMiB = 0.0, guestConsumedMiB = 0.0
     public var snapshots = 0, snapshotMiB = 0.0
     public var portGroups = 0, vlans = 0, disks = 0, nics = 0
@@ -174,6 +176,7 @@ public enum Analyzer {
         }
         t.datastores = inv.datastores.count
         for d in inv.datastores { t.dsCapacityMiB += d.capacityMiB; t.dsFreeMiB += d.freeMiB; t.dsProvisionedMiB += d.provisionedMiB }
+        t.dsProvisionedKnown = inv.datastores.isEmpty || inv.datastores.contains(where: \.provisionedReported)
         t.portGroups = inv.portGroups.filter { !$0.isUplink }.count
         t.vlans = Set(inv.portGroups.flatMap(\.vlans).filter { $0 != "0" && !$0.isEmpty }).count
         for f in findings {

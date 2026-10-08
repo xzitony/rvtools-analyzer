@@ -17,7 +17,7 @@ struct OverviewView: View {
                     KPITile(title: "Virtual machines", value: Fmt.int(t.vms), detail: "\(Fmt.int(t.vmsOn)) on · \(Fmt.int(t.vmsOff)) off · \(Fmt.int(t.templates)) templates", symbol: "desktopcomputer")
                     KPITile(title: "Hosts", value: Fmt.int(t.hosts), detail: "\(t.clusters) clusters · \(t.datacenters) datacenters · \(t.vcenters) vCenter\(t.vcenters == 1 ? "" : "s")", symbol: "server.rack")
                     // Without host data these read as zero; say so rather than show 0 cores or 0%.
-                    let hosts = q.hostCapacityKnown, noHosts = "vHost tab not in export"
+                    let hosts = q.hostCapacityKnown, noHosts = q.absent("vHost")
                     KPITile(title: "Physical compute", value: hosts ? "\(Fmt.int(t.cores)) cores" : "—", detail: hosts ? "\(t.sockets) sockets · \(Fmt.memory(mib: t.physMemMiB)) RAM" : noHosts, symbol: "cpu")
                     KPITile(title: "vCPU : core", value: hosts ? Fmt.ratio(t.vcpuPerCore) : "—", detail: "\(Fmt.int(t.vcpuOn)) vCPU on running VMs", symbol: "square.stack.3d.up")
                     KPITile(title: "vRAM : RAM", value: hosts ? Fmt.pct(t.vramPerPhysical * 100) : "—", detail: "\(Fmt.memory(mib: t.vramOnMiB)) assigned to running VMs", symbol: "memorychip")
@@ -29,7 +29,7 @@ struct OverviewView: View {
                             symbol: "externaldrive")
                     KPITile(title: "VM storage in use", value: Fmt.capacity(mib: t.vmInUseMiB), detail: "of \(Fmt.capacity(mib: t.vmProvisionedMiB)) provisioned", symbol: "internaldrive")
                     KPITile(title: "Snapshots", value: q.has("vSnapshot") ? Fmt.int(t.snapshots) : "—",
-                            detail: q.has("vSnapshot") ? "\(Fmt.capacity(mib: t.snapshotMiB)) in delta files" : "vSnapshot tab not in export", symbol: "camera.on.rectangle")
+                            detail: q.has("vSnapshot") ? "\(Fmt.capacity(mib: t.snapshotMiB)) in delta files" : q.absent("vSnapshot"), symbol: "camera.on.rectangle")
                     KPITile(title: "Findings", value: Fmt.int(t.findings), detail: "\(t.critical) critical · \(t.warning) warning · \(t.info) info"
                                 + (report.acknowledgedFindings.isEmpty ? "" : " · \(report.acknowledgedFindings.count) acknowledged"),
                             symbol: Severity.critical.symbol, tint: t.critical > 0 ? Palette.critical : .secondary)
