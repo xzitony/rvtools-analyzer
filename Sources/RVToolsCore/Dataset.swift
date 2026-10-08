@@ -110,7 +110,8 @@ public final class Dataset: @unchecked Sendable {
     public private(set) var sources: [URL] = []
     public private(set) var reportDate: Date = Date()
     public private(set) var rvtoolsVersion: String = ""
-    /// "Nutanix Collector 7.1.1" when the data came from Collector rather than RVTools (see `NutanixCollector`).
+    /// "Nutanix Collector 7.1.1" or "Live Optics 27.2.3.275" when the data came from another tool than RVTools
+    /// (see `NutanixCollector`, `LiveOptics`).
     public private(set) var collectorVersion: String = ""
     /// What produced the data, for "Exported … · <tool>" lines.
     public var toolLabel: String {
@@ -170,6 +171,12 @@ public final class Dataset: @unchecked Sendable {
                 for raw in r.tables { ds.add(raw, from: file.lastPathComponent) }
                 ds.warnings += r.warnings
                 if ds.collectorVersion.isEmpty { ds.collectorVersion = NutanixCollector.tool + (r.version.isEmpty ? "" : " \(r.version)") }
+                if let d = r.collected { collectorDates.append(d); continue }
+            } else if LiveOptics.isLiveOptics(raws) {
+                let r = LiveOptics.translate(raws, file: file.lastPathComponent)
+                for raw in r.tables { ds.add(raw, from: file.lastPathComponent) }
+                ds.warnings += r.warnings
+                if ds.collectorVersion.isEmpty { ds.collectorVersion = LiveOptics.tool + (r.version.isEmpty ? "" : " \(r.version)") }
                 if let d = r.collected { collectorDates.append(d); continue }
             } else {
                 for raw in raws where !raw.headers.isEmpty { ds.add(raw, from: file.lastPathComponent) }
