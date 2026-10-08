@@ -185,6 +185,7 @@ private final class Builder {
             h.dnsServers = r.s(cDNS)
             h.ntpServers = r.s(cNTP)
             h.ntpdRunning = r.b(cNTPD)
+            h.ntpReported = cNTP != nil || cNTPD != nil
             h.timeZone = r.s(cTZ)
             h.vendor = r.s(cVendor)
             h.model = r.s(cHWModel)

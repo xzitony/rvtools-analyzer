@@ -230,7 +230,7 @@ struct MainView: View {
                     }
                     Text(model.sourceSummary).font(.caption).lineLimit(2).truncationMode(.middle)
                     Text((model.trend.map { "Viewing snapshot \(model.trendSnapshot + 1) of \($0.snapshots.count) · " } ?? "")
-                         + "Exported \(Fmt.dateTime(report.inventory.reportDate))" + ((model.dataset?.rvtoolsVersion ?? "").isEmpty ? "" : " · RVTools \(model.dataset!.rvtoolsVersion)"))
+                         + "Exported \(Fmt.dateTime(report.inventory.reportDate))" + ((model.dataset?.toolLabel ?? "").isEmpty ? "" : " · \(model.dataset!.toolLabel)"))
                         .font(.caption2).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)

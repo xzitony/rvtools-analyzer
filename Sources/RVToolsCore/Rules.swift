@@ -460,7 +460,7 @@ enum Rules {
                 if eol <= supportDate { f("host.esxi.eol", "ESXi \(h.esxVersion) — support ended \(Fmt.date(eol))") }
                 else if eol <= yearAhead { f("host.esxi.eolsoon", "ESXi \(h.esxVersion) — support ends \(Fmt.date(eol))") }
             }
-            if h.ntpServers.trimmingCharacters(in: .whitespaces).isEmpty || h.ntpdRunning == false {
+            if h.ntpReported, h.ntpServers.trimmingCharacters(in: .whitespaces).isEmpty || h.ntpdRunning == false {
                 f("host.ntp", h.ntpServers.isEmpty ? "No NTP servers configured" : "ntpd not running (servers: \(h.ntpServers))")
             }
             if let exp = h.certExpiry {

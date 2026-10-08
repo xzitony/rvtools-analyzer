@@ -110,6 +110,13 @@ public final class Dataset: @unchecked Sendable {
     public private(set) var sources: [URL] = []
     public private(set) var reportDate: Date = Date()
     public private(set) var rvtoolsVersion: String = ""
+    /// "Nutanix Collector 7.1.1" when the data came from Collector rather than RVTools (see `NutanixCollector`).
+    public private(set) var collectorVersion: String = ""
+    /// What produced the data, for "Exported … · <tool>" lines.
+    public var toolLabel: String {
+        if !collectorVersion.isEmpty { return rvtoolsVersion.isEmpty ? collectorVersion : "RVTools \(rvtoolsVersion) + \(collectorVersion)" }
+        return rvtoolsVersion.isEmpty ? "" : "RVTools \(rvtoolsVersion)"
+    }
     public private(set) var warnings: [String] = []
     /// Rows skipped as already loaded, per file and tab (see `Table.merge`).
     private var duplicateRows: [String: [String: Int]] = [:]
@@ -119,6 +126,8 @@ public final class Dataset: @unchecked Sendable {
     public static func load(_ urls: [URL]) throws -> Dataset {
         let ds = Dataset()
         var fileDates: [Date] = []
+        var collectorDates: [Date] = []
+        var workbooks: [(file: URL, raws: [RawTable])] = []
         for url in urls {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
@@ -135,23 +144,39 @@ public final class Dataset: @unchecked Sendable {
             }
             for file in files {
                 let ext = file.pathExtension.lowercased()
-                let raws: [RawTable]
                 switch ext {
-                case "xlsx", "xlsm": raws = try XLSXReader.read(url: file)
-                case "csv", "txt": raws = [try CSVReader.readTable(url: file)]
+                case "xlsx", "xlsm": workbooks.append((file, try XLSXReader.read(url: file)))
+                case "csv", "txt": workbooks.append((file, [try CSVReader.readTable(url: file)]))
                 case "xls": throw RVToolsError.notRVTools("\(file.lastPathComponent) is a legacy .xls file — re-export from RVTools as .xlsx")
                 default: continue
                 }
-                ds.sources.append(file)
+            }
+        }
+        // A Collector mapping file can come in any order relative to the anonymized export it restores.
+        var mapping: [String: String] = [:]
+        for w in workbooks where NutanixCollector.isMapping(w.raws) { mapping.merge(NutanixCollector.mapping(w.raws)) { a, _ in a } }
+        for (file, raws) in workbooks {
+            ds.sources.append(file)
+            if NutanixCollector.isMapping(raws) { continue }
+            if NutanixCollector.isCollector(raws) {
+                let r = NutanixCollector.translate(raws, mapping: mapping, file: file.lastPathComponent)
+                for raw in r.tables { ds.add(raw, from: file.lastPathComponent) }
+                ds.warnings += r.warnings
+                if ds.collectorVersion.isEmpty { ds.collectorVersion = NutanixCollector.tool + (r.version.isEmpty ? "" : " \(r.version)") }
+                if let d = r.collected { collectorDates.append(d); continue }
+            } else {
                 for raw in raws where !raw.headers.isEmpty { ds.add(raw, from: file.lastPathComponent) }
-                if let d = Parse.dateFromExportName(file.lastPathComponent) ?? Parse.dateFromExportName(file.deletingLastPathComponent().lastPathComponent) {
-                    fileDates.append(d)
-                } else if let attrs = try? FileManager.default.attributesOfItem(atPath: file.path), let m = attrs[.modificationDate] as? Date {
-                    fileDates.append(m)
-                }
+            }
+            if let d = Parse.dateFromExportName(file.lastPathComponent) ?? Parse.dateFromExportName(file.deletingLastPathComponent().lastPathComponent) {
+                fileDates.append(d)
+            } else if let attrs = try? FileManager.default.attributesOfItem(atPath: file.path), let m = attrs[.modificationDate] as? Date {
+                fileDates.append(m)
             }
         }
         guard ds.table("vInfo") != nil else {
+            if !mapping.isEmpty {
+                throw RVToolsError.notRVTools("This is a Nutanix Collector mapping file — open it together with the anonymized ntnxcollector export it belongs to")
+            }
             throw RVToolsError.notRVTools("No vInfo tab found — this doesn't look like an RVTools export (tabs found: \(ds.tableNames.joined(separator: ", ")))")
         }
         ds.tableNames.sort { a, b in
@@ -170,7 +195,7 @@ public final class Dataset: @unchecked Sendable {
                 if ds.rvtoolsVersion.isEmpty { ds.rvtoolsVersion = r.s(v) }
             }
         }
-        ds.reportDate = metaDates.max() ?? fileDates.max() ?? Date()
+        ds.reportDate = (metaDates + collectorDates).max() ?? fileDates.max() ?? Date()
         for (file, tabs) in ds.duplicateRows.sorted(by: { $0.key < $1.key }) {
             let total = tabs.values.reduce(0, +)
             let detail = tabs.sorted { $0.value > $1.value }.prefix(3).map { "\($0.key) \(Fmt.int($0.value))" }.joined(separator: ", ")
