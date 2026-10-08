@@ -124,13 +124,13 @@ public struct VCF9Sizing: Solution {
         .number("extraRAM", "Management components", "Other management VMs — memory", 0, min: 0, max: 20_000, step: 8, unit: "GB"),
         .number("extraDisk", "Management components", "Other management VMs — disk", 0, min: 0, max: 500_000, step: 100, unit: "GB"),
         .toggle("vvfServices", "vSphere Foundation", "VCF management services", true,
-                help: "Fleet and SDDC lifecycle, software depot and telemetry on the VCF services runtime. The VCF Installer always deploys them; without them VVF is installed by hand (vCenter, VCF Operations, license server) and has no log management or software depot."),
+                help: "Only applies to VVF: VCF always deploys them. Fleet and SDDC lifecycle, software depot and telemetry on the VCF services runtime. Without them VVF is installed by hand (vCenter, VCF Operations, license server) and has no log management or software depot."),
         .choice("vvfVC", "vSphere Foundation", "vCenter", [
             "Existing vCenter (converge)",
             "New vCenter (Medium)",
-        ], help: "Converging keeps the vCenter that runs the clusters today. A new deployment adds a Medium vCenter, the VCF Installer's VVF default."),
+        ], help: "Only applies to VVF: VCF always deploys a new management vCenter (workload domain vCenters have their own option). Converging keeps the vCenter that runs the clusters today; a new deployment adds a Medium vCenter, the VCF Installer's VVF default."),
         .toggle("vvfProxy", "vSphere Foundation", "Cloud proxy", false,
-                help: "Part of VCF Operations, but the VCF Installer doesn't deploy one for VVF; add it for remote collection."),
+                help: "Only applies to VVF: with VCF it comes with VCF Operations. The VCF Installer doesn't deploy one for VVF; add it for remote collection."),
         .choice("wldGroup", "Workload domains", "Workload domains (not available with VVF)", ["One per vCenter", "One per cluster", "One for all clusters"],
                 help: "Each workload domain adds its vCenter and NSX Managers to the management domain. VVF has no workload domains: the other clusters stay under their vCenters."),
         .choice("wldVC", "Workload domains", "Workload domain vCenters (not available with VVF)", [
