@@ -451,6 +451,7 @@ public extension SolutionResult {
             md += "\n"
         }
         md += "## Assumptions\n\n" + table(["Assumption", "Value"], assumptions.map { [$0.0, $0.1] })
+        md += "\n_\(AppVersion.generatedLine())_\n"
         return md
     }
 

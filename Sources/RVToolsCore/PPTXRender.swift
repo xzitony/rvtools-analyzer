@@ -37,6 +37,9 @@ struct DeckRenderer {
         var s = SlideXML()
         s.placeholder(pkg.titleLayout.title, fallback: pkg.coverTitle, lines: [title], size: 40, bold: true, color: .scheme("tx2"))
         if !lines.isEmpty { s.placeholder(pkg.titleLayout.subtitle, fallback: pkg.coverSubtitle, lines: lines, size: 20, color: .muted) }
+        // Which build made the deck, small in the bottom-right corner.
+        s.shape(Rect(x: pkg.width / 2, y: pkg.height - inch(0.4), w: pkg.width / 2 - inch(0.2), h: inch(0.3)),
+                paras: [para([Run(text: AppVersion.generatedLine(), size: 7, color: .muted)], align: "r")], anchor: "b")
         return s
     }
 

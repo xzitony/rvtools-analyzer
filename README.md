@@ -176,6 +176,8 @@ The export sheet sets:
 
 The app remembers everything except the title lines.
 
+The cover slide carries a small line in its bottom-right corner naming the app version that made the deck and when, and the same line is in the file's properties (File › Info in PowerPoint). Markdown reports end with that line too.
+
 **Templates.** Without a template, the deck uses a plain built-in look. To use your company's branding, choose a .pptx or .potx under **Template**. Any ordinary PowerPoint template works as it is:
 
 - **Layouts it uses.** The deck uses the first slide master's title-slide layout for the cover and its **Title Only** layout for everything else. If there's no Title Only layout, it uses Title and Content, or else any layout with a title. To choose another cover, move that layout first or make it the title-slide layout. PowerPoint's own Title Slide layout already is.
