@@ -104,40 +104,40 @@ public struct VCF9Sizing: Solution {
         ], selected: 2, help: "Dedicated is the VCF ideal: a new management cluster built from existing hosts, with the rest of that cluster carrying its VMs. VVF's smaller footprint usually runs in an existing cluster; a dedicated cluster is still worth it when hosts can be spared."),
         .clusters("mgmtCluster", "Architecture", "Management cluster", multi: false, none: "Best fit (automatic)",
                   help: "The cluster that gives up hosts (dedicated) or hosts the management appliances (consolidated). Best fit needs the fewest new hosts, then leaves the most headroom."),
-        .choice("deploy", "Architecture", "VCF deployment model (VCF only)", VCFAppliances.Deployment.allCases.map { d in
+        .choice("deploy", "Architecture", "VCF deployment model (not available with VVF)", VCFAppliances.Deployment.allCases.map { d in
             d.isHA ? "High availability — \(d.size)" : "Simple — single-node appliances (Small)"
         }, selected: 1, help: "Sets appliance sizes and node counts as the VCF Installer does. High availability needs at least 4 hosts. VVF is always simple mode."),
         .choice("storage", "Architecture", "Management domain principal storage", [
             "Auto — vSAN ESA if the cluster has vSAN, otherwise external",
             "vSAN ESA", "vSAN OSA", "External — FC / NFS",
         ]),
-        .toggle("vcfOps", "Management components", "VCF Operations (with cloud proxy and license server)", true,
+        .toggle("vcfOps", "Management components", "VCF Operations (with cloud proxy and license server; always on with VVF)", true,
                 help: "The workbook leaves this out by default; VCF 9 uses VCF Operations for licensing and fleet management, so it's on here. VVF always includes VCF Operations and the license server."),
-        .toggle("vcfAuto", "Management components", "VCF Automation (VCF only)", false),
-        .toggle("vvfServices", "Management components", "VVF: VCF management services", true,
-                help: "Fleet and SDDC lifecycle, software depot and telemetry on the VCF services runtime. The VCF Installer always deploys them; without them VVF is installed by hand (vCenter, VCF Operations, license server) and has no log management or software depot."),
-        .choice("vvfVC", "Management components", "VVF: vCenter", [
-            "Existing vCenter (converge)",
-            "New vCenter (Medium)",
-        ], help: "Converging keeps the vCenter that runs the clusters today. A new deployment adds a Medium vCenter, the VCF Installer's VVF default."),
-        .toggle("vvfProxy", "Management components", "VVF: cloud proxy", false,
-                help: "Part of VCF Operations for VVF, but the VCF Installer doesn't deploy one; add it for remote collection."),
+        .toggle("vcfAuto", "Management components", "VCF Automation (not available with VVF)", false),
         .choice("logs", "Management components", "Log management", ["None", "Small", "Medium", "Large"],
-                help: "VVF: needs VCF management services; deployed Day-N from VCF Operations."),
+                help: "With VVF it needs the VCF management services and is deployed Day-N from VCF Operations."),
         .number("logReplicas", "Management components", "Log management replicas", 3, min: 1, max: 5),
-        .toggle("rtm", "Management components", "Real-time metrics (VCF only)", false),
-        .choice("edges", "Management components", "NSX Edges in the management domain (2 nodes, VCF only)", ["None", "Small", "Medium", "Large", "XLarge"]),
+        .toggle("rtm", "Management components", "Real-time metrics (not available with VVF)", false),
+        .choice("edges", "Management components", "NSX Edges in the management domain, 2 nodes (not available with VVF)", ["None", "Small", "Medium", "Large", "XLarge"]),
         .number("extraCPU", "Management components", "Other management VMs — vCPU", 0, min: 0, max: 2000,
                 help: "Anything else that will run in the management domain: directory, DNS, backup proxies, jump hosts."),
         .number("extraRAM", "Management components", "Other management VMs — memory", 0, min: 0, max: 20_000, step: 8, unit: "GB"),
         .number("extraDisk", "Management components", "Other management VMs — disk", 0, min: 0, max: 500_000, step: 100, unit: "GB"),
-        .choice("wldGroup", "Workload domains", "Workload domains", ["One per vCenter", "One per cluster", "One for all clusters"],
+        .toggle("vvfServices", "vSphere Foundation (VVF only)", "VCF management services", true,
+                help: "Fleet and SDDC lifecycle, software depot and telemetry on the VCF services runtime. The VCF Installer always deploys them; without them VVF is installed by hand (vCenter, VCF Operations, license server) and has no log management or software depot."),
+        .choice("vvfVC", "vSphere Foundation (VVF only)", "vCenter", [
+            "Existing vCenter (converge)",
+            "New vCenter (Medium)",
+        ], help: "Converging keeps the vCenter that runs the clusters today. A new deployment adds a Medium vCenter, the VCF Installer's VVF default."),
+        .toggle("vvfProxy", "vSphere Foundation (VVF only)", "Cloud proxy", false,
+                help: "Part of VCF Operations, but the VCF Installer doesn't deploy one for VVF; add it for remote collection."),
+        .choice("wldGroup", "Workload domains", "Workload domains (not available with VVF)", ["One per vCenter", "One per cluster", "One for all clusters"],
                 help: "Each workload domain adds its vCenter and NSX Managers to the management domain. VVF has no workload domains: the other clusters stay under their vCenters."),
-        .choice("wldVC", "Workload domains", "Workload domain vCenters", [
+        .choice("wldVC", "Workload domains", "Workload domain vCenters (not available with VVF)", [
             "New vCenter per workload domain, in the management domain",
             "Keep the existing vCenter (converge in place)",
         ]),
-        .choice("wldNSX", "Workload domains", "Workload domain NSX", [
+        .choice("wldNSX", "Workload domains", "Workload domain NSX (not available with VVF)", [
             "Dedicated NSX Managers (3 nodes) per workload domain",
             "Single NSX Manager per workload domain",
             "Share the management domain's NSX",
