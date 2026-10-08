@@ -31,6 +31,30 @@ enum NutanixCollector {
         return out
     }
 
+    /// Files Collector wrote alongside the given ones that weren't opened with them: the export for a mapping file,
+    /// and the mapping file for an anonymized export. Paired by the timestamp in their names
+    /// ("ntnxcollector_anon_2026_9_18_9_35_59.xlsx" ↔ "ntnxcollector_mapping_2026_9_18_9_35_59.xlsx").
+    static func companions(of files: [URL]) -> [URL] {
+        let mappingPrefix = "ntnxcollector_mapping_", anonPrefix = "ntnxcollector_anon_"
+        let opened = Set(files.map { $0.standardizedFileURL.path })
+        var out: [URL] = []
+        func add(_ dir: URL, _ name: String) {
+            let url = dir.appendingPathComponent(name).standardizedFileURL
+            if !opened.contains(url.path), !out.contains(url), FileManager.default.fileExists(atPath: url.path) { out.append(url) }
+        }
+        for file in files where file.pathExtension.lowercased() == "xlsx" {
+            let name = file.lastPathComponent, dir = file.deletingLastPathComponent()
+            if name.lowercased().hasPrefix(mappingPrefix) {
+                let stamp = name.dropFirst(mappingPrefix.count)
+                let exportOpened = files.contains { $0.lastPathComponent.lowercased().hasPrefix("ntnxcollector_") && !$0.lastPathComponent.lowercased().hasPrefix(mappingPrefix) && $0.lastPathComponent.hasSuffix(stamp) }
+                if !exportOpened { add(dir, anonPrefix + stamp) }
+            } else if name.lowercased().hasPrefix(anonPrefix) {
+                add(dir, mappingPrefix + name.dropFirst(anonPrefix.count))
+            }
+        }
+        return out
+    }
+
     struct Result {
         var tables: [RawTable]
         var version: String
