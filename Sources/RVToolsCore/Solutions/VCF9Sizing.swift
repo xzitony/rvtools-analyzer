@@ -55,6 +55,17 @@ enum VCFAppliances {
     static let cloudProxy: [String: Spec] = ["Small": Spec(4, 16, 264), "Standard": Spec(8, 48, 264)]
     static let automation: [String: Spec] = ["Small": Spec(24, 96, 600), "Medium": Spec(24, 96, 900), "Large": Spec(32, 128, 1200)]
 
+    /// vSphere Foundation as the VCF Installer deploys it (VCF 9.1 docs, "Start a New vSphere Foundation Deployment by Using the
+    /// VCF Installer Deployment Wizard"): simple mode, Medium vCenter, Medium VCF Operations, Small VCF management services. The
+    /// workbook's sizing tab has no VVF option, so the sizes come from its tables.
+    static let vvfSource = "VCF 9.1 docs (VCF Installer, vSphere Foundation) with sizes from the \(source)"
+    static let vvfVCenterSize = "Medium"
+    static let vvfOperationsSize = "Medium"
+
+    /// Raw vSAN TiB included per licensed core. Verify current Broadcom terms.
+    static let vsanTiBPerCoreVCF = 1.0
+    static let vsanTiBPerCoreVVF = 0.25
+
     /// Smallest vCenter for a domain (VCF deploys Small or larger).
     static func vcenterSize(hosts: Int, vms: Int) -> String {
         vcenterLimits.dropFirst().first { hosts <= $0.hosts && vms <= $0.vms }?.size ?? "XLarge"
@@ -79,35 +90,49 @@ public struct VCF9Sizing: Solution {
     public var id: String { "vcfsizing" }
     public var title: String { "VCF 9 Sizing" }
     public var symbol: String { "square.stack.3d.up" }
-    public var summary: String { "Management domain and workload domain sizing on the existing hosts: greenfield peel-off, consolidated, and convergence of the other clusters." }
+    public var summary: String { "VCF or vSphere Foundation sizing on the existing hosts: management domain (greenfield peel-off or consolidated), workload domains, and convergence of the other clusters." }
 
     public var parameters: [SolutionParameter] { [
+        .choice("edition", "Architecture", "Edition", [
+            "VMware Cloud Foundation (VCF)",
+            "VMware vSphere Foundation (VVF)",
+        ], help: "VVF has no SDDC Manager, NSX, VCF Automation or workload domains: VCF Operations, the license server and VCF management services run next to the existing vCenter, deployed by the VCF Installer in simple mode."),
         .choice("arch", "Architecture", "Management domain", [
             "Dedicated — peel hosts off an existing cluster",
             "Consolidated — management and workloads share one cluster",
-        ], help: "Dedicated is the ideal: a new management cluster built from existing hosts, with the rest of that cluster carrying its VMs. Consolidated suits small environments that can't spare the hosts."),
+            "Recommended for the edition — dedicated for VCF, consolidated for VVF",
+        ], selected: 2, help: "Dedicated is the VCF ideal: a new management cluster built from existing hosts, with the rest of that cluster carrying its VMs. VVF's smaller footprint usually runs in an existing cluster; a dedicated cluster is still worth it when hosts can be spared."),
         .clusters("mgmtCluster", "Architecture", "Management cluster", multi: false, none: "Best fit (automatic)",
                   help: "The cluster that gives up hosts (dedicated) or hosts the management appliances (consolidated). Best fit needs the fewest new hosts, then leaves the most headroom."),
-        .choice("deploy", "Architecture", "VCF deployment model", VCFAppliances.Deployment.allCases.map { d in
+        .choice("deploy", "Architecture", "VCF deployment model (VCF only)", VCFAppliances.Deployment.allCases.map { d in
             d.isHA ? "High availability — \(d.size)" : "Simple — single-node appliances (Small)"
-        }, selected: 1, help: "Sets appliance sizes and node counts as the VCF Installer does. High availability needs at least 4 hosts."),
+        }, selected: 1, help: "Sets appliance sizes and node counts as the VCF Installer does. High availability needs at least 4 hosts. VVF is always simple mode."),
         .choice("storage", "Architecture", "Management domain principal storage", [
             "Auto — vSAN ESA if the cluster has vSAN, otherwise external",
             "vSAN ESA", "vSAN OSA", "External — FC / NFS",
         ]),
         .toggle("vcfOps", "Management components", "VCF Operations (with cloud proxy and license server)", true,
-                help: "The workbook leaves this out by default; VCF 9 uses VCF Operations for licensing and fleet management, so it's on here."),
-        .toggle("vcfAuto", "Management components", "VCF Automation", false),
-        .choice("logs", "Management components", "Log management", ["None", "Small", "Medium", "Large"]),
+                help: "The workbook leaves this out by default; VCF 9 uses VCF Operations for licensing and fleet management, so it's on here. VVF always includes VCF Operations and the license server."),
+        .toggle("vcfAuto", "Management components", "VCF Automation (VCF only)", false),
+        .toggle("vvfServices", "Management components", "VVF: VCF management services", true,
+                help: "Fleet and SDDC lifecycle, software depot and telemetry on the VCF services runtime. The VCF Installer always deploys them; without them VVF is installed by hand (vCenter, VCF Operations, license server) and has no log management or software depot."),
+        .choice("vvfVC", "Management components", "VVF: vCenter", [
+            "Existing vCenter (converge)",
+            "New vCenter (Medium)",
+        ], help: "Converging keeps the vCenter that runs the clusters today. A new deployment adds a Medium vCenter, the VCF Installer's VVF default."),
+        .toggle("vvfProxy", "Management components", "VVF: cloud proxy", false,
+                help: "Part of VCF Operations for VVF, but the VCF Installer doesn't deploy one; add it for remote collection."),
+        .choice("logs", "Management components", "Log management", ["None", "Small", "Medium", "Large"],
+                help: "VVF: needs VCF management services; deployed Day-N from VCF Operations."),
         .number("logReplicas", "Management components", "Log management replicas", 3, min: 1, max: 5),
-        .toggle("rtm", "Management components", "Real-time metrics", false),
-        .choice("edges", "Management components", "NSX Edges in the management domain (2 nodes)", ["None", "Small", "Medium", "Large", "XLarge"]),
+        .toggle("rtm", "Management components", "Real-time metrics (VCF only)", false),
+        .choice("edges", "Management components", "NSX Edges in the management domain (2 nodes, VCF only)", ["None", "Small", "Medium", "Large", "XLarge"]),
         .number("extraCPU", "Management components", "Other management VMs — vCPU", 0, min: 0, max: 2000,
                 help: "Anything else that will run in the management domain: directory, DNS, backup proxies, jump hosts."),
         .number("extraRAM", "Management components", "Other management VMs — memory", 0, min: 0, max: 20_000, step: 8, unit: "GB"),
         .number("extraDisk", "Management components", "Other management VMs — disk", 0, min: 0, max: 500_000, step: 100, unit: "GB"),
         .choice("wldGroup", "Workload domains", "Workload domains", ["One per vCenter", "One per cluster", "One for all clusters"],
-                help: "Each workload domain adds its vCenter and NSX Managers to the management domain."),
+                help: "Each workload domain adds its vCenter and NSX Managers to the management domain. VVF has no workload domains: the other clusters stay under their vCenters."),
         .choice("wldVC", "Workload domains", "Workload domain vCenters", [
             "New vCenter per workload domain, in the management domain",
             "Keep the existing vCenter (converge in place)",
@@ -131,6 +156,8 @@ public struct VCF9Sizing: Solution {
         .number("maxLoad", "Capacity", "Max CPU / memory load with those hosts down", 80, min: 50, max: 100, unit: "%"),
         .number("reserve", "Capacity", "Storage — host rebuild and operations reserve (vSAN)", 30, min: 0, max: 100, unit: "%"),
         .number("growth", "Capacity", "Storage — estimated growth", 10, min: 0, max: 200, unit: "%"),
+        .number("coreMin", "Licensing", "Licensed cores minimum per CPU", 16, min: 1, max: 64,
+                help: "VCF and VVF are licensed per core with a per-CPU minimum; the vSAN entitlement follows the licensed cores. Verify current terms."),
     ] }
 
     public func defaultSelection(_ inventory: Inventory) -> Set<String> {
@@ -155,6 +182,8 @@ public struct VCF9Sizing: Solution {
         var isNew = false
         var vendor: String
         var cluster = ""
+        /// Licensed cores: the per-CPU minimum applied to each socket.
+        var licensed = 0.0
     }
 
     struct Fit {
@@ -202,7 +231,8 @@ public struct VCF9Sizing: Solution {
     }
 
     static func newHost(_ typical: HostCap) -> HostCap {
-        HostCap(id: "", name: "New host (like \(typical.name))", cores: typical.cores, ramGiB: typical.ramGiB, isNew: true, vendor: typical.vendor)
+        HostCap(id: "", name: "New host (like \(typical.name))", cores: typical.cores, ramGiB: typical.ramGiB, isNew: true, vendor: typical.vendor,
+                licensed: typical.licensed)
     }
 
     /// Peels the smallest hosts off a cluster for the management domain, adding hosts like its typical one only when the
@@ -258,30 +288,7 @@ public struct VCF9Sizing: Solution {
         if let edges, let e = A.nsxEdge[edges] {
             c.append(Component(name: "Management NSX Edges", nodes: 2, cpu: e.cpu * 2, ram: e.ram * 2, disk: e.disk * 2, note: edges))
         }
-        let ctl = A.runtimeControl[d.size]!
-        let ctlNodes = d.isHA ? 3 : 1
-        c.append(Component(name: "VCF services runtime — control nodes", nodes: ctlNodes, cpu: ctl.cpu * Double(ctlNodes), ram: ctl.ram * Double(ctlNodes),
-                           disk: ctl.disk * Double(ctlNodes)))
-
-        // Workers: enough nodes for the Day-0 services plus any Day-N services (with the workbook's 9% CPU and 20% RAM
-        // allowances), plus one — except where the workbook's HA Medium profile already has the headroom.
-        let w = A.runtimeWorker[d]!
-        let day0 = A.runtimeServices[d]!
-        var dayN = (cpu: 0.0, ram: 0.0, disk: 0.0)
-        if let logs, let l = A.logs[logs] {
-            dayN.cpu += l.cpu * Double(logReplicas); dayN.ram += l.ram * Double(logReplicas); dayN.disk += l.disk * Double(logReplicas)
-        }
-        if rtm, let r = A.realTimeMetrics[d] { dayN.cpu += r.cpu; dayN.ram += r.ram; dayN.disk += r.disk }
-        let ramNeed = ((dayN.ram + day0.ram) * 1.2).rounded(.up)
-        let cpuNeed = ((dayN.cpu + day0.cpu) * 1.09).rounded(.up)
-        let nodesRAM = Int((ramNeed / w.ram).rounded(.up)) + (d == .haMedium ? 0 : 1)
-        let nodesCPU = Int((cpuNeed / w.cpu).rounded(.up)) + ((logs != nil || rtm) && d == .haMedium ? 0 : 1)
-        let workers = max(nodesRAM, nodesCPU)
-        var services = ["fleet management", "identity broker", "software depot"]
-        if logs != nil { services.append("log management") }
-        if rtm { services.append("real-time metrics") }
-        c.append(Component(name: "VCF services runtime — worker nodes", nodes: workers, cpu: w.cpu * Double(workers), ram: w.ram * Double(workers),
-                           disk: w.disk + dayN.disk, note: services.joined(separator: ", ")))
+        c += servicesRuntime(d, logs: logs, logReplicas: logReplicas, rtm: rtm, services: ["fleet management", "identity broker", "software depot"])
 
         if vcfOps {
             let nodes = d == .haSmall ? 2 : (d.isHA ? 3 : 1)
@@ -312,19 +319,84 @@ public struct VCF9Sizing: Solution {
         return c
     }
 
+    /// VCF services runtime control and worker nodes, following the workbook.
+    static func servicesRuntime(_ d: VCFAppliances.Deployment, logs: String?, logReplicas: Int, rtm: Bool, services: [String]) -> [Component] {
+        typealias A = VCFAppliances
+        let ctl = A.runtimeControl[d.size]!
+        let ctlNodes = d.isHA ? 3 : 1
+        // Workers: enough nodes for the Day-0 services plus any Day-N services (with the workbook's 9% CPU and 20% RAM
+        // allowances), plus one — except where the workbook's HA Medium profile already has the headroom.
+        let w = A.runtimeWorker[d]!
+        let day0 = A.runtimeServices[d]!
+        var dayN = (cpu: 0.0, ram: 0.0, disk: 0.0)
+        if let logs, let l = A.logs[logs] {
+            dayN.cpu += l.cpu * Double(logReplicas); dayN.ram += l.ram * Double(logReplicas); dayN.disk += l.disk * Double(logReplicas)
+        }
+        if rtm, let r = A.realTimeMetrics[d] { dayN.cpu += r.cpu; dayN.ram += r.ram; dayN.disk += r.disk }
+        let ramNeed = ((dayN.ram + day0.ram) * 1.2).rounded(.up)
+        let cpuNeed = ((dayN.cpu + day0.cpu) * 1.09).rounded(.up)
+        let nodesRAM = Int((ramNeed / w.ram).rounded(.up)) + (d == .haMedium ? 0 : 1)
+        let nodesCPU = Int((cpuNeed / w.cpu).rounded(.up)) + ((logs != nil || rtm) && d == .haMedium ? 0 : 1)
+        let workers = max(nodesRAM, nodesCPU)
+        var services = services
+        if logs != nil { services.append("log management") }
+        if rtm { services.append("real-time metrics") }
+        return [
+            Component(name: "VCF services runtime — control nodes", nodes: ctlNodes, cpu: ctl.cpu * Double(ctlNodes), ram: ctl.ram * Double(ctlNodes),
+                      disk: ctl.disk * Double(ctlNodes)),
+            Component(name: "VCF services runtime — worker nodes", nodes: workers, cpu: w.cpu * Double(workers), ram: w.ram * Double(workers),
+                      disk: w.disk + dayN.disk, note: services.joined(separator: ", ")),
+        ]
+    }
+
+    /// vSphere Foundation components as the VCF Installer deploys them: no SDDC Manager, NSX, VCF Automation or workload
+    /// domains. The services runtime uses the workbook's simple profile; its Day-0 figures include VCF-only services
+    /// (identity broker, Salt), which only adds headroom.
+    static func vvfComponents(newVCenter: Bool, services: Bool, proxy: Bool, logs: String?, logReplicas: Int, extra: VCFAppliances.Spec) -> [Component] {
+        typealias A = VCFAppliances
+        var c: [Component] = []
+        if newVCenter {
+            let vc = A.vcenter[A.vvfVCenterSize]!
+            c.append(Component(name: "vCenter", nodes: 1, cpu: vc.cpu, ram: vc.ram, disk: A.vcenterDisk[A.vvfVCenterSize]!["Large"]!,
+                               note: "\(A.vvfVCenterSize), Large storage"))
+        }
+        let o = A.operations[A.vvfOperationsSize]!
+        c.append(Component(name: "VCF Operations", nodes: 1, cpu: o.cpu, ram: o.ram, disk: o.disk, note: "\(A.vvfOperationsSize), single node"))
+        if proxy {
+            let p = A.cloudProxy["Small"]!
+            c.append(Component(name: "Cloud proxy", nodes: 1, cpu: p.cpu, ram: p.ram, disk: p.disk))
+        }
+        c.append(Component(name: "License server", nodes: 1, cpu: A.licenseServer.cpu, ram: A.licenseServer.ram, disk: A.licenseServer.disk))
+        if services {
+            c += servicesRuntime(.simple, logs: logs, logReplicas: logReplicas, rtm: false,
+                                 services: ["fleet and SDDC lifecycle", "software depot", "telemetry"])
+        }
+        if extra.cpu > 0 || extra.ram > 0 || extra.disk > 0 {
+            c.append(Component(name: "Other management VMs", nodes: 0, cpu: extra.cpu, ram: extra.ram, disk: extra.disk))
+        }
+        return c
+    }
+
     // MARK: - Run
 
     public func run(vms: [VM], inventory inv: Inventory, params p: Params) -> SolutionResult {
         typealias A = VCFAppliances
-        let dedicated = p.choice("arch") == 0
-        let deploy = A.Deployment(rawValue: p.choice("deploy")) ?? .haSmall
+        let vvf = p.choice("edition") == 1
+        let edition = vvf ? "VVF" : "VCF"
+        // "Recommended" (and anything unknown) follows the edition: dedicated for VCF, consolidated for VVF.
+        let dedicated = p.choice("arch") == 0 || (p.choice("arch") > 1 && !vvf)
+        let deploy: A.Deployment = vvf ? .simple : (A.Deployment(rawValue: p.choice("deploy")) ?? .haSmall)
+        let mgmtTerm = vvf ? "management cluster" : "management domain"
+        let mgmtArea = vvf ? "Management cluster" : "Management domain"
+        let wldArea = vvf ? "Workload clusters" : "Workload domains"
+        let coreMin = max(p.num("coreMin"), 1)
         let spare = Int(p.num("spare"))
         let maxLoad = max(p.num("maxLoad"), 1) / 100
         let mgmtRatio = max(p.num("mgmtRatio"), 0.1), wlRatio = max(p.num("wlRatio"), 0.1)
         let measured = p.choice("basis") == 0
         let reserve = p.num("reserve") / 100, growth = p.num("growth") / 100
         let wldNSX = p.choice("wldNSX")
-        let newVCenters = p.choice("wldVC") == 0
+        let newVCenters = !vvf && p.choice("wldVC") == 0
 
         // Resolve a stored cluster (id, or a name from the CLI).
         func resolve(_ ref: String) -> Cluster? {
@@ -369,7 +441,8 @@ public struct VCF9Sizing: Solution {
 
         func caps(_ c: Cluster) -> [HostCap] {
             (hostsByCluster[c.id] ?? []).filter { !$0.inferred && $0.cores > 0 && $0.memoryMiB > 0 }
-                .map { HostCap(id: $0.id, name: $0.name, cores: Double($0.cores), ramGiB: $0.memoryMiB / 1024, vendor: VCF9Sizing.vendor($0.cpuModel), cluster: $0.cluster) }
+                .map { HostCap(id: $0.id, name: $0.name, cores: Double($0.cores), ramGiB: $0.memoryMiB / 1024, vendor: VCF9Sizing.vendor($0.cpuModel), cluster: $0.cluster,
+                               licensed: $0.sockets > 0 ? Double($0.sockets) * max(coreMin, Double($0.coresPerSocket)) : max(coreMin, Double($0.cores))) }
         }
         var basisFallback: [String] = []
         func workload(_ c: Cluster) -> Demand {
@@ -403,13 +476,14 @@ public struct VCF9Sizing: Solution {
             return c.map(hasVSAN) == true ? 1 : 3
         }
         func minMgmt(_ kind: Int) -> Int { deploy.isHA ? 4 : (kind == 3 ? 2 : 3) }
-        func minWorkload(_ c: Cluster) -> Int { hasVSAN(c) ? 3 : 2 }
+        // VVF clusters stay under their vCenter, so only vSAN sets a minimum there.
+        func minWorkload(_ c: Cluster) -> Int { hasVSAN(c) ? 3 : (vvf ? 1 : 2) }
 
         // Workload domains and their appliances (independent of which hosts the management domain takes).
         func domains(excluding mgmtCluster: Cluster?) -> [WorkloadDomain] {
             let rest = clusters.filter { $0.id != mgmtCluster?.id }
             var groups: [(String, [Cluster])] = []
-            switch p.choice("wldGroup") {
+            switch vvf ? 0 : p.choice("wldGroup") {
             case 1: groups += rest.map { ($0.name, [$0]) }
             case 2: if !rest.isEmpty { groups.append(("Workload domain", rest)) }
             default:
@@ -421,7 +495,7 @@ public struct VCF9Sizing: Solution {
             return groups.enumerated().map { i, g in
                 let hosts = g.1.reduce(0) { $0 + (hostsByCluster[$1.id]?.count ?? 0) }
                 let count = g.1.reduce(0) { $0 + max($1.vmCount, vmsByCluster[$1.id]?.count ?? 0) }
-                var d = WorkloadDomain(name: String(format: "w%02d", i + 1) + " · " + g.0, clusters: g.1, hosts: hosts, vms: count)
+                var d = WorkloadDomain(name: vvf ? g.0 : String(format: "w%02d", i + 1) + " · " + g.0, clusters: g.1, hosts: hosts, vms: count)
                 d.vcSize = A.vcenterSize(hosts: hosts, vms: count)
                 d.nsxSize = A.nsxSize(hosts: hosts, clusters: g.1.count)
                 return d
@@ -437,6 +511,12 @@ public struct VCF9Sizing: Solution {
                                                       clusters: 1 + wds.reduce(0) { $0 + $1.clusters.count }))
             }
             let logs = ["", "Small", "Medium", "Large"][min(p.choice("logs"), 3)]
+            if vvf {
+                let services = p.flag("vvfServices")
+                return (VCF9Sizing.vvfComponents(newVCenter: p.choice("vvfVC") == 1, services: services, proxy: p.flag("vvfProxy"),
+                                                 logs: services && !logs.isEmpty ? logs : nil, logReplicas: max(Int(p.num("logReplicas")), 1),
+                                                 extra: A.Spec(p.num("extraCPU"), p.num("extraRAM"), p.num("extraDisk"))), wds)
+            }
             let edges = ["", "Small", "Medium", "Large", "XLarge"][min(p.choice("edges"), 4)]
             let comps = VCF9Sizing.managementComponents(
                 deploy, vcfOps: p.flag("vcfOps"), vcfAuto: p.flag("vcfAuto"), logs: logs.isEmpty ? nil : logs,
@@ -536,7 +616,12 @@ public struct VCF9Sizing: Solution {
         ] } ?? []
         // A dedicated management domain is the recommended design; a consolidated one is pushed towards it when hosts can be spared.
         let dedicatedFits = bestPeel.peel?.newHosts == 0
-        let recommendation = "A dedicated management domain is the recommended VCF design: the management appliances don't compete with workloads for CPU and memory, and management and workload domains are upgraded, patched and scaled independently. Consolidate only when the hosts can't be spared."
+        let recommendation = vvf
+            ? "A dedicated management cluster is still recommended for VVF where hosts can be spared: VCF Operations and the services runtime don't compete with workloads, and maintenance on the workload clusters doesn't touch them. VVF's footprint is small, so consolidated is a sound default."
+            : "A dedicated management domain is the recommended VCF design: the management appliances don't compete with workloads for CPU and memory, and management and workload domains are upgraded, patched and scaled independently. Consolidate only when the hosts can't be spared."
+        let greenTitle = vvf ? "Dedicated management cluster capacity" : "Greenfield management domain capacity"
+        let greenBuild = vvf ? "a dedicated management cluster" : "a greenfield management domain build"
+        let greenShort: CheckStatus = vvf ? .warning : .blocker
 
         // MARK: Management domain hosts
         let mgmtHostList: [HostCap]
@@ -549,39 +634,47 @@ public struct VCF9Sizing: Solution {
                 newHostsTotal += plan.newHosts
                 let taken = plan.mgmt.filter { !$0.isNew }.count
                 if plan.newHosts == 0 {
-                    b.add("mgmt.greenfield", "Management domain", "Greenfield management domain capacity", .ready,
-                          "\(taken) hosts from \(chosen.cluster.name) run the management domain at \(Fmt.pct(plan.mgmtLoad * 100)) with \(spare) down; the other \(plan.remaining.count) carry its workloads at \(Fmt.pct(plan.remainingLoad * 100))")
-                    headline = "Greenfield management domain fits: \(taken) hosts from \(chosen.cluster.name), no new hosts"
+                    b.add("mgmt.greenfield", mgmtArea, greenTitle, .ready,
+                          "\(taken) hosts from \(chosen.cluster.name) run the \(mgmtTerm) at \(Fmt.pct(plan.mgmtLoad * 100)) with \(spare) down; the other \(plan.remaining.count) carry its workloads at \(Fmt.pct(plan.remainingLoad * 100))")
+                    headline = (vvf ? "Dedicated management cluster fits" : "Greenfield management domain fits") + ": \(taken) hosts from \(chosen.cluster.name), no new hosts"
                 } else {
                     let forMgmt = plan.mgmt.filter(\.isNew).count
-                    let split = [forMgmt > 0 ? "\(forMgmt) for the management domain" : "", plan.newHosts - forMgmt > 0 ? "\(plan.newHosts - forMgmt) for \(chosen.cluster.name)" : ""]
+                    let split = [forMgmt > 0 ? "\(forMgmt) for the \(mgmtTerm)" : "", plan.newHosts - forMgmt > 0 ? "\(plan.newHosts - forMgmt) for \(chosen.cluster.name)" : ""]
                         .filter { !$0.isEmpty }.joined(separator: ", ")
-                    b.add("mgmt.greenfield", "Management domain", "Greenfield management domain capacity", .blocker,
-                          "Not enough capacity for a greenfield management domain build: \(plan.newHosts) new host(s) needed (\(split)) — " + (taken == 0 ? "\(chosen.cluster.name) can't spare any of its \(chosen.hosts.count) hosts" : "\(chosen.cluster.name) can spare \(taken) of its \(chosen.hosts.count) hosts"),
-                          remediation: "Free capacity on the other hosts (migrate or retire VMs), add hosts, or use a consolidated management domain.",
+                    b.add("mgmt.greenfield", mgmtArea, greenTitle, greenShort,
+                          "Not enough capacity for \(greenBuild): \(plan.newHosts) new host(s) needed (\(split)) — " + (taken == 0 ? "\(chosen.cluster.name) can't spare any of its \(chosen.hosts.count) hosts" : "\(chosen.cluster.name) can spare \(taken) of its \(chosen.hosts.count) hosts"),
+                          remediation: "Free capacity on the other hosts (migrate or retire VMs), add hosts, or use a consolidated \(mgmtTerm).",
                           affected: [cref(chosen.cluster, "workloads need \(Fmt.pct(chosen.currentLoad * 100)) of today's hosts with \(spare) down")],
                           actions: toConsolidated)
-                    headline = "Not enough capacity for a greenfield management domain build — \(plan.newHosts) new host(s) needed (\(split))"
+                    headline = "Not enough capacity for \(greenBuild) — \(plan.newHosts) new host(s) needed (\(split))"
                 }
             } else {
                 mgmtHostList = []
                 mgmtLoad = .infinity
-                b.add("mgmt.greenfield", "Management domain", "Greenfield management domain capacity", .blocker,
-                      "Not enough capacity for a greenfield management domain build on \(chosen.cluster.name)", actions: toConsolidated)
-                headline = "Not enough capacity for a greenfield management domain build"
+                b.add("mgmt.greenfield", mgmtArea, greenTitle, greenShort,
+                      "Not enough capacity for \(greenBuild) on \(chosen.cluster.name)", actions: toConsolidated)
+                headline = "Not enough capacity for \(greenBuild)"
             }
         } else {
             let f = chosen.consolidated
             mgmtHostList = f.hosts
             mgmtLoad = f.load
             newHostsTotal += max(f.newHosts, 0)
-            b.add("mgmt.consolidated", "Management domain", "Consolidated management domain capacity", f.newHosts == 0 ? .ready : .warning,
+            b.add("mgmt.consolidated", mgmtArea, "Consolidated \(mgmtTerm) capacity", f.newHosts == 0 ? .ready : .warning,
                   f.newHosts == 0
                     ? "\(chosen.cluster.name) runs the management appliances and its workloads at \(Fmt.pct(f.load * 100)) with \(spare) host(s) down"
                     : "\(chosen.cluster.name) needs \(f.newHosts) more host(s) to run the management appliances alongside its workloads",
                   remediation: f.newHosts == 0 ? "" : "Add hosts, reduce the workloads, or choose a larger cluster.")
-            if let plan = bestPeel.peel {
-                b.add("mgmt.recommend", "Management domain", "Dedicated management domain recommended", dedicatedFits ? .warning : .info,
+            // VVF: consolidated is the default; a dedicated cluster is only raised when the consolidated cluster runs tight.
+            let tight = f.newHosts != 0 || f.load > maxLoad - 0.1
+            if vvf, let plan = bestPeel.peel, tight {
+                b.add("mgmt.recommend", mgmtArea, "Dedicated management cluster worth considering", .info,
+                      plan.newHosts == 0
+                        ? "\(chosen.cluster.name) runs tight with the management appliances; \(bestPeel.cluster.name) can give up \(plan.mgmt.count) hosts for a dedicated management cluster and still carry its workloads at \(Fmt.pct(plan.remainingLoad * 100)) with \(spare) down"
+                        : "\(chosen.cluster.name) runs tight with the management appliances; a dedicated management cluster needs \(plan.newHosts) new host(s)",
+                      remediation: recommendation, actions: toDedicated)
+            } else if !vvf, let plan = bestPeel.peel {
+                b.add("mgmt.recommend", mgmtArea, "Dedicated management domain recommended", dedicatedFits ? .warning : .info,
                       dedicatedFits
                         ? "\(bestPeel.cluster.name) can give up \(plan.mgmt.count) hosts for a dedicated management domain and still carry its workloads at \(Fmt.pct(plan.remainingLoad * 100)) with \(spare) down — no new hosts needed"
                         : "A dedicated management domain needs \(plan.newHosts) new host(s): \(bestPeel.cluster.name) can't spare enough hosts and still carry its workloads",
@@ -596,31 +689,31 @@ public struct VCF9Sizing: Solution {
         if kind == 3 {
             let shared = inv.datastores.filter { onCluster($0, chosen.cluster) && $0.type.lowercased() != "vsan" && Set($0.hostKeys).count > 1 }
             let largest = shared.map(\.freeMiB).max() ?? 0
-            b.add("mgmt.storage", "Management domain", "Management domain storage", largest >= storageMiB ? .info : .warning,
+            b.add("mgmt.storage", mgmtArea, "\(mgmtArea) storage", largest >= storageMiB ? .info : .warning,
                   "\(Fmt.capacity(mib: storageMiB)) needed on the principal datastore; largest shared datastore on \(chosen.cluster.name) has \(Fmt.capacity(mib: largest)) free",
-                  remediation: "A new management domain on external storage needs its own principal datastore presented to the new hosts.")
+                  remediation: "A new \(mgmtTerm) on external storage needs its own principal datastore presented to the new hosts.")
         } else if case let vsan = inv.datastores.filter({ $0.type.lowercased() == "vsan" && onCluster($0, chosen.cluster) }), !vsan.isEmpty, chosen.hosts.count > 0 {
             let capacityMiB = vsan.reduce(0) { $0 + $1.capacityMiB }, freeMiB = vsan.reduce(0) { $0 + $1.freeMiB }
             let dsName = vsan.map(\.name).joined(separator: ", ")
             let perHost = capacityMiB / Double(chosen.hosts.count)
             let mgmtRaw = perHost * Double(mgmtHostList.count)
-            b.add("mgmt.storage", "Management domain", "Management domain vSAN capacity", mgmtRaw >= storageMiB ? .ready : .warning,
+            b.add("mgmt.storage", mgmtArea, "\(mgmtArea) vSAN capacity", mgmtRaw >= storageMiB ? .ready : .warning,
                   "\(Fmt.capacity(mib: storageMiB)) needed; \(mgmtHostList.count) hosts bring about \(Fmt.capacity(mib: mgmtRaw)) of raw vSAN (from \(dsName))",
                   remediation: "Add capacity devices to the management hosts, or plan more hosts.")
             if dedicated, let plan = chosen.peel {
                 let usedMiB = capacityMiB - freeMiB
                 let left = perHost * Double(plan.remaining.count) * (1 - reserve)
-                b.add("mgmt.donorvsan", "Management domain", "vSAN left for \(chosen.cluster.name)", usedMiB <= left ? .ready : .warning,
+                b.add("mgmt.donorvsan", mgmtArea, "vSAN left for \(chosen.cluster.name)", usedMiB <= left ? .ready : .warning,
                       "\(Fmt.capacity(mib: usedMiB)) used today; \(plan.remaining.count) remaining hosts give about \(Fmt.capacity(mib: left)) after the \(SFmt.num(reserve * 100))% reserve",
                       remediation: "Taking hosts out of a vSAN cluster takes their disks too: free space first or add capacity.")
             }
         } else {
-            b.add("mgmt.storage", "Management domain", "Management domain vSAN capacity", .info,
+            b.add("mgmt.storage", mgmtArea, "\(mgmtArea) vSAN capacity", .info,
                   "\(Fmt.capacity(mib: storageMiB)) of \(storageName) needed; \(chosen.cluster.name) has no vSAN datastore to compare against",
                   remediation: "The management hosts need local capacity devices on the vSAN ESA / OSA compatibility list.")
         }
         if kind != 3 {
-            b.add("mgmt.esa", "Management domain", "vSAN device eligibility", .info, "RVTools doesn't list host disks — confirm the management hosts' devices are certified for \(storageName)",
+            b.add("mgmt.esa", mgmtArea, "vSAN device eligibility", .info, "RVTools doesn't list host disks — confirm the management hosts' devices are certified for \(storageName)",
                   remediation: "vSAN ESA needs NVMe devices from the vSAN ESA ReadyNode / compatibility list.")
         }
 
@@ -649,8 +742,10 @@ public struct VCF9Sizing: Solution {
         var clusterRows: [[String]] = []
         var overloaded: [AffectedObject] = []
         var small: [AffectedObject] = []
+        var planHosts = mgmtHostList   // every host in the plan, new ones included, for licensing
         for u in units {
             let (need, f) = hostsNeeded(u.hosts, u.demand, min: u.min, typical: u.typical)
+            planHosts += f.hosts
             let l = VCF9Sizing.load(u.hosts, u.demand, spare: spare)
             let obj = u.ref
             if f.newHosts > 0 {
@@ -667,11 +762,31 @@ public struct VCF9Sizing: Solution {
                                 l.isFinite ? Fmt.pct(l * 100) : "—", status])
         }
         let clusterRefs: [AffectedObject?] = units.map { $0.ref.kind == .cluster ? $0.ref : nil }
-        b.list("wld.capacity", "Workload domains", "Workload cluster capacity", .warning, noun: "clusters are over \(SFmt.num(maxLoad * 100))% with \(spare) host(s) down",
+        b.list("wld.capacity", wldArea, "Workload cluster capacity", .warning, noun: "clusters are over \(SFmt.num(maxLoad * 100))% with \(spare) host(s) down",
                affected: overloaded, ready: "Every workload cluster fits with \(spare) host(s) down",
                remediation: "Add hosts, rebalance VMs between clusters, or merge clusters so they share failover capacity.")
-        b.list("wld.size", "Workload domains", "Workload cluster minimum size", .warning, noun: "clusters below the VCF minimum", affected: small,
-               ready: "Every workload cluster meets the minimum host count", remediation: "VCF needs 3 hosts per vSAN cluster and 2 with external storage.")
+        b.list("wld.size", wldArea, "Workload cluster minimum size", .warning, noun: "clusters below the \(edition) minimum", affected: small,
+               ready: "Every workload cluster meets the minimum host count", remediation: vvf ? "vSAN clusters need at least 3 hosts, or 2 with a witness appliance; RVTools doesn't show witnesses, so confirm before adding a host." : "VCF needs 3 hosts per vSAN cluster and 2 with external storage.")
+
+        // vSAN entitlement: raw TiB per licensed core, pooled across the fleet, against the raw vSAN capacity in scope today.
+        let tibPerCore = vvf ? A.vsanTiBPerCoreVVF : A.vsanTiBPerCoreVCF
+        let licensedCores = planHosts.reduce(0) { $0 + $1.licensed }
+        let entitledTiB = licensedCores * tibPerCore
+        var seenDS = Set<String>()
+        let vsanStores = inv.datastores.filter { d in
+            d.type.lowercased() == "vsan" && clusters.contains { onCluster(d, $0) } && seenDS.insert(d.id).inserted
+        }
+        let vsanRawTiB = vsanStores.reduce(0) { $0 + $1.capacityMiB } / 1024 / 1024
+        let addOnTiB = max(0, (vsanRawTiB - entitledTiB).rounded(.up))
+        if !planHosts.isEmpty {
+            b.add("license.vsan", "Licensing", "vSAN capacity entitlement", vsanStores.isEmpty || addOnTiB == 0 ? .ready : .warning,
+                  vsanStores.isEmpty
+                    ? "\(SFmt.num(licensedCores)) licensed cores include \(SFmt.num(entitledTiB)) TiB of raw vSAN; no vSAN datastores in scope today"
+                    : addOnTiB == 0
+                        ? "\(SFmt.num(licensedCores)) licensed cores include \(SFmt.num(entitledTiB)) TiB of raw vSAN, covering the \(SFmt.num((vsanRawTiB * 10).rounded() / 10)) TiB in scope"
+                        : "\(SFmt.num((vsanRawTiB * 10).rounded() / 10)) TiB of raw vSAN in scope, \(SFmt.num(entitledTiB)) TiB included with \(SFmt.num(licensedCores)) licensed cores: about \(SFmt.num(addOnTiB)) TiB of vSAN add-on capacity needed",
+                  remediation: "\(edition) includes \(SFmt.num(tibPerCore)) TiB of raw vSAN per licensed core, pooled across clusters (compute-only clusters count too). Capacity beyond that is licensed as the vSAN add-on. Verify current Broadcom terms.")
+        }
 
         var mergeRows: [[String]] = []
         if let merged = mergedCluster {
@@ -691,13 +806,13 @@ public struct VCF9Sizing: Solution {
             let mergeCands = parts.map { (cluster: $0.c, hosts: $0.hosts) }
             let vendors = Set(pool.map(\.vendor).filter { !$0.isEmpty })
             if vendors.count > 1 {
-                b.add("wld.merge.cpu", "Workload domains", "Merged cluster CPU vendors", .blocker, "The clusters to merge mix \(vendors.sorted().joined(separator: " and ")) CPUs",
+                b.add("wld.merge.cpu", wldArea, "Merged cluster CPU vendors", .blocker, "The clusters to merge mix \(vendors.sorted().joined(separator: " and ")) CPUs",
                       remediation: "vMotion doesn't cross CPU vendors; keep Intel and AMD hosts in separate clusters.",
                       affected: mergeCands.map { AffectedObject(kind: .cluster, id: $0.cluster.id, name: $0.cluster.name, detail: Set($0.hosts.map(\.vendor)).sorted().joined(separator: ", ")) })
             } else {
                 let evc = Set(mergeCands.flatMap { (hostsByCluster[$0.cluster.id] ?? []).map(\.evcCurrent) }.filter { !$0.isEmpty })
                 if evc.count > 1 {
-                    b.add("wld.merge.evc", "Workload domains", "Merged cluster EVC modes", .warning, "The clusters to merge run different EVC modes: \(evc.sorted().joined(separator: ", "))",
+                    b.add("wld.merge.evc", wldArea, "Merged cluster EVC modes", .warning, "The clusters to merge run different EVC modes: \(evc.sorted().joined(separator: ", "))",
                           remediation: "Set the merged cluster's EVC mode to the lowest common generation, or move VMs cold.")
                 }
             }
@@ -715,15 +830,20 @@ public struct VCF9Sizing: Solution {
         let checks = b.checks
         let wldAdds = comps.filter { c in wds.contains { c.name.hasPrefix($0.name + " ") } }
         sections.append(.metrics("Summary", [
-            SolutionMetric("Management domain", "\(mgmtHostList.count) hosts",
+            SolutionMetric(mgmtArea, "\(mgmtHostList.count) hosts",
                            dedicated ? [mgmtHostList.contains { !$0.isNew } ? "\(mgmtHostList.filter { !$0.isNew }.count) from \(chosen.cluster.name)" : "",
                                            mgmtHostList.contains(where: \.isNew) ? "\(mgmtHostList.filter(\.isNew).count) new" : ""].filter { !$0.isEmpty }.joined(separator: " + ")
-                                     : "consolidated on \(chosen.cluster.name)" + (dedicatedFits ? " · dedicated recommended" : ""),
-                           symbol: "server.rack", status: dedicated ? (greenfieldOK ? .ready : .blocker) : (chosen.consolidated.newHosts == 0 && !dedicatedFits ? .ready : .warning)),
+                                     : "consolidated on \(chosen.cluster.name)" + (dedicatedFits && !vvf ? " · dedicated recommended" : ""),
+                           symbol: "server.rack", status: dedicated ? (greenfieldOK ? .ready : greenShort)
+                                                                    : (chosen.consolidated.newHosts == 0 && (vvf || !dedicatedFits) ? .ready : .warning)),
             SolutionMetric("Management appliances", "\(SFmt.num(totCPU)) vCPU", "\(Fmt.memory(mib: totRAM * 1024)) RAM · \(Fmt.capacity(mib: totDisk * 1024)) disk", symbol: "cpu"),
             SolutionMetric("Load with \(spare) host(s) down", mgmtLoad.isFinite ? Fmt.pct(mgmtLoad * 100) : "—", dedicated ? "management hosts" : "appliances + workloads", symbol: "gauge.with.dots.needle.50percent"),
             SolutionMetric("Management storage", Fmt.capacity(mib: storageMiB), "\(storageName) · \(SFmt.num(storageGB)) GB in workbook terms", symbol: "externaldrive"),
-            SolutionMetric("Workload domains", Fmt.int(wds.count), "\(wds.reduce(0) { $0 + $1.clusters.count }) clusters · adds \(SFmt.num(wldAdds.reduce(0) { $0 + $1.cpu })) vCPU to management", symbol: "square.grid.2x2"),
+            vvf ? SolutionMetric("Workload clusters", Fmt.int(units.count), "under \(wds.count) vCenter(s)", symbol: "square.grid.2x2")
+                : SolutionMetric("Workload domains", Fmt.int(wds.count), "\(wds.reduce(0) { $0 + $1.clusters.count }) clusters · adds \(SFmt.num(wldAdds.reduce(0) { $0 + $1.cpu })) vCPU to management", symbol: "square.grid.2x2"),
+            SolutionMetric("vSAN entitlement", "\(SFmt.num(entitledTiB)) TiB", vsanStores.isEmpty ? "\(SFmt.num(licensedCores)) licensed cores · no vSAN in scope"
+                           : addOnTiB == 0 ? "covers \(SFmt.num((vsanRawTiB * 10).rounded() / 10)) TiB raw in scope" : "\(SFmt.num(addOnTiB)) TiB add-on needed",
+                           symbol: "internaldrive", status: addOnTiB == 0 ? .ready : .warning),
             SolutionMetric("New hosts", Fmt.int(newHostsTotal), newHostsTotal == 0 ? "none needed" : "management and workload clusters", symbol: "plus.square.on.square",
                            status: newHostsTotal == 0 ? .ready : .warning),
         ]))
@@ -766,17 +886,18 @@ public struct VCF9Sizing: Solution {
             return a
         }
         sections.append(.table(SolutionTable(
-            id: "candidates", title: "Management domain candidates",
+            id: "candidates", title: "\(mgmtArea) candidates",
             subtitle: (pending.map { "\($0.name) is waiting to be merged — choose another cluster to merge it with. " } ?? "")
-                + "Workload load is with \(spare) host(s) down; greenfield peels the smallest hosts off the cluster.",
-            columns: ["Cluster", "vCenter", "Hosts", "Cores", "RAM (GiB)", "Workload load", "Greenfield", "Consolidated", ""],
+                + "Workload load is with \(spare) host(s) down; \(vvf ? "dedicated" : "greenfield") peels the smallest hosts off the cluster.",
+            columns: ["Cluster", "vCenter", "Hosts", "Cores", "RAM (GiB)", "Workload load", vvf ? "Dedicated" : "Greenfield", "Consolidated", ""],
             numeric: [2, 3, 4, 5], rows: candRows, rowRefs: candidates.map { memberIDs[$0.cluster.id] == nil ? cref($0.cluster) : nil }, rowActions: candActions)))
 
         // Appliances.
         var compRows = comps.map { [$0.name, $0.nodes > 0 ? "\($0.nodes)" : "—", SFmt.num($0.cpu), SFmt.num($0.ram), SFmt.num($0.disk), $0.note] }
         compRows.append(["Total", "\(comps.reduce(0) { $0 + $1.nodes })", SFmt.num(totCPU), SFmt.num(totRAM), SFmt.num(totDisk), ""])
         sections.append(.table(SolutionTable(
-            id: "appliances", title: "Management domain appliances", subtitle: "\(deploy.label) · sizes from the \(A.source)",
+            id: "appliances", title: vvf ? "Management appliances" : "Management domain appliances",
+            subtitle: vvf ? "vSphere Foundation · simple mode, as the VCF Installer deploys it · sizes from the \(A.source)" : "\(deploy.label) · sizes from the \(A.source)",
             columns: ["Component", "Nodes", "vCPU", "RAM (GB)", "Disk (GB)", "Notes"], numeric: [1, 2, 3, 4], rows: compRows, emphasized: [compRows.count - 1])))
 
         // Management hosts.
@@ -787,7 +908,7 @@ public struct VCF9Sizing: Solution {
             var rows = mgmtHostList.map { h in [h.name, h.isNew ? "New" : (h.cluster.isEmpty ? chosen.cluster.name : h.cluster), SFmt.num(h.cores), SFmt.num(h.ramGiB.rounded())] }
             rows.append([dedicated ? "Management load per host" : "Load per host (appliances + workloads)", "\(spare) host(s) down", SFmt.num(perCPU.rounded(.up)), SFmt.num(perRAM.rounded(.up))])
             sections.append(.table(SolutionTable(
-                id: "mgmt-hosts", title: dedicated ? "Management domain hosts" : "Consolidated cluster hosts",
+                id: "mgmt-hosts", title: dedicated ? "\(mgmtArea) hosts" : "Consolidated cluster hosts",
                 subtitle: dedicated ? "Appliances at \(SFmt.num(mgmtRatio)):1 vCPU per core" : "Appliances at \(SFmt.num(mgmtRatio)):1 plus the cluster's workloads",
                 columns: ["Host", "Source", "Cores", "RAM (GiB)"], numeric: [2, 3], rows: rows,
                 rowRefs: mgmtHostList.map { $0.isNew ? nil : AffectedObject(kind: .host, id: $0.id, name: $0.name) } + [nil], emphasized: [rows.count - 1])))
@@ -803,7 +924,7 @@ public struct VCF9Sizing: Solution {
             storRows.append(["Rebuild and operations reserve (\(SFmt.num(reserve * 100))%)", SFmt.num(reserved.rounded(.up))])
         }
         storRows.append(["With \(SFmt.num(growth * 100))% growth", SFmt.num(storageGB)])
-        sections.append(.table(SolutionTable(id: "mgmt-storage", title: "Management domain storage (GB)", subtitle: storageName,
+        sections.append(.table(SolutionTable(id: "mgmt-storage", title: "\(vvf ? "Management" : "Management domain") storage (GB)", subtitle: storageName,
                                              columns: ["Step", "GB"], numeric: [1], rows: storRows, emphasized: [storRows.count - 1])))
 
         // Workload domains.
@@ -814,12 +935,14 @@ public struct VCF9Sizing: Solution {
                         newVCenters ? wd.vcSize : "Existing", wldNSX == 2 ? "Shared" : "\(wd.nsxSize) × \(wldNSX == 0 ? 3 : 1)",
                         "\(SFmt.num(adds.reduce(0) { $0 + $1.cpu })) vCPU · \(SFmt.num(adds.reduce(0) { $0 + $1.ram })) GB"]
             }
-            sections.append(.table(SolutionTable(
-                id: "workload-domains", title: "Workload domains", subtitle: "What each converged domain adds to the management domain",
-                columns: ["Domain", "Clusters", "Hosts", "VMs", "vCenter", "NSX Managers", "Adds to management"], numeric: [2, 3], rows: rows)))
+            if !vvf {
+                sections.append(.table(SolutionTable(
+                    id: "workload-domains", title: "Workload domains", subtitle: "What each converged domain adds to the management domain",
+                    columns: ["Domain", "Clusters", "Hosts", "VMs", "vCenter", "NSX Managers", "Adds to management"], numeric: [2, 3], rows: rows)))
+            }
             sections.append(.table(SolutionTable(
                 id: "workload-clusters", title: "Workload clusters", subtitle: "Existing workloads with \(spare) host(s) down, at most \(SFmt.num(maxLoad * 100))%",
-                columns: ["Cluster", "Domain", "Hosts", "Demand (cores)", "Demand (GiB)", "Load", "Capacity"], numeric: [2, 3, 4, 5],
+                columns: ["Cluster", vvf ? "vCenter" : "Domain", "Hosts", "Demand (cores)", "Demand (GiB)", "Load", "Capacity"], numeric: [2, 3, 4, 5],
                 rows: clusterRows, rowRefs: clusterRefs)))
         }
         if !mergeRows.isEmpty {
@@ -829,7 +952,7 @@ public struct VCF9Sizing: Solution {
         // The alternative the user didn't pick, when it matters.
         if dedicated && !greenfieldOK {
             let f = bestCons.consolidated
-            sections.append(.notes("Alternative: consolidated management domain", [
+            sections.append(.notes("Alternative: consolidated \(mgmtTerm)", [
                 f.newHosts == 0
                     ? "\(bestCons.cluster.name) could run the management appliances alongside its workloads on its \(f.hosts.count) hosts (\(Fmt.pct(f.load * 100)) with \(spare) down)."
                     : "The best consolidated option, \(bestCons.cluster.name), needs \(max(f.newHosts, 0)) more host(s).",
@@ -838,19 +961,29 @@ public struct VCF9Sizing: Solution {
         }
 
         var notes = [
-            "Management appliance sizes, node counts and the storage steps follow the \(A.source) (Management Domain Sizing tab, first instance). Unlike the workbook, CPU and memory both keep \(spare) host(s) in reserve.",
+            vvf ? "vSphere Foundation components follow the VCF 9.1 docs: the VCF Installer deploys VVF in simple mode with a Medium vCenter, Medium VCF Operations (one node), the license server and Small VCF management services; there is no SDDC Manager, NSX, VCF Automation or workload domain. Sizes and the storage steps come from the \(A.source)'s tables (its sizing tab has no VVF option). Its services runtime figures include VCF-only services such as the identity broker, so they carry some headroom. CPU and memory both keep \(spare) host(s) in reserve."
+                : "Management appliance sizes, node counts and the storage steps follow the \(A.source) (Management Domain Sizing tab, first instance). Unlike the workbook, CPU and memory both keep \(spare) host(s) in reserve.",
             "Host fit uses each host's cores and memory from vHost. " + (measured
                 ? "Existing workloads are sized from measured host CPU and memory usage, scaled to the selected VMs' share of each cluster's measured VM usage."
                 : "Existing workloads are the selected powered-on VMs at \(SFmt.num(wlRatio)):1 vCPU per core and 1:1 memory."),
-            "Greenfield assumes the other hosts in the cluster can take its VMs (vMotion / DRS) before hosts are removed for the management domain.",
-            "Not in this sizing: Supervisor, Avi, Security Services Platform, VCF Operations for networks and Live Recovery — add them as Other management VMs.",
+            "\(vvf ? "A dedicated cluster" : "Greenfield") assumes the other hosts in the cluster can take its VMs (vMotion / DRS) before hosts are removed for the \(mgmtTerm).",
+            vvf ? "Not in this sizing: Supervisor, Avi, Live Recovery and Site Recovery Manager — add them as Other management VMs."
+                : "Not in this sizing: Supervisor, Avi, Security Services Platform, VCF Operations for networks and Live Recovery — add them as Other management VMs.",
+            "vSAN entitlement: \(SFmt.num(tibPerCore)) TiB of raw vSAN per licensed core (\(SFmt.num(coreMin))-core minimum per CPU), compared with the raw capacity of today's vSAN datastores in scope. Disks in new hosts aren't in the export.",
         ]
+        if vvf && !dedicated, let plan = bestPeel.peel {
+            notes.append("A dedicated management cluster is still recommended for VVF where hosts can be spared. " + (plan.newHosts == 0
+                ? "\(bestPeel.cluster.name) could give up \(plan.mgmt.count) hosts for one and still carry its workloads at \(Fmt.pct(plan.remainingLoad * 100)) with \(spare) down."
+                : "Here it would need \(plan.newHosts) new host(s)."))
+        }
         if !isAuto { notes.insert("Management cluster chosen under Assumptions; best fit would be \(best.cluster.name).", at: 0) }
         sections.append(.notes("About this sizing", notes))
 
         if headline.isEmpty { headline = "\(clusters.count) clusters sized" }
-        headline += " · \(wds.count) workload domain(s)" + (newHostsTotal > 0 ? " · \(newHostsTotal) new host(s) overall" : "")
-        if !dedicated && dedicatedFits { headline += " · a dedicated management domain fits without new hosts (recommended)" }
+        headline = (vvf ? "VVF · " : "") + headline
+        headline += (vvf ? "" : " · \(wds.count) workload domain(s)") + (newHostsTotal > 0 ? " · \(newHostsTotal) new host(s) overall" : "")
+        if addOnTiB > 0 { headline += " · \(SFmt.num(addOnTiB)) TiB vSAN add-on" }
+        if !vvf && !dedicated && dedicatedFits { headline += " · a dedicated management domain fits without new hosts (recommended)" }
         return SolutionResult(headline: headline, sections: sections)
     }
 }
