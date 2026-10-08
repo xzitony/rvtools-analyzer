@@ -1,0 +1,8 @@
+{
+  "title": "VCF 9 assessment decks",
+  "template": "",
+  "decks": [
+    { "solution": "vcf9" },
+    { "solution": "vcfsizing" }
+  ]
+}

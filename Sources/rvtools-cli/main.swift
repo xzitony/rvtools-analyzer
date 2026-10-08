@@ -34,6 +34,14 @@ func writeDeck(_ result: SolutionResult, _ s: any Solution, subtitle: String, da
         exit(1)
     }
 }
+// --decks <recipe.rvadecks> [--out <dir> | --zip <file>] [--customer <name>]: make every deck the recipe lists,
+// with default selections and assumptions (see examples/decks.rvadecks). Default output: a "<export> Decks" folder beside the first export.
+var decksRecipe: String?, decksOut: String?, decksZip: String?, decksCustomer: String?
+for flag in ["--decks", "--out", "--zip", "--customer"] {
+    guard let i = args.firstIndex(of: flag), i + 1 < args.count else { continue }
+    switch flag { case "--decks": decksRecipe = args[i + 1]; case "--out": decksOut = args[i + 1]; case "--zip": decksZip = args[i + 1]; default: decksCustomer = args[i + 1] }
+    args.removeSubrange(i...(i + 1))
+}
 // --map <kind>:<name>: print the relationship map of a vm, host, cluster, datastore or portgroup (with --export, also its CSV).
 var mapSpec: String?
 if let i = args.firstIndex(of: "--map"), i + 1 < args.count {
@@ -206,21 +214,7 @@ func resolveSelections(_ s: any Solution, _ inv: Inventory) -> [String: Set<Stri
 }
 
 func paramValues(_ s: any Solution) -> ParamValues {
-    var v = project?.solutionParams[s.id] ?? ParamValues()
-    for (name, raw) in overrides {
-        guard let spec = s.parameters.first(where: { $0.id == name }) else {
-            FileHandle.standardError.write("unknown parameter '\(name)' — available: \(s.parameters.map(\.id).joined(separator: ", "))\n".data(using: .utf8)!)
-            continue
-        }
-        switch spec.kind {
-        case .number: if let x = Double(raw) { v.values[name] = .number(x) }
-        case .choice: if let x = Int(raw) { v.values[name] = .choice(x) }
-        case .toggle: v.values[name] = .flag(["1", "true", "yes", "on"].contains(raw.lowercased()))
-        case .multi: v.values[name] = .selection(raw.split(separator: ",").compactMap { Int($0) })
-        case .clusters: v.values[name] = .names(raw.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
-        }
-    }
-    return v
+    ParamValues.parsing(overrides, for: s, base: project?.solutionParams[s.id] ?? ParamValues()) { stderr($0) }
 }
 
 // --prices azure|aws: download every region's public price list and report what was found.
@@ -239,9 +233,39 @@ if let i = args.firstIndex(of: "--prices"), i + 1 < args.count {
     exit(0)
 }
 
+if let path = decksRecipe {
+    guard !args.isEmpty else { stderr("--decks needs an export to read"); exit(1) }
+    do {
+        let recipe = try DeckRecipe.load(URL(fileURLWithPath: path))
+        let problems = recipe.problems()
+        guard problems.isEmpty else { problems.forEach { stderr("✗ " + $0) }; exit(1) }
+        let inputs = args.map { URL(fileURLWithPath: $0) }
+        let outputs = try DeckBatch.run(recipe, inputs: inputs, customer: decksCustomer)
+        for o in outputs {
+            o.notes.forEach { stderr("  · \(o.name): " + $0) }
+            stderr(o.data != nil ? "✓ \(o.fileName)" : "✗ \(o.name): \(o.error ?? "failed")")
+        }
+        if let zip = decksZip {
+            try DeckBatch.zip(outputs).write(to: URL(fileURLWithPath: zip))
+            stderr("Wrote \(zip)")
+        } else {
+            let first = inputs[0].standardizedFileURL
+            let dir = decksOut.map { URL(fileURLWithPath: $0) }
+                ?? first.deletingLastPathComponent().appendingPathComponent(first.deletingPathExtension().lastPathComponent + " Decks")
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            for o in outputs { if let d = o.data { try d.write(to: dir.appendingPathComponent(o.fileName)) } }
+            stderr("Wrote \(dir.path)")
+        }
+        exit(outputs.contains { $0.data == nil } ? 3 : 0)
+    } catch {
+        stderr("--decks: \(error.localizedDescription)")
+        exit(1)
+    }
+}
+
 guard !args.isEmpty else {
     print("usage: rvtools-cli <RVTools export .xlsx | folder of RVTools_tab*.csv | project.rvaproj> [...] [--export <dir>]")
-    print("       [--solution <id> [--pptx <file> [--template <file>]]] [--set name=value ...] [--select selection=vms ...] [--save-project <path>] [--trend] [--map kind:name] [--units binary|decimal] [--rate bits|bytes]")
+    print("       [--solution <id> [--pptx <file> [--template <file>]]] [--decks <recipe> [--out <dir> | --zip <file>] [--customer <name>]] [--set name=value ...] [--select selection=vms ...] [--save-project <path>] [--trend] [--map kind:name] [--units binary|decimal] [--rate bits|bytes]")
     print("       --list-solutions | --validate-solution <pack> [export] | --solutions <dir> | --price-list <file> | --prices azure|aws")
     exit(1)
 }
