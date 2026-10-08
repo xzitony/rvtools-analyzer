@@ -88,7 +88,7 @@ public struct DatastorePaths: Sendable {
             return "\(transport.rawValue) · no storage paths to check"
         case .vvol:
             let via = adapterTypes.isEmpty ? "" : " · hosts have \(adapterTypes.joined(separator: " and ")) adapters"
-            return "RVTools exports no protocol endpoints for vVols, so there are no paths to check" + via
+            return "The export has no protocol endpoints for vVols, so there are no paths to check" + via
         default:
             guard !withData.isEmpty else { return "No multipathing data in the export" }
             let paths = minPaths == maxPaths ? "\(minPaths) paths each" : "\(minPaths)–\(maxPaths) paths"

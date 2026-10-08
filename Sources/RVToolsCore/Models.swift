@@ -358,6 +358,8 @@ public struct Datastore: Identifiable, Sendable {
     public var type = ""
     public var capacityMiB = 0.0
     public var provisionedMiB = 0.0
+    /// False when the source has no provisioned figure (Nutanix Collector, Live Optics): unknown, not zero.
+    public var provisionedReported = true
     public var inUseMiB = 0.0
     public var freeMiB = 0.0
     public var freePct = 0.0
@@ -586,6 +588,18 @@ public struct ConsistencyCheck: Identifiable, Sendable {
     public var note = ""
 }
 
+/// A tool other than RVTools whose export was translated into RVTools tabs on load (see `NutanixCollector`,
+/// `LiveOptics`), and how its data falls short of a full RVTools export.
+public struct SourceTool: Sendable, Hashable {
+    public var name: String
+    public var version: String
+    /// What RVTools would have and this tool doesn't gather at all.
+    public var notCollected: [String]
+    /// Figures it does gather, but measured or converted differently from RVTools.
+    public var measuredDifferently: [String]
+    public var label: String { version.isEmpty ? name : "\(name) \(version)" }
+}
+
 public struct Inventory: Sendable {
     public var reportDate = Date()
     public var vcenters: [VCenter] = []
@@ -607,6 +621,8 @@ public struct Inventory: Sendable {
     public var checks: [ConsistencyCheck] = []
     /// Lower-cased names of the tabs in the export (empty for inventories not built from a dataset).
     public var tabsPresent: Set<String> = []
+    /// Non-RVTools tools the data was translated from; empty for plain RVTools exports.
+    public var sourceTools: [SourceTool] = []
 
     /// VMs a solution works on by default: not templates, SRM placeholders or vCenter's own cluster agents.
     public var workloadVMs: [VM] { vms.filter { $0.isVM && !$0.isClusterAgent } }

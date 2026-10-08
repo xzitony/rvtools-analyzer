@@ -713,7 +713,7 @@ public struct VCF9Sizing: Solution {
                   remediation: "The management hosts need local capacity devices on the vSAN ESA / OSA compatibility list.")
         }
         if kind != 3 {
-            b.add("mgmt.esa", mgmtArea, "vSAN device eligibility", .info, "RVTools doesn't list host disks — confirm the management hosts' devices are certified for \(storageName)",
+            b.add("mgmt.esa", mgmtArea, "vSAN device eligibility", .info, "The export doesn't list host disks — confirm the management hosts' devices are certified for \(storageName)",
                   remediation: "vSAN ESA needs NVMe devices from the vSAN ESA ReadyNode / compatibility list.")
         }
 
@@ -766,7 +766,7 @@ public struct VCF9Sizing: Solution {
                affected: overloaded, ready: "Every workload cluster fits with \(spare) host(s) down",
                remediation: "Add hosts, rebalance VMs between clusters, or merge clusters so they share failover capacity.")
         b.list("wld.size", wldArea, "Workload cluster minimum size", .warning, noun: "clusters below the \(edition) minimum", affected: small,
-               ready: "Every workload cluster meets the minimum host count", remediation: vvf ? "vSAN clusters need at least 3 hosts, or 2 with a witness appliance; RVTools doesn't show witnesses, so confirm before adding a host." : "VCF needs 3 hosts per vSAN cluster and 2 with external storage.")
+               ready: "Every workload cluster meets the minimum host count", remediation: vvf ? "vSAN clusters need at least 3 hosts, or 2 with a witness appliance; the export doesn't show witnesses, so confirm before adding a host." : "VCF needs 3 hosts per vSAN cluster and 2 with external storage.")
 
         // vSAN entitlement: raw TiB per licensed core, pooled across the fleet, against the raw vSAN capacity in scope today.
         let tibPerCore = vvf ? A.vsanTiBPerCoreVVF : A.vsanTiBPerCoreVCF

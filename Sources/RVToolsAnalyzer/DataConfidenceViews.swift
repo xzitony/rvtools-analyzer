@@ -18,7 +18,7 @@ extension DataQuality.Level {
     }
     var headline: String {
         switch self {
-        case .complete: return "Every key figure is reported by RVTools"
+        case .complete: return "Every key figure is reported by the export"
         case .derived: return "Some figures were derived from other tabs"
         case .incomplete: return "Some figures are missing from this export"
         }
@@ -98,7 +98,9 @@ struct DataConfidenceCard: View {
                     Image(systemName: level.symbol).font(.title2).foregroundStyle(level.color)
                     VStack(alignment: .leading, spacing: 1) {
                         Text(level.headline).font(.callout.weight(.semibold))
-                        Text("\(Fmt.pct(quality.score)) of \(Fmt.int(quality.total)) figures have a value").font(.caption).foregroundStyle(.secondary)
+                        Text("\(Fmt.pct(quality.score)) of \(Fmt.int(quality.total)) figures have a value"
+                             + (quality.sourceToolNames.isEmpty ? "" : ", translated from " + quality.sourceToolNames.joined(separator: " / ")))
+                            .font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 .frame(width: 300, alignment: .leading)
@@ -125,5 +127,52 @@ struct DataConfidenceCard: View {
                 }
             }
         }
+    }
+}
+
+/// Caution at the top of Correlations when the data came from Nutanix Collector or Live Optics rather than RVTools.
+struct SourceToolCaution: View {
+    let tools: [SourceTool]
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Image(systemName: Severity.warning.symbol).foregroundStyle(Palette.warning)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Translated from \(ListFormatter.localizedString(byJoining: tools.map(\.label))), not RVTools").font(.callout.weight(.semibold))
+                Text("Not all data is in the same format as RVTools, which can cause errors in figures such as CPU, memory and storage usage. Please validate all outputs.")
+                    .font(.callout).fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .background(Palette.warning.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Palette.warning.opacity(0.45)))
+    }
+}
+
+/// What a translated source lacks compared with a full RVTools export, and what it measures differently.
+struct SourceToolGapsCard: View {
+    let tool: SourceTool
+
+    var body: some View {
+        Card("\(tool.name) vs a full RVTools export", subtitle: "Figures and views that depend on these show as unknown or empty, or need checking against the source") {
+            HStack(alignment: .top, spacing: 28) {
+                list("Not collected", symbol: "minus.circle", color: Palette.neutral, tool.notCollected)
+                list("Measured differently", symbol: "arrow.triangle.branch", color: Palette.primary, tool.measuredDifferently)
+            }
+        }
+    }
+
+    private func list(_ title: String, symbol: String, color: Color, _ items: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            ForEach(items, id: \.self) { item in
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Image(systemName: symbol).font(.caption).foregroundStyle(color)
+                    Text(item).font(.callout).fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

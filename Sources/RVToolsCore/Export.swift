@@ -77,7 +77,7 @@ public enum CSVExport {
                "VMs", "Hosts", "Clusters", "Local", "Issues"],
               r.inventory.datastores.map { d in
                   [d.name, d.vcenter, d.type, gb(d.capacityMiB), gb(d.capacityMiB - d.freeMiB), gb(d.freeMiB), Fmt.num(d.freePct, 1),
-                   gb(d.provisionedMiB), Fmt.num(d.provisionedPct, 0), "\(d.vmCount)", "\(d.hostNames.count)", d.clusterList,
+                   d.provisionedReported ? gb(d.provisionedMiB) : "", d.provisionedReported ? Fmt.num(d.provisionedPct, 0) : "", "\(d.vmCount)", "\(d.hostNames.count)", d.clusterList,
                    d.isLocal ? "Yes" : "No", "\(d.issueCount)"]
               })
     }

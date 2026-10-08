@@ -44,7 +44,7 @@ public struct DataGap: Identifiable, Sendable {
 }
 
 /// How much of the export's key figures (VM vCPU, memory, provisioned and in-use storage; host cores and memory;
-/// datastore capacity) came straight from RVTools, were derived from another tab, or are missing.
+/// datastore capacity) came straight from the export, were derived from another tab, or are missing.
 public struct DataQuality: Sendable {
     public enum Level: Sendable { case complete, derived, incomplete }
 
@@ -56,9 +56,14 @@ public struct DataQuality: Sendable {
     public var hostCapacityKnown = true
     public var datastoreCapacityKnown = true
     var tabsPresent: Set<String> = []
+    public internal(set) var sourceToolNames: [String] = []
 
     /// Whether the export has this tab (always true for inventories not built from a dataset).
     public func has(_ tab: String) -> Bool { tabsPresent.isEmpty || tabsPresent.contains(tab.lowercased()) }
+    /// "vDisk tab not in export", or "vDisk not collected by Live Optics" when the data was translated from another tool.
+    public func absent(_ tab: String) -> String {
+        sourceToolNames.isEmpty ? "\(tab) tab not in export" : "\(tab) not collected by " + sourceToolNames.joined(separator: " / ")
+    }
 
     public var total: Int { reported + derived + missing }
     /// Share of key figures that have a value, reported or derived (0–100).
@@ -88,6 +93,7 @@ public struct DataQuality: Sendable {
     public static func evaluate(_ inv: Inventory) -> DataQuality {
         var q = DataQuality()
         q.tabsPresent = inv.tabsPresent
+        q.sourceToolNames = inv.sourceTools.map(\.name)
         let realHosts = inv.hosts.filter { !$0.isVirtual }
         q.hostCapacityKnown = realHosts.isEmpty ? inv.tabsPresent.isEmpty || inv.tabsPresent.contains("vhost") : realHosts.contains { $0.coresSource != .missing }
         q.datastoreCapacityKnown = inv.datastores.isEmpty ? inv.tabsPresent.isEmpty || inv.tabsPresent.contains("vdatastore")
@@ -127,10 +133,10 @@ public struct DataQuality: Sendable {
         let tabs = inv.tabsPresent
         if !tabs.isEmpty {
             for (tab, impact) in coreTabs where !tabs.contains(tab.lowercased()) {
-                q.gaps.append(DataGap(kind: .missing, area: "Export", title: "\(tab) tab not in export", affected: 0, total: 0, fallback: "", impact: impact))
+                q.gaps.append(DataGap(kind: .missing, area: "Export", title: q.absent(tab), affected: 0, total: 0, fallback: "", impact: impact))
             }
             for (tab, impact) in detailTabs where !tabs.contains(tab.lowercased()) {
-                q.gaps.append(DataGap(kind: .note, area: "Export", title: "\(tab) tab not in export", affected: 0, total: 0, fallback: "", impact: impact))
+                q.gaps.append(DataGap(kind: .note, area: "Export", title: q.absent(tab), affected: 0, total: 0, fallback: "", impact: impact))
             }
         }
 

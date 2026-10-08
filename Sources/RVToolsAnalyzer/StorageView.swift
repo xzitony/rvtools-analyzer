@@ -84,15 +84,18 @@ struct StorageOverview: View {
             VStack(alignment: .leading, spacing: 16) {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 190), spacing: 12)], spacing: 12) {
                     let q = report.dataQuality, dsKnown = q.datastoreCapacityKnown
-                    KPITile(title: "Capacity", value: dsKnown ? Fmt.capacity(mib: t.dsCapacityMiB) : "—", detail: "\(t.datastores) datastores" + (dsKnown ? "" : " · vDatastore tab not in export"), symbol: "externaldrive")
+                    KPITile(title: "Capacity", value: dsKnown ? Fmt.capacity(mib: t.dsCapacityMiB) : "—", detail: "\(t.datastores) datastores" + (dsKnown ? "" : " · " + q.absent("vDatastore")), symbol: "externaldrive")
                     KPITile(title: "Used", value: dsKnown ? Fmt.pct(t.dsUsedPct) : "—", detail: dsKnown ? "\(Fmt.capacity(mib: t.dsUsedMiB)) used · \(Fmt.capacity(mib: t.dsFreeMiB)) free" : "Not in export", symbol: "chart.bar.fill")
-                    KPITile(title: "Provisioned", value: dsKnown ? Fmt.pct(t.dsCapacityMiB > 0 ? t.dsProvisionedMiB / t.dsCapacityMiB * 100 : 0) : "—",
-                            detail: dsKnown ? "\(Fmt.capacity(mib: t.dsProvisionedMiB)) promised to VMs (thin overcommit)" : "Not in export", symbol: "arrow.up.right.square")
+                    let provKnown = dsKnown && t.dsProvisionedKnown
+                    KPITile(title: "Provisioned", value: provKnown ? Fmt.pct(t.dsCapacityMiB > 0 ? t.dsProvisionedMiB / t.dsCapacityMiB * 100 : 0) : "—",
+                            detail: provKnown ? "\(Fmt.capacity(mib: t.dsProvisionedMiB)) promised to VMs (thin overcommit)"
+                                : (q.sourceToolNames.isEmpty ? "Not in export" : "Not collected by " + q.sourceToolNames.joined(separator: " / ")),
+                            symbol: "arrow.up.right.square")
                     KPITile(title: "VM in use", value: Fmt.capacity(mib: t.vmInUseMiB), detail: "of \(Fmt.capacity(mib: t.vmProvisionedMiB)) VM provisioned", symbol: "internaldrive")
                     KPITile(title: "Guest used", value: q.has("vPartition") ? Fmt.capacity(mib: t.guestConsumedMiB) : "—",
-                            detail: q.has("vPartition") ? "of \(Fmt.capacity(mib: t.guestCapacityMiB)) guest file systems" : "vPartition tab not in export", symbol: "folder")
+                            detail: q.has("vPartition") ? "of \(Fmt.capacity(mib: t.guestCapacityMiB)) guest file systems" : q.absent("vPartition"), symbol: "folder")
                     KPITile(title: "Thin provisioned", value: q.has("vDisk") ? Fmt.pct(s.thinMiB / diskTotal * 100) : "—",
-                            detail: q.has("vDisk") ? "\(Fmt.capacity(mib: s.thinMiB)) thin · \(Fmt.capacity(mib: s.thickMiB)) thick" : "vDisk tab not in export", symbol: "square.dashed")
+                            detail: q.has("vDisk") ? "\(Fmt.capacity(mib: s.thinMiB)) thin · \(Fmt.capacity(mib: s.thickMiB)) thick" : q.absent("vDisk"), symbol: "square.dashed")
                 }
                 HStack(alignment: .top, spacing: 16) {
                     Card("Datastore utilization", subtitle: "Most-used datastores") {
@@ -102,13 +105,14 @@ struct StorageOverview: View {
                         VStack(spacing: 0) {
                             reclaimRow("Powered-off VMs", Fmt.capacity(mib: s.poweredOffProvisionedMiB), "\(t.vmsOff) VMs · \(Fmt.capacity(mib: s.poweredOffInUseMiB)) actually in use", rule: "vm.poweredoff")
                             reclaimRow("Snapshots", report.dataQuality.has("vSnapshot") ? Fmt.capacity(mib: s.snapshotMiB) : "—",
-                                       report.dataQuality.has("vSnapshot") ? "\(t.snapshots) snapshots in delta files" : "vSnapshot tab not in export", rule: "vm.snapshot.old")
+                                       report.dataQuality.has("vSnapshot") ? "\(t.snapshots) snapshots in delta files" : report.dataQuality.absent("vSnapshot"), rule: "vm.snapshot.old")
                             reclaimRow("Templates", Fmt.capacity(mib: s.templateProvisionedMiB), "\(t.templates) templates provisioned", rule: nil)
                             reclaimRow("Free space inside guests", report.dataQuality.has("vPartition") ? Fmt.capacity(mib: s.guestFreeMiB) : "—",
-                                       report.dataQuality.has("vPartition") ? "Right-sizing headroom in guest file systems" : "vPartition tab not in export", rule: nil)
+                                       report.dataQuality.has("vPartition") ? "Right-sizing headroom in guest file systems" : report.dataQuality.absent("vPartition"), rule: nil)
                             reclaimRow("Empty datastores", Fmt.capacity(mib: report.inventory.datastores.filter { $0.vmCount == 0 }.reduce(0) { $0 + $1.capacityMiB }),
                                        "\(report.inventory.datastores.filter { $0.vmCount == 0 }.count) datastores with no VM files", rule: "ds.empty")
-                            reclaimRow("Zombie files (RVTools)", "\(s.zombieFiles)", "VMDKs not attached to any registered VM", rule: "vhealth.zombie")
+                            reclaimRow("Zombie files (RVTools)", report.dataQuality.has("vHealth") ? "\(s.zombieFiles)" : "—",
+                                       report.dataQuality.has("vHealth") ? "VMDKs not attached to any registered VM" : report.dataQuality.absent("vHealth"), rule: "vhealth.zombie")
                         }
                     }
                 }
@@ -209,7 +213,7 @@ struct DatastoresPane: View {
                 TableColumn("Used", value: \Datastore.usedPct) { (d: Datastore) in UsageMeter(pct: d.usedPct, warn: warn, crit: crit, width: 48) }
                     .width(min: 105, ideal: 115)
                 TableColumn("Free", value: \Datastore.freeMiB) { (d: Datastore) in Text(Fmt.capacity(mib: d.freeMiB)).tabular() }.width(80)
-                TableColumn("Provisioned", value: \Datastore.provisionedPct) { (d: Datastore) in Text(Fmt.pct(d.provisionedPct)).tabular() }.width(80)
+                TableColumn("Provisioned", value: \Datastore.provisionedPct) { (d: Datastore) in Text(d.provisionedReported ? Fmt.pct(d.provisionedPct) : "—").tabular() }.width(80)
             }
             Group {
                 TableColumn("VMs", value: \Datastore.vmCount) { (d: Datastore) in Text("\(d.vmCount)").tabular() }.width(45)
@@ -318,8 +322,10 @@ struct DatastoreDetail: View {
                 }
                 LabeledMeter(label: "Used", pct: d.usedPct, detail: "\(Fmt.capacity(mib: d.capacityMiB - d.freeMiB)) used · \(Fmt.capacity(mib: d.freeMiB)) free",
                              warn: 100 - th.datastoreFreeWarnPct, crit: 100 - th.datastoreFreeCritPct)
-                LabeledMeter(label: "Provisioned vs capacity", pct: d.provisionedPct, detail: "\(Fmt.capacity(mib: d.provisionedMiB)) provisioned",
-                             warn: 100, crit: th.datastoreOvercommitPct)
+                if d.provisionedReported {
+                    LabeledMeter(label: "Provisioned vs capacity", pct: d.provisionedPct, detail: "\(Fmt.capacity(mib: d.provisionedMiB)) provisioned",
+                                 warn: 100, crit: th.datastoreOvercommitPct)
+                }
                 Divider()
                 DetailSection("Findings", count: report.findingsByObject[d.id]?.count ?? 0) { ObjectFindings(findings: report.findingsByObject[d.id] ?? []) }
                 DetailSection("Details") {

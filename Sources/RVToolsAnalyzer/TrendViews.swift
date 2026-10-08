@@ -643,7 +643,7 @@ struct SizingAssumptionsCard: View {
     }
 
     private var changeRateText: String {
-        let lead = "RVTools only records point-in-time totals, so the share of blocks rewritten each day can't be measured."
+        let lead = "The exports only record point-in-time totals, so the share of blocks rewritten each day can't be measured."
         guard let d = trend.netDailyGrowthPct else { return lead + " Keep your assumption, or use backup-job or CBT statistics." }
         return lead + " Existing VMs grew by a net \(Fmt.num(d, 3))% a day; the real change rate is at least that and usually much higher, because rewritten and deleted blocks don't add capacity. Keep your assumption, or use backup-job or CBT statistics."
     }

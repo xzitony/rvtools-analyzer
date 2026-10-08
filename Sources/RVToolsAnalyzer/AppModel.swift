@@ -414,7 +414,7 @@ final class AppModel {
     func presentTrendPanel() {
         let panel = NSOpenPanel()
         panel.title = "Compare Snapshots"
-        panel.message = "Choose two or more RVTools exports of the same environment taken at different times, or a folder that contains them."
+        panel.message = "Choose two or more exports of the same environment taken at different times, or a folder that contains them."
         panel.prompt = "Compare"
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
