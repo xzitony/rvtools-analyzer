@@ -389,7 +389,7 @@ do {
     }
 
     print("Sources:      \(ds.sources.map(\.lastPathComponent).joined(separator: ", "))")
-    print("Export date:  \(Fmt.dateTime(ds.reportDate))   RVTools \(ds.rvtoolsVersion)")
+    print("Export date:  \(Fmt.dateTime(ds.reportDate))   \(ds.toolLabel)")
     print("Timing:       load \(ms(t0, t1)), correlate \(ms(t1, t2)), analyze \(ms(t2, t3))")
     print("Tabs:         " + ds.tableNames.map { "\($0)=\(ds.table($0)?.rows.count ?? 0)" }.joined(separator: " "))
     for w in ds.warnings { print("Note:         \(w)") }

@@ -249,6 +249,8 @@ public struct Host: Identifiable, Sendable {
     public var bootTime: Date?
     public var ntpServers = ""
     public var ntpdRunning: Bool?
+    /// False when the source has no NTP columns at all (Nutanix Collector, a trimmed export): unknown, not unconfigured.
+    public var ntpReported = true
     public var dnsServers = ""
     public var timeZone = ""
     public var evcCurrent = ""

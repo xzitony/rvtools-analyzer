@@ -30,6 +30,7 @@ If the Command Line Tools are the active developer directory (`xcode-select -p`)
 
 - **An RVTools `.xlsx` export** (`RVTools_export_all_*.xlsx`)
 - **A folder of CSVs** from RVTools' *Export all to csv* (`RVTools_tabvInfo.csv`, …)
+- **A Nutanix Collector export** (`ntnxcollector_*.xlsx`, collected from vCenter). Its tabs are translated into the RVTools layout on load, so every view and solution works. Collector doesn't gather everything RVTools does: there's no vCenter name (the datacenter name stands in), HA/DRS, EVC, VM folders, NTP/DNS, certificates or license expiry, and VM storage is sized from vDisk and vPartition. Data Confidence shows which figures were derived. For an **anonymized** export, open the `ntnxcollector_mapping_*.xlsx` file Collector wrote alongside it at the same time to restore the real names, IPs and paths. Without it, everything shows as `NTNX-…` tokens.
 - **Several exports at once.** Drop multiple files or folders to merge vCenters into one view. Rows are keyed by `VI SDK Server`, so objects from different vCenters don't collide.
 
 To open an export you can:

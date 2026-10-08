@@ -290,7 +290,7 @@ final class AppModel {
     func presentOpenPanel() {
         let panel = NSOpenPanel()
         panel.title = "Open"
-        panel.message = "Choose a saved project, an RVTools .xlsx export, a folder of RVTools_tab*.csv files, or several exports to merge."
+        panel.message = "Choose a saved project, an RVTools .xlsx export, a folder of RVTools_tab*.csv files, a Nutanix Collector export (with its mapping file if anonymized), or several exports to merge."
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = true
         panel.canChooseFiles = true
