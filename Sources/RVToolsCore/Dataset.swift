@@ -128,6 +128,7 @@ public final class Dataset: @unchecked Sendable {
         var fileDates: [Date] = []
         var collectorDates: [Date] = []
         var workbooks: [(file: URL, raws: [RawTable])] = []
+        var allFiles: [URL] = []
         for url in urls {
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir) else {
@@ -142,14 +143,20 @@ public final class Dataset: @unchecked Sendable {
             } else {
                 files = [url]
             }
-            for file in files {
-                let ext = file.pathExtension.lowercased()
-                switch ext {
-                case "xlsx", "xlsm": workbooks.append((file, try XLSXReader.read(url: file)))
-                case "csv", "txt": workbooks.append((file, [try CSVReader.readTable(url: file)]))
-                case "xls": throw RVToolsError.notRVTools("\(file.lastPathComponent) is a legacy .xls file — re-export from RVTools as .xlsx")
-                default: continue
-                }
+            allFiles += files
+        }
+        // A Collector export and its mapping file belong together, even when only one of them was opened.
+        let companions = NutanixCollector.companions(of: allFiles)
+        for c in companions {
+            ds.warnings.append("Opened \(c.lastPathComponent) from the same folder: it belongs with the Nutanix Collector file you chose")
+        }
+        for file in allFiles + companions {
+            let ext = file.pathExtension.lowercased()
+            switch ext {
+            case "xlsx", "xlsm": workbooks.append((file, try XLSXReader.read(url: file)))
+            case "csv", "txt": workbooks.append((file, [try CSVReader.readTable(url: file)]))
+            case "xls": throw RVToolsError.notRVTools("\(file.lastPathComponent) is a legacy .xls file — re-export from RVTools as .xlsx")
+            default: continue
             }
         }
         // A Collector mapping file can come in any order relative to the anonymized export it restores.
