@@ -1,6 +1,6 @@
 import Foundation
 
-/// Sizes the selected VMs on vSphere and on alternate hypervisors (Hyper-V, Nutanix AHV, Proxmox VE, OpenShift
+/// Sizes the selected VMs on vSphere and on alternate hypervisors (Hyper-V, Nutanix AHV, KVM such as Proxmox VE, OpenShift
 /// Virtualization) with the same host model and failure rules, then breaks down where each platform's extra hosts come
 /// from: memory overcommit and tiering, per-host overhead, per-VM overhead and control plane, and cluster size limits.
 /// Every platform figure is an assumption whose help text names its source; confirm them against current vendor docs.
@@ -9,14 +9,14 @@ public struct AlternateHypervisors: Solution {
     public var id: String { "althv" }
     public var title: String { "Alternate Hypervisors" }
     public var symbol: String { "arrow.left.arrow.right.square" }
-    public var summary: String { "Hosts needed on Hyper-V, Nutanix AHV, Proxmox VE and OpenShift Virtualization compared with vSphere, and why." }
+    public var summary: String { "Hosts needed on Hyper-V, Nutanix AHV, KVM (Proxmox VE, etc.) and OpenShift Virtualization compared with vSphere, and why." }
 
     enum Platform: Int, CaseIterable {
-        case vsphere, hyperv, ahv, proxmox, openshift
+        case vsphere, hyperv, ahv, kvm, openshift
         var key: String { ["vs", "hv", "ahv", "px", "ocp"][rawValue] }
-        var name: String { ["vSphere", "Microsoft Hyper-V", "Nutanix AHV", "Proxmox VE", "OpenShift Virtualization"][rawValue] }
-        var short: String { ["vSphere", "Hyper-V", "AHV", "Proxmox", "OpenShift"][rawValue] }
-        static let alternates: [Platform] = [.hyperv, .ahv, .proxmox, .openshift]
+        var name: String { ["vSphere", "Microsoft Hyper-V", "Nutanix AHV", "KVM (Proxmox VE, etc.)", "OpenShift Virtualization"][rawValue] }
+        var short: String { ["vSphere", "Hyper-V", "AHV", "KVM", "OpenShift"][rawValue] }
+        static let alternates: [Platform] = [.hyperv, .ahv, .kvm, .openshift]
     }
 
     public var parameters: [SolutionParameter] { [
@@ -80,21 +80,21 @@ public struct AlternateHypervisors: Solution {
         .number("ahvStorage", "Nutanix AHV", "Raw storage per usable (0 = external array)", 2, min: 0, max: 4, step: 0.05, unit: "×",
                 help: "RF2 keeps two copies: 2×. RF3 is 3×. Erasure coding (EC-X) lowers this for cold data only."),
 
-        // Proxmox VE
-        .number("pxMem", "Proxmox VE", "Memory overcommit (VM memory per host memory)", 100, min: 100, max: 300, step: 5, unit: "%",
+        // KVM (Proxmox VE and similar)
+        .number("pxMem", "KVM (Proxmox VE, etc.)", "Memory overcommit (VM memory per host memory)", 100, min: 100, max: 300, step: 5, unit: "%",
                 help: "KVM ballooning and KSM page merging. Proxmox warns that aggressive ballooning can trigger the guest's OOM killer, and KSM costs CPU. 100% sizes VM memory 1:1. Source: Proxmox VE wiki, \"Dynamic Memory Management\"."),
-        .number("pxCores", "Proxmox VE", "Per-host overhead — cores (host)", 1, min: 0, max: 64, help: "The Proxmox host, before Ceph. An estimate."),
-        .number("pxRAM", "Proxmox VE", "Per-host overhead — memory (host)", 4, min: 0, max: 512, unit: "GiB", help: "The Proxmox host, before Ceph. An estimate."),
-        .number("pxOSDs", "Proxmox VE", "Ceph OSDs (NVMe drives) per host", 4, min: 0, max: 32,
+        .number("pxCores", "KVM (Proxmox VE, etc.)", "Per-host overhead — cores (host)", 1, min: 0, max: 64, help: "The KVM host (Proxmox VE or similar), before Ceph. An estimate."),
+        .number("pxRAM", "KVM (Proxmox VE, etc.)", "Per-host overhead — memory (host)", 4, min: 0, max: 512, unit: "GiB", help: "The KVM host (Proxmox VE or similar), before Ceph. An estimate."),
+        .number("pxOSDs", "KVM (Proxmox VE, etc.)", "Ceph OSDs (NVMe drives) per host", 4, min: 0, max: 32,
                 help: "0 for external storage. Each OSD adds the cores and memory below."),
-        .number("pxOSDCores", "Proxmox VE", "Cores per Ceph OSD", 2, min: 0, max: 8, step: 0.5,
+        .number("pxOSDCores", "KVM (Proxmox VE, etc.)", "Cores per Ceph OSD", 2, min: 0, max: 8, step: 0.5,
                 help: "Proxmox suggests 4 to 6 CPU threads per NVMe OSD for high-performance disks, about 2 to 3 cores with hyperthreading. Source: Proxmox VE docs, \"Deploy Hyper-Converged Ceph Cluster\"."),
-        .number("pxOSDRAM", "Proxmox VE", "Memory per Ceph OSD", 8, min: 1, max: 32, unit: "GiB",
+        .number("pxOSDRAM", "KVM (Proxmox VE, etc.)", "Memory per Ceph OSD", 8, min: 1, max: 32, unit: "GiB",
                 help: "Proxmox recommends at least 8 GiB per OSD daemon (the default target is 4 GiB; the rest covers recovery and backfill). Source: Proxmox VE docs, pveceph OSD memory considerations (2025)."),
-        .number("pxMax", "Proxmox VE", "Hosts per cluster, at most", 32, min: 3, max: 64,
-                help: "Corosync clusters are commonly kept to about 32 nodes on a dedicated cluster network; Proxmox staff say they haven't tested beyond 36. Source: Proxmox forum and pve-devel list."),
-        .number("pxMin", "Proxmox VE", "Hosts per cluster, at least", 3, min: 1, max: 8, help: "Ceph with 3 replicas needs 3 nodes."),
-        .number("pxStorage", "Proxmox VE", "Raw storage per usable (0 = external array)", 3, min: 0, max: 4, step: 0.05, unit: "×",
+        .number("pxMax", "KVM (Proxmox VE, etc.)", "Hosts per cluster, at most", 32, min: 3, max: 64,
+                help: "Proxmox VE's corosync clusters are commonly kept to about 32 nodes on a dedicated cluster network; Proxmox staff say they haven't tested beyond 36. Source: Proxmox forum and pve-devel list."),
+        .number("pxMin", "KVM (Proxmox VE, etc.)", "Hosts per cluster, at least", 3, min: 1, max: 8, help: "Ceph with 3 replicas needs 3 nodes."),
+        .number("pxStorage", "KVM (Proxmox VE, etc.)", "Raw storage per usable (0 = external array)", 3, min: 0, max: 4, step: 0.05, unit: "×",
                 help: "Ceph pools default to 3 replicas: 3×. Erasure-coded pools (e.g. 4+2 at 1.5×) are rarely used for VM disks."),
 
         // OpenShift Virtualization
@@ -197,7 +197,7 @@ public struct AlternateHypervisors: Solution {
             pr.storage = { n in [n >= 6 ? 1.25 : 1.5, 1.5, 2.0, nil][min(policy, 3)] }
         case .hyperv:
             pr.hostRAM += 4 * p.num("hvCacheTB")
-        case .proxmox:
+        case .kvm:
             pr.hostCores += p.num("pxOSDs") * p.num("pxOSDCores")
             pr.hostRAM += p.num("pxOSDs") * p.num("pxOSDRAM")
         case .openshift:
@@ -361,7 +361,7 @@ public struct AlternateHypervisors: Solution {
             .vsphere: "ESXi and vSAN ESA",
             .hyperv: "Management OS, clustering and Storage Spaces Direct" + (p.num("hvCacheTB") > 0 ? " (incl. \(SFmt.num(4 * p.num("hvCacheTB"))) GiB for S2D cache)" : ""),
             .ahv: "Controller VM (storage) and AHV",
-            .proxmox: "Proxmox host plus \(SFmt.num(p.num("pxOSDs"))) Ceph OSDs",
+            .kvm: "KVM host plus \(SFmt.num(p.num("pxOSDs"))) Ceph OSDs",
             .openshift: "Node services" + (p.num("ocpDrives") > 0 ? " plus OpenShift Data Foundation for \(SFmt.num(p.num("ocpDrives"))) drives" : "")
                 + "; per VM, virt-launcher adds \(Fmt.memory(mib: ocpOverhead * 1024)) in all",
         ]
