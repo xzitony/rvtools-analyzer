@@ -470,6 +470,7 @@ final class AppModel {
         restoring = true
         dataset = snap.dataset
         fullInventory = snap.inventory
+        resetMissingHostPicks()
         scopes = AppModel.buildScopes(snap.inventory)
         if !scopes.contains(where: { $0.id == scopeID }) { scopeID = "all" }
         // VM ids (vCenter + moref) are stable across exports: keep customized selections, re-default untouched ones.
@@ -601,8 +602,22 @@ final class AppModel {
         projectName = ""
         projectNotes = ""
         lastSaved = nil
+        resetMissingHostPicks()
         isDirty = false
         restoring = false
+    }
+
+    /// Puts host choices (such as Alternate Hypervisors' "Size new hosts like") back to their default when the chosen host
+    /// isn't in the open export, so assumptions saved with another export don't point at a host that isn't there.
+    private func resetMissingHostPicks() {
+        guard let inv = fullInventory else { return }
+        for s in SolutionCatalog.all {
+            for p in s.parameters {
+                guard case .host = p.kind, case .names(let ids)? = solutionParams[s.id]?.values[p.id],
+                      let id = ids.first, HostSpecs.resolve(id, in: inv) == nil else { continue }
+                solutionParams[s.id]?.values[p.id] = nil
+            }
+        }
     }
 
     /// Re-applies a saved project's settings on top of its freshly analysed export.
@@ -631,6 +646,7 @@ final class AppModel {
         let valid = Set(fullInventory?.vms.map(\.id) ?? [])
         for (id, ids) in p.solutionSelections { solutionSelections[id] = Set(ids).intersection(valid) }
         for (id, values) in p.solutionParams { solutionParams[id] = values }
+        resetMissingHostPicks()
         solutionTab = p.solutionTabs
         if scopes.contains(where: { $0.id == p.scopeID }) { scopeID = p.scopeID }
         let pages = SidebarItem.allCases + SidebarItem.trendPages + SolutionCatalog.all.map { SidebarItem.solution($0) }
