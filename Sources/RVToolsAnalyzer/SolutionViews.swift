@@ -545,6 +545,30 @@ private struct ParameterRow: View {
         }
     }
 
+    /// One entry per host configuration in the open export, plus a saved choice that isn't in this export.
+    @ViewBuilder private func hostPicker(none: String) -> some View {
+        let inv = model.report?.inventory
+        let configs = inv.map(HostSpecs.distinct) ?? []
+        let chosen: String = { if case .names(let n) = current { return n.first ?? "" }; return "" }()
+        // A saved host that shares a listed configuration shows as that entry.
+        let tag: String = {
+            guard !chosen.isEmpty, let inv, let h = HostSpecs.resolve(chosen, in: inv) else { return chosen }
+            return configs.first { HostSpecs.key($0.host) == HostSpecs.key(h) }?.host.id ?? chosen
+        }()
+        let known = Set(configs.map(\.host.id))
+        Picker(parameter.label, selection: Binding<String>(
+            get: { tag },
+            set: { values.values[parameter.id] = .names($0.isEmpty ? [] : [$0]) })) {
+            Text(none).tag("")
+            ForEach(configs, id: \.host.id) { c in
+                Text(HostSpecs.label(c.host) + (c.count > 1 ? " (and \(c.count - 1) like it)" : "")).tag(c.host.id)
+            }
+            if !tag.isEmpty && !known.contains(tag) {
+                Text("\(String(tag.split(separator: "|").last ?? "")) — not in this export").tag(tag)
+            }
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             switch parameter.kind {
@@ -587,6 +611,8 @@ private struct ParameterRow: View {
                 }
             case .clusters(let multi, let none):
                 clusterPicker(multi: multi, none: none)
+            case .host(let none):
+                hostPicker(none: none)
             }
             if !parameter.help.isEmpty {
                 Text(parameter.help).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)

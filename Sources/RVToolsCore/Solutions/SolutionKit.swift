@@ -113,6 +113,9 @@ public struct SolutionParameter: Identifiable, Sendable {
         case multi([String])
         /// Clusters from the open export, stored by cluster id. `none` labels the empty choice (e.g. "Best fit (automatic)").
         case clusters(multi: Bool, none: String)
+        /// One host from the open export, stored by host id; hosts with the same CPU and memory are offered once.
+        /// `none` labels the empty choice (e.g. "Typical host").
+        case host(none: String)
     }
 
     public let id: String
@@ -145,8 +148,16 @@ public struct SolutionParameter: Identifiable, Sendable {
         SolutionParameter(id: id, group: group, label: label, help: help, kind: .clusters(multi: multi, none: none), defaultValue: .names([]))
     }
 
+    public static func host(_ id: String, _ group: String, _ label: String, none: String, help: String = "") -> SolutionParameter {
+        SolutionParameter(id: id, group: group, label: label, help: help, kind: .host(none: none), defaultValue: .names([]))
+    }
+
     public func display(_ value: ParamValue, inventory: Inventory? = nil) -> String {
         switch (kind, value) {
+        case (.host(let none), .names(let ids)):
+            guard let id = ids.first else { return none }
+            if let h = inventory.flatMap({ HostSpecs.resolve(id, in: $0) }) { return HostSpecs.label(h) }
+            return String(id.split(separator: "|").last ?? Substring(id))
         case (.clusters(_, let none), .names(let ids)):
             let names = ids.map { id in
                 inventory?.clusters.first { $0.id == id }.map { "\($0.name) (\($0.vcenter))" } ?? String(id.split(separator: "|").last ?? Substring(id))
@@ -185,6 +196,31 @@ public struct Params {
     public func flag(_ id: String) -> Bool { if case .flag(let b)? = value(id) { return b }; return false }
     public func multi(_ id: String) -> [Int] { if case .selection(let s)? = value(id) { return s }; return [] }
     public func names(_ id: String) -> [String] { if case .names(let n)? = value(id) { return n }; return [] }
+}
+
+/// Host configurations offered by `.host` parameters.
+public enum HostSpecs {
+    /// A stored host: its id, or a host name (from the CLI).
+    public static func resolve(_ ref: String, in inv: Inventory) -> Host? {
+        inv.hosts.first { $0.id == ref } ?? inv.hosts.first { $0.name.lowercased() == ref.lowercased() }
+    }
+
+    /// Physical hosts with known cores and memory, one per CPU and memory configuration (largest first), with the
+    /// number of hosts that share it.
+    public static func distinct(_ inv: Inventory) -> [(host: Host, count: Int)] {
+        let real = inv.hosts.filter { !$0.inferred && !$0.isVirtual && $0.cores > 0 && $0.memoryMiB > 0 }
+        let groups = Dictionary(grouping: real, by: key)
+        return groups.values.map { g in (g.sorted { $0.name < $1.name }[0], g.count) }
+            .sorted { ($1.host.memoryMiB, $1.host.cores, $0.host.name) < ($0.host.memoryMiB, $0.host.cores, $1.host.name) }
+    }
+
+    /// Hosts with the same key are the same configuration.
+    public static func key(_ h: Host) -> String { "\(h.sockets)|\(h.cores)|\(Int(h.memoryMiB / 1024))|\(h.cpuModel)" }
+
+    public static func label(_ h: Host) -> String {
+        let cpu = h.cpuModel.isEmpty ? "" : " · \(h.cpuModel)"
+        return "\(h.name) — \(h.sockets > 0 ? "\(h.sockets) × \(h.coresPerSocket)" : "\(h.cores)") cores, \(Fmt.memory(mib: h.memoryMiB))\(cpu)"
+    }
 }
 
 // MARK: - Results

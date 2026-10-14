@@ -123,6 +123,7 @@ public extension ParamValues {
             case .choice: if let x = Int(value) { v.values[name] = .choice(x) }
             case .toggle: v.values[name] = .flag(["1", "true", "yes", "on"].contains(value.lowercased()))
             case .multi: v.values[name] = .selection(value.split(separator: ",").compactMap { Int($0) })
+            case .host: v.values[name] = .names(value.isEmpty ? [] : [value.trimmingCharacters(in: .whitespaces)])
             case .clusters: v.values[name] = .names(value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
             }
         }

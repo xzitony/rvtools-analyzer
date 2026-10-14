@@ -21,10 +21,12 @@ public struct AlternateHypervisors: Solution {
 
     public var parameters: [SolutionParameter] { [
         .multi("platforms", "Compare", "Platforms to compare with vSphere", Platform.alternates.map(\.name), selected: [0, 1, 2, 3]),
+        .host("hostModel", "Target hosts", "Size new hosts like", none: "Typical host (median of the hosts behind the selected VMs)",
+                help: "The same host model is used for every platform. Pick one of the export's hosts, or set cores and memory below."),
         .number("hostCores", "Target hosts", "Cores per host", 0, min: 0, max: 512,
-                help: "Physical cores in each new host, the same on every platform. 0 uses the typical (median) host behind the selected VMs."),
+                help: "Physical cores in each new host. 0 uses the host chosen above."),
         .number("hostRAM", "Target hosts", "Memory per host", 0, min: 0, max: 16_384, step: 64, unit: "GiB",
-                help: "DRAM in each new host. 0 uses the typical (median) host behind the selected VMs."),
+                help: "DRAM in each new host. 0 uses the host chosen above."),
         .choice("basis", "Capacity", "Size workloads from", ["Configured vCPU and memory", "Measured CPU and consumed memory"],
                 help: "The same basis is used for every platform. Measured uses each VM's CPU (MHz) over the host clock and its consumed memory, falling back to configured sizes when the export doesn't have them."),
         .number("cpuRatio", "Capacity", "vCPU per core (configured sizes)", 4, min: 0.5, max: 20, step: 0.5, unit: ": 1",
@@ -227,9 +229,11 @@ public struct AlternateHypervisors: Solution {
         let running = vms.filter { $0.isVM && $0.isRunning }
         let hostIDs = Set(vms.map(\.hostKey))
         let hostsToday = inv.hosts.filter { hostIDs.contains($0.id) && !$0.isVirtual }
-        let model = AlternateHypervisors.typicalHost(hostsToday) ?? AlternateHypervisors.typicalHost(inv.hosts)
+        let picked = p.names("hostModel").first.flatMap { HostSpecs.resolve($0, in: inv) }.flatMap { AlternateHypervisors.typicalHost([$0]) }
+        let missingPick = !p.names("hostModel").isEmpty && picked == nil
+        let model = picked ?? AlternateHypervisors.typicalHost(hostsToday) ?? AlternateHypervisors.typicalHost(inv.hosts)
         var host = HostSpec(cores: Double(model?.cores ?? 0), ramGiB: (model?.memoryMiB ?? 0) / 1024,
-                            mhz: model?.speedMHz ?? 0, name: model.map { "like \($0.name)" } ?? "")
+                            mhz: model?.speedMHz ?? 0, name: model.map { (picked != nil ? "like " : "typical, like ") + $0.name } ?? "")
         if p.num("hostCores") > 0 { host.cores = p.num("hostCores"); host.name = "custom" }
         if p.num("hostRAM") > 0 { host.ramGiB = p.num("hostRAM"); host.name = "custom" }
         let hostLabel = "\(SFmt.num(host.cores)) cores, \(Fmt.memory(mib: host.ramGiB * 1024))" + (host.name.isEmpty ? "" : " (\(host.name))")
@@ -299,7 +303,8 @@ public struct AlternateHypervisors: Solution {
             SolutionMetric("Demand", "\(SFmt.num(d.cores.rounded(.up))) cores · \(Fmt.memory(mib: d.ramGiB * 1024))",
                            measured ? "measured CPU and consumed memory" : "\(Fmt.int(running.reduce(0) { $0 + $1.cpus })) vCPU at \(SFmt.num(ratio)):1",
                            symbol: "cpu"),
-            SolutionMetric("Host model", hostLabel, "the same on every platform; today \(Fmt.int(hostsToday.count)) hosts", symbol: "server.rack"),
+            SolutionMetric("Host model", "\(SFmt.num(host.cores)) cores · \(Fmt.memory(mib: host.ramGiB * 1024))",
+                           (host.name.isEmpty ? "" : host.name + " · ") + "same on every platform · today \(Fmt.int(hostsToday.count)) hosts", symbol: "server.rack"),
             SolutionMetric("vSphere", base.feasible ? "\(Fmt.int(base.total)) hosts" : "Doesn't fit",
                            base.feasible ? "\(base.clusters) cluster\(base.clusters == 1 ? "" : "s") · sized by \(base.driver.lowercased())" : "",
                            symbol: "checkmark.seal"),
@@ -417,6 +422,9 @@ public struct AlternateHypervisors: Solution {
             notes.append(d.activeGiB != nil
                 ? "Memory tiering: active memory (\(Fmt.memory(mib: (d.activeGiB ?? 0) * 1024))) is kept within DRAM; inactive memory can sit on the NVMe tier."
                 : "Memory tiering: the export has no active memory for most VMs, so the sizing can't check that active memory fits in DRAM. Check it before relying on tiering.")
+        }
+        if missingPick {
+            notes.append("The chosen host (\(p.names("hostModel").first.map { String($0.split(separator: "|").last ?? "") } ?? "")) isn't in this export, or has no cores or memory, so the typical host is used.")
         }
         if measuredFallback > 0 { notes.append("\(measuredFallback) VMs had no measured CPU or consumed memory and were sized from their configuration.") }
 
