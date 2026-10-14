@@ -641,9 +641,17 @@ public struct VCF9Sizing: Solution {
                     let forMgmt = plan.mgmt.filter(\.isNew).count
                     let split = [forMgmt > 0 ? "\(forMgmt) for the \(mgmtTerm)" : "", plan.newHosts - forMgmt > 0 ? "\(plan.newHosts - forMgmt) for \(chosen.cluster.name)" : ""]
                         .filter { !$0.isEmpty }.joined(separator: ", ")
+                    // When the minimum host count, not the appliances, sets the size, say so: the hosts look mostly idle otherwise.
+                    let minHosts = minMgmt(kind)
+                    let capacityHosts = VCF9Sizing.fit([], mgmt, typical: VCF9Sizing.typical(chosen.hosts)!, minHosts: 1, spare: spare, maxLoad: maxLoad).newHosts
+                    let byMinimum = forMgmt > 0 && plan.mgmt.count == minHosts && capacityHosts >= 0 && capacityHosts < minHosts
+                    let minimumNote = byMinimum
+                        ? "; the \(mgmtTerm) needs at least \(minHosts) hosts \(deploy.isHA ? "for the High availability deployment" : "on \(storageName)"), though its appliances alone would fit on \(capacityHosts)"
+                        : ""
                     b.add("mgmt.greenfield", mgmtArea, greenTitle, greenShort,
-                          "Not enough capacity for \(greenBuild): \(plan.newHosts) new host(s) needed (\(split)) — " + (taken == 0 ? "\(chosen.cluster.name) can't spare any of its \(chosen.hosts.count) hosts" : "\(chosen.cluster.name) can spare \(taken) of its \(chosen.hosts.count) hosts"),
-                          remediation: "Free capacity on the other hosts (migrate or retire VMs), add hosts, or use a consolidated \(mgmtTerm).",
+                          "Not enough capacity for \(greenBuild): \(plan.newHosts) new host(s) needed (\(split)) — " + (taken == 0 ? "\(chosen.cluster.name) can't spare any of its \(chosen.hosts.count) hosts" : "\(chosen.cluster.name) can spare \(taken) of its \(chosen.hosts.count) hosts") + minimumNote,
+                          remediation: "Free capacity on the other hosts (migrate or retire VMs), add hosts, or use a consolidated \(mgmtTerm)."
+                              + (byMinimum && deploy.isHA ? " The Simple deployment model has a lower host minimum." : ""),
                           affected: [cref(chosen.cluster, "workloads need \(Fmt.pct(chosen.currentLoad * 100)) of today's hosts with \(spare) down")],
                           actions: toConsolidated)
                     headline = "Not enough capacity for \(greenBuild) — \(plan.newHosts) new host(s) needed (\(split))"
