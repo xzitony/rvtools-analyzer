@@ -69,7 +69,7 @@ public extension Solution {
 
 public enum SolutionCatalog {
     /// The solutions that ship with the app.
-    public static let builtIn: [any Solution] = [BackupSizing(), DisasterRecoverySizing(), VCF9Readiness(), VCF9Sizing(), CloudMigration(.azure), CloudMigration(.aws)]
+    public static let builtIn: [any Solution] = [BackupSizing(), DisasterRecoverySizing(), VCF9Readiness(), VCF9Sizing(), CloudMigration(.azure), CloudMigration(.aws), AlternateHypervisors()]
     /// Enabled custom solutions, in title order.
     public static var custom: [ScriptedSolution] { SolutionLibrary.shared.enabled }
     /// Built-in solutions followed by enabled custom solutions.
