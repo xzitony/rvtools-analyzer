@@ -128,9 +128,11 @@ public struct AlternateHypervisors: Solution {
                 help: "Raw drive capacity in each host. With a value, hosts are added until the raw storage the platform needs (with its protection and the free-space reserve) fits; 0 leaves storage out of the host count. Ignored with external storage."),
         .number("hvStorage", "Microsoft Hyper-V", "Raw storage per usable (0 = external array)", 3, min: 0, max: 4, step: 0.05, unit: "×",
                 help: "Three-way mirror, needed to survive two failures, keeps 33% of raw capacity: 3×. Two-way mirror is 2×; mirror-accelerated parity falls in between. Source: Microsoft Learn, \"Fault tolerance and storage efficiency\"."),
-        .number("hvMgmtCPU", "Microsoft Hyper-V", "Management VMs — vCPU", 0, min: 0, max: 500,
+        .toggle("hvVMM", "Microsoft Hyper-V", "System Center Virtual Machine Manager", true,
+                help: "Hyper-V's counterpart to vCenter for managing many hosts and clusters: the VMM server and its SQL Server database, as VMs in the workload cluster, 4 vCPU, 16 GiB each. These sizes are an estimate: Microsoft's VMM 2025 documentation gives only a 4 GB minimum startup memory for a VMM VM. Turn it off for Windows Admin Center or Failover Cluster Manager alone."),
+        .number("hvMgmtCPU", "Microsoft Hyper-V", "Other management VMs — vCPU", 0, min: 0, max: 500,
                 help: "System Center VMM, Windows Admin Center or other management VMs, if used; they run in the workload cluster. 0 by default."),
-        .number("hvMgmtRAM", "Microsoft Hyper-V", "Management VMs — memory", 0, min: 0, max: 4000, step: 4, unit: "GiB"),
+        .number("hvMgmtRAM", "Microsoft Hyper-V", "Other management VMs — memory", 0, min: 0, max: 4000, step: 4, unit: "GiB"),
 
         // Nutanix AHV
         .number("ahvMem", "Nutanix AHV", "Memory overcommit (VM memory per host memory)", 100, min: 100, max: 300, step: 5, unit: "%",
@@ -213,6 +215,8 @@ public struct AlternateHypervisors: Solution {
                 help: "0 for external storage. ODF comes with OpenShift Platform Plus but not with OpenShift Virtualization Engine (OVE), which often uses external storage or adds ODF as a separate purchase. ODF internal mode needs 30 CPU and 72 GiB across 3 nodes for the first 3 drives, plus 6 CPU and 15 GiB per further 3 drives; per node that is 10 logical CPUs and 24 GiB plus 2 logical CPUs and 5 GiB per drive after the first, counted here as half as many cores (hyperthreading). Source: Red Hat ODF 4.18, \"Planning your deployment — Resource requirements\"."),
         .number("ocpControl", "OpenShift Virtualization", "Control-plane nodes per cluster", 3, min: 0, max: 5,
                 help: "Dedicated control-plane nodes (3, 4 or 5) don't run VMs. 0 for a hosted control plane, which runs on a separate management cluster and is Red Hat's recommendation with memory overcommit, or for a schedulable (compact) control plane, which isn't supported with memory overcommit. Source: Red Hat, \"OpenShift Virtualization Cluster Sizing Guide\" v3.1.0 (June 2026)."),
+        .number("ocpHub", "OpenShift Virtualization", "Advanced Cluster Management hub nodes", 0, min: 0, max: 7,
+                help: "Red Hat Advanced Cluster Management manages several OpenShift clusters (Advanced Cluster Management for Virtualization pairs with OpenShift Virtualization Engine) and runs on its own hub cluster, which can also host hosted control planes. 0 leaves it out; 3 adds a three-node hub. Red Hat publishes hub sizing by managed-cluster count in ACM's \"Sizing your hub cluster\"; size the hub from that."),
         .number("ocpMaxPods", "OpenShift Virtualization", "VMs per node, at most", 250, min: 10, max: 500, step: 10,
                 help: "Each VM is a pod, and kubelet's maxPods defaults to 250; it can go to 500, beyond which kubelet and API server stability suffer. Checked with the failover nodes down. Source: Red Hat, \"OpenShift Virtualization Cluster Sizing Guide\" v3.1.0 (June 2026)."),
         .number("ocpInfraCores", "OpenShift Virtualization", "Infrastructure workloads per cluster — cores", 24, min: 0, max: 500,
@@ -288,6 +292,8 @@ public struct AlternateHypervisors: Solution {
         var rawPerHostMiB = 0.0
         /// Cores and memory needed once per cluster outside the sized VMs (Ceph monitors and managers, OpenShift infra).
         var clusterCores = 0.0, clusterRAM = 0.0
+        /// Hosts in a separate management cluster that isn't sized from demand (an OpenShift ACM hub).
+        var fixedHosts = 0
     }
 
     struct Plan {
@@ -391,9 +397,12 @@ public struct AlternateHypervisors: Solution {
             let cpu = p.num(k + "MgmtCPU"), ram = p.num(k + "MgmtRAM")
             let custom = pl != .ahv || p.choice("ahvPC") == 5
             let pdm = pl == .kvm && p.choice("kvmFlavor") == 1 && p.flag("pxPDM")
-            if pdm || (custom && (cpu > 0 || ram > 0)) {
+            let vmm = pl == .hyperv && p.flag("hvVMM")
+            if pdm || vmm || (custom && (cpu > 0 || ram > 0)) {
                 pr.management = { _, _ in
                     (pdm ? [Component(name: "Proxmox Datacenter Manager", nodes: 1, cpu: 2, ram: 4, disk: 40)] : [])
+                        + (vmm ? [Component(name: "System Center VMM server", nodes: 1, cpu: 4, ram: 16, disk: 60, note: "estimate"),
+                                  Component(name: "SQL Server for VMM", nodes: 1, cpu: 4, ram: 16, disk: 100, note: "estimate")] : [])
                         + (cpu > 0 || ram > 0 ? [Component(name: "Management VMs", nodes: 1, cpu: cpu, ram: ram, disk: 0)] : [])
                 }
             } else if pl == .ahv, p.choice("ahvPC") < 5 {
@@ -470,6 +479,7 @@ public struct AlternateHypervisors: Solution {
             pr.control = Int(p.num("ocpControl"))
             pr.maxVMsPerHost = Int(p.num("ocpMaxPods"))
             pr.clusterCores = p.num("ocpInfraCores"); pr.clusterRAM = p.num("ocpInfraRAM")
+            pr.fixedHosts = Int(p.num("ocpHub"))
         case .ahv: break
         }
         return pr
@@ -602,7 +612,16 @@ public struct AlternateHypervisors: Solution {
             return Demand(cores: cpu / mgmtRatio, ramGiB: ram, activeGiB: ram, vms: comps.reduce(0) { $0 + max($1.nodes, 1) }, vcpus: cpu,
                           usableMiB: comps.reduce(0) { $0 + $1.disk } * 1024 / (1 - reserve))
         }
+        /// The platform's hosts, plus a fixed management cluster (an ACM hub) when it has one.
         func plan(_ pr: Profile) -> Plan {
+            var out = planWorkloads(pr)
+            if out.feasible, pr.fixedHosts > 0 {
+                out.hosts += pr.fixedHosts; out.clusters += 1
+                out.mgmtHosts += pr.fixedHosts; out.mgmtClusters += 1
+            }
+            return out
+        }
+        func planWorkloads(_ pr: Profile) -> Plan {
             /// Every group sized as its own cluster(s); `extra` (management in the workload cluster) goes in the largest.
             func workloads(_ extra: Demand) -> Plan {
                 AlternateHypervisors.combine(groups.indices.map { i in
@@ -712,7 +731,7 @@ public struct AlternateHypervisors: Solution {
             var step = vs
             var counts = [base]
             step.management = target.management; step.mgmtDedicated = target.mgmtDedicated; step.mgmtMinHosts = target.mgmtMinHosts
-            step.clusterCores = target.clusterCores; step.clusterRAM = target.clusterRAM
+            step.clusterCores = target.clusterCores; step.clusterRAM = target.clusterRAM; step.fixedHosts = target.fixedHosts
             counts.append(plan(step))
             step.density = target.density; step.tier = target.tier
             counts.append(plan(step))
@@ -738,22 +757,44 @@ public struct AlternateHypervisors: Solution {
                                                "Per-VM overhead and control plane", "Host and cluster limits", "Storage", "Platform hosts"],
                                      numeric: [1, 2, 3, 4, 5, 6, 7, 8], rows: gapRows)
 
-        // Management components
+        // Management components: appliances and management VMs, plus what's counted per cluster or as nodes of its own.
         var mgmtRows: [[String]] = []
         for pl in platforms {
-            guard let pn = plans[pl], pn.feasible, !pn.mgmt.isEmpty else { continue }
-            let pr = profiles[pl]!
-            let place = pr.mgmtDedicated ? "Own cluster (\(pn.mgmtHosts) hosts)" : "Workload cluster"
-            for c in pn.mgmt {
-                mgmtRows.append([sh(pl), c.name + (c.note.isEmpty ? "" : " (\(c.note))"), c.nodes > 0 ? Fmt.int(c.nodes) : "",
-                                 SFmt.num(c.cpu), SFmt.num(c.ram), SFmt.num(c.disk), place])
+            guard let pn = plans[pl], pn.feasible, let pr = profiles[pl] else { continue }
+            let workloadClusters = max(pn.clusters - pn.mgmtClusters, 0)
+            let dedicated = pr.mgmtDedicated ? pn.mgmtHosts - pr.fixedHosts : 0
+            let place = pr.mgmtDedicated ? "Own cluster (\(dedicated) hosts)" : "Workload cluster"
+            var rows: [[String]] = pn.mgmt.map { c in
+                [sh(pl), c.name + (c.note.isEmpty ? "" : " (\(c.note))"), c.nodes > 0 ? Fmt.int(c.nodes) : "",
+                 SFmt.num(c.cpu), SFmt.num(c.ram), SFmt.num(c.disk), place]
             }
+            if pr.clusterCores > 0 || pr.clusterRAM > 0 {
+                let name = pl == .openshift ? "Infrastructure workloads (ingress, registry, monitoring, logging)" : "Ceph monitors and managers"
+                let per = (pr.clusterRAM > 0 ? "\(SFmt.num(pr.clusterCores)) cores and \(Fmt.memory(mib: pr.clusterRAM * 1024))" : "\(SFmt.num(pr.clusterCores)) cores") + " per cluster"
+                rows.append([sh(pl), "\(name) — \(per)", "", "\(SFmt.num(pr.clusterCores * Double(workloadClusters))) cores",
+                             pr.clusterRAM > 0 ? SFmt.num(pr.clusterRAM * Double(workloadClusters)) : "", "",
+                             "Workload cluster\(workloadClusters == 1 ? "" : "s") (\(workloadClusters))"])
+            }
+            if pn.control > 0 {
+                rows.append([sh(pl), "Dedicated control-plane nodes", Fmt.int(pn.control), "", "", "", "Own nodes (\(pn.control) hosts)"])
+            }
+            if pr.fixedHosts > 0 {
+                rows.append([sh(pl), "Advanced Cluster Management hub", Fmt.int(pr.fixedHosts), "", "", "", "Own cluster (\(pr.fixedHosts) hosts)"])
+            }
+            guard !rows.isEmpty else { continue }
             let t = demand(pn.mgmt)
-            mgmtRows.append([sh(pl), "Total", "", SFmt.num(pn.mgmt.reduce(0) { $0 + $1.cpu }), SFmt.num(t.ramGiB), SFmt.num(pn.mgmt.reduce(0) { $0 + $1.disk }),
-                             "\(SFmt.num((t.cores * 10).rounded() / 10)) cores at \(SFmt.num(mgmtRatio)):1"])
+            let cores = t.cores + pr.clusterCores * Double(workloadClusters)
+            let ram = t.ramGiB + pr.clusterRAM * Double(workloadClusters)
+            let nodes = pn.control + pr.fixedHosts + dedicated
+            let summary = "\(SFmt.num((cores * 10).rounded() / 10)) cores" + (pn.mgmt.isEmpty ? "" : " (VMs at \(SFmt.num(mgmtRatio)):1)")
+                + (nodes > 0 ? " · \(nodes) hosts of their own" : "")
+            mgmtRows += rows
+            let vms = !pn.mgmt.isEmpty
+            mgmtRows.append([sh(pl), "Total", "", vms ? SFmt.num(pn.mgmt.reduce(0) { $0 + $1.cpu }) : "", ram > 0 ? SFmt.num(ram) : "",
+                             vms ? SFmt.num(pn.mgmt.reduce(0) { $0 + $1.disk }) : "", summary])
         }
         let mgmtTable = SolutionTable(id: "management", title: "Management components",
-                                      subtitle: "VCF and VVF appliance sizes follow the \(VCFAppliances.source) and VCF 9.1 installer defaults, as in VCF 9 Sizing. OpenShift's control plane is counted as nodes instead.",
+                                      subtitle: "Everything counted for managing each platform. VCF and VVF appliance sizes follow the \(VCFAppliances.source) and VCF 9.1 installer defaults, as in VCF 9 Sizing; the others' sources are in the assumptions. vSphere 8 and VVF 9 keep the existing vCenter unless set otherwise; the alternates are new deployments, so their managers are counted.",
                                       columns: ["Platform", "Component", "Nodes", "vCPU", "Memory (GB)", "Disk (GB)", "Runs on"], numeric: [2, 3, 4, 5],
                                       rows: mgmtRows, emphasized: Set(mgmtRows.indices.filter { mgmtRows[$0][1] == "Total" }))
 
