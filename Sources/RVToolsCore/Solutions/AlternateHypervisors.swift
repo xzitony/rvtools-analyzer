@@ -10,7 +10,7 @@ public struct AlternateHypervisors: Solution {
     public var id: String { "althv" }
     public var title: String { "Alternate Hypervisors" }
     public var symbol: String { "arrow.left.arrow.right.square" }
-    public var summary: String { "Hosts needed on Hyper-V, Nutanix AHV, KVM (Proxmox VE, etc.) and OpenShift Virtualization compared with vSphere, and why." }
+    public var summary: String { "Hosts needed on Hyper-V, Nutanix AHV, KVM (Proxmox VE, Scale HyperCore, VergeOS) and OpenShift Virtualization compared with vSphere, and why." }
 
     enum Platform: Int, CaseIterable {
         case vsphere8, vvf, vcf, hyperv, ahv, kvm, openshift
@@ -18,7 +18,7 @@ public struct AlternateHypervisors: Solution {
         var key: String { ["vs", "vs", "vs", "hv", "ahv", "px", "ocp"][rawValue] }
         var id: String { ["vs8", "vvf", "vcf", "hv", "ahv", "px", "ocp"][rawValue] }
         var name: String {
-            ["vSphere 8", "VMware vSphere Foundation 9", "VMware Cloud Foundation 9", "Microsoft Hyper-V", "Nutanix AHV", "KVM (Proxmox VE, etc.)",
+            ["vSphere 8", "VMware vSphere Foundation 9", "VMware Cloud Foundation 9", "Microsoft Hyper-V", "Nutanix AHV", "KVM (Proxmox VE, Scale HyperCore, VergeOS)",
              "OpenShift Virtualization"][rawValue]
         }
         var short: String { ["vSphere 8", "VVF 9", "VCF 9", "Hyper-V", "AHV", "KVM", "OpenShift"][rawValue] }
@@ -153,27 +153,52 @@ public struct AlternateHypervisors: Solution {
                 help: "Used when Prism Central is set to Custom: Prism Central and any other management VMs."),
         .number("ahvMgmtRAM", "Nutanix AHV", "Custom management VMs — memory", 26, min: 0, max: 4000, step: 2, unit: "GiB"),
 
-        // KVM (Proxmox VE and similar)
-        .number("pxMem", "KVM (Proxmox VE, etc.)", "Memory overcommit (VM memory per host memory)", 100, min: 100, max: 300, step: 5, unit: "%",
-                help: "KVM ballooning and KSM page merging. Proxmox warns that aggressive ballooning can trigger the guest's OOM killer, and KSM costs CPU. 100% sizes VM memory 1:1. Source: Proxmox VE wiki, \"Dynamic Memory Management\"."),
-        .number("pxCores", "KVM (Proxmox VE, etc.)", "Per-host overhead — cores (host)", 1, min: 0, max: 64, help: "The KVM host (Proxmox VE or similar), before Ceph. An estimate."),
-        .number("pxRAM", "KVM (Proxmox VE, etc.)", "Per-host overhead — memory (host)", 4, min: 0, max: 512, unit: "GiB", help: "The KVM host (Proxmox VE or similar), before Ceph. An estimate."),
-        .number("pxOSDs", "KVM (Proxmox VE, etc.)", "Ceph OSDs (NVMe drives) per host", 4, min: 0, max: 32,
-                help: "0 for external storage. Each OSD adds the cores and memory below."),
-        .number("pxOSDCores", "KVM (Proxmox VE, etc.)", "Cores per Ceph OSD", 2, min: 0, max: 8, step: 0.5,
-                help: "Proxmox suggests 4 to 6 CPU threads per NVMe OSD for high-performance disks, about 2 to 3 cores with hyperthreading. Source: Proxmox VE docs, \"Deploy Hyper-Converged Ceph Cluster\"."),
-        .number("pxOSDRAM", "KVM (Proxmox VE, etc.)", "Memory per Ceph OSD", 8, min: 1, max: 32, unit: "GiB",
-                help: "Proxmox recommends at least 8 GiB per OSD daemon (the default target is 4 GiB; the rest covers recovery and backfill). Source: Proxmox VE docs, pveceph OSD memory considerations (2025)."),
-        .number("pxMax", "KVM (Proxmox VE, etc.)", "Hosts per cluster, at most", 32, min: 3, max: 64,
-                help: "Proxmox VE's corosync clusters are commonly kept to about 32 nodes on a dedicated cluster network; Proxmox staff say they haven't tested beyond 36. Source: Proxmox forum and pve-devel list."),
-        .number("pxMin", "KVM (Proxmox VE, etc.)", "Hosts per cluster, at least", 3, min: 1, max: 8, help: "Ceph with 3 replicas needs 3 nodes."),
-        .number("pxRawTB", "KVM (Proxmox VE, etc.)", "Raw capacity per host", 0, min: 0, max: 2000, step: 1, unit: "TB",
+        // KVM: generic, Proxmox VE, Scale Computing HyperCore or VergeOS
+        .choice("kvmFlavor", "KVM", "KVM platform", AlternateHypervisors.kvmFlavors, selected: 1,
+                help: "Sets how the KVM platform is sized: generic KVM and Proxmox VE with Ceph (the settings below), Scale Computing HyperCore or VergeOS (their own settings). Proxmox VE also counts Proxmox Datacenter Manager."),
+        .number("pxMem", "KVM", "Memory overcommit (VM memory per host memory)", 100, min: 100, max: 300, step: 5, unit: "%",
+                help: "KVM ballooning and KSM page merging. Proxmox warns that aggressive ballooning can trigger the guest's OOM killer, and KSM costs CPU. 100% sizes VM memory 1:1. VergeOS is always 1:1: it doesn't balloon and says to avoid overcommitting RAM (VergeOS docs, \"Guest memory management\"). Source: Proxmox VE wiki, \"Dynamic Memory Management\"."),
+        .number("pxRawTB", "KVM", "Raw capacity per host", 0, min: 0, max: 2000, step: 1, unit: "TB",
                 help: "Raw drive capacity in each host. With a value, hosts are added until the raw storage the platform needs (with its protection and the free-space reserve) fits; 0 leaves storage out of the host count. Ignored with external storage."),
-        .number("pxStorage", "KVM (Proxmox VE, etc.)", "Raw storage per usable (0 = external array)", 3, min: 0, max: 4, step: 0.05, unit: "×",
-                help: "Ceph pools default to 3 replicas: 3×. Erasure-coded pools (e.g. 4+2 at 1.5×) are rarely used for VM disks."),
-        .number("pxMgmtCPU", "KVM (Proxmox VE, etc.)", "Management VMs — vCPU", 0, min: 0, max: 500,
-                help: "Proxmox VE's management runs on every node. Add Proxmox Datacenter Manager, backup servers or other management VMs here if used."),
-        .number("pxMgmtRAM", "KVM (Proxmox VE, etc.)", "Management VMs — memory", 0, min: 0, max: 4000, step: 4, unit: "GiB"),
+        .number("pxMgmtCPU", "KVM", "Other management VMs — vCPU", 0, min: 0, max: 500,
+                help: "Backup servers or other management VMs, in the workload cluster. Proxmox Datacenter Manager is counted separately."),
+        .number("pxMgmtRAM", "KVM", "Other management VMs — memory", 0, min: 0, max: 4000, step: 4, unit: "GiB"),
+        .number("pxCores", "KVM — Generic and Proxmox VE (Ceph)", "Per-host overhead — cores (host)", 1, min: 0, max: 64, help: "The KVM host before Ceph. An estimate."),
+        .number("pxRAM", "KVM — Generic and Proxmox VE (Ceph)", "Per-host overhead — memory (host)", 4, min: 0, max: 512, unit: "GiB",
+                help: "The KVM host before Ceph. Proxmox VE recommends at least 2 GB for the OS and its services, plus about 1 GB per TB of used storage with ZFS (Proxmox VE docs, \"System Requirements\")."),
+        .number("pxOSDs", "KVM — Generic and Proxmox VE (Ceph)", "Ceph OSDs (NVMe drives) per host", 4, min: 0, max: 32,
+                help: "0 for external storage. Each OSD adds the cores and memory below; Ceph also needs 3 monitors and managers."),
+        .number("pxOSDCores", "KVM — Generic and Proxmox VE (Ceph)", "Cores per Ceph OSD", 2, min: 0, max: 8, step: 0.5,
+                help: "Proxmox suggests 4 to 6 CPU threads per NVMe OSD for high-performance disks, about 2 to 3 cores with hyperthreading. Source: Proxmox VE docs, \"Deploy Hyper-Converged Ceph Cluster\"."),
+        .number("pxOSDRAM", "KVM — Generic and Proxmox VE (Ceph)", "Memory per Ceph OSD", 8, min: 1, max: 32, unit: "GiB",
+                help: "Proxmox recommends at least 8 GiB per OSD daemon (the default target is 4 GiB; the rest covers recovery and backfill). Source: Proxmox VE docs, \"Deploy Hyper-Converged Ceph Cluster\"."),
+        .number("pxCephSvcCores", "KVM — Generic and Proxmox VE (Ceph)", "Ceph monitor and manager cores, per cluster", 6, min: 0, max: 32,
+                help: "Proxmox's rule of thumb is at least one core per Ceph service, and Ceph needs 3 monitors with a manager on each: 6 cores. Counted once per cluster when there are OSDs. Source: Proxmox VE docs, \"Deploy Hyper-Converged Ceph Cluster\"."),
+        .number("pxMax", "KVM — Generic and Proxmox VE (Ceph)", "Hosts per cluster, at most", 32, min: 3, max: 64,
+                help: "Proxmox VE sets no explicit node limit and reports production clusters over 50 nodes on high-end hardware; corosync needs under 5 ms latency, ideally on a dedicated network. 32 is a practical default. Source: Proxmox VE docs, \"Cluster Manager\"."),
+        .number("pxMin", "KVM — Generic and Proxmox VE (Ceph)", "Hosts per cluster, at least", 3, min: 1, max: 8, help: "Ceph needs 3 nodes, and so does HA quorum (Proxmox VE docs)."),
+        .number("pxStorage", "KVM — Generic and Proxmox VE (Ceph)", "Raw storage per usable (0 = external array)", 3, min: 0, max: 4, step: 0.05, unit: "×",
+                help: "Ceph pools default to 3 replicas (size 3, min_size 2): 3×. Erasure-coded pools (e.g. 4+2 at 1.5×) are rarely used for VM disks. Source: Proxmox VE docs, \"Deploy Hyper-Converged Ceph Cluster\"."),
+        .toggle("pxPDM", "KVM — Generic and Proxmox VE (Ceph)", "Proxmox Datacenter Manager (Proxmox VE)", true,
+                help: "Multi-cluster management, one VM in the workload cluster. Production minimum: 2 cores, 4 GiB and 40 GB. Source: Proxmox Datacenter Manager 1.1 docs, \"System Requirements\"."),
+        .number("scCores", "KVM — Scale Computing HyperCore", "Per-host overhead — cores", 2, min: 0, max: 64,
+                help: "HyperCore's SCRIBE storage runs in the kernel beside the hypervisor, not in a controller VM. Scale doesn't publish the reservation: an estimate."),
+        .number("scRAM", "KVM — Scale Computing HyperCore", "Per-host overhead — memory", 8, min: 0, max: 512, unit: "GiB",
+                help: "Scale doesn't publish how much memory HyperCore reserves per node: an estimate. Confirm with Scale Computing."),
+        .number("scMax", "KVM — Scale Computing HyperCore", "Hosts per cluster, at most", 8, min: 1, max: 64,
+                help: "Clusters scale to eight nodes; larger clusters need Scale Computing's involvement. Sources: SC//HyperCore data sheet; Scale HC3 product specifications."),
+        .number("scMin", "KVM — Scale Computing HyperCore", "Hosts per cluster, at least", 3, min: 1, max: 8,
+                help: "Three nodes for a highly available cluster; single-node edge systems are also supported."),
+        .number("scStorage", "KVM — Scale Computing HyperCore", "Raw storage per usable", 2, min: 1, max: 4, step: 0.05, unit: "×",
+                help: "SCRIBE writes two or more copies of every chunk, equivalent to RAID 10: 2×. Deduplication isn't counted. Source: Scale Computing, \"SCRIBE block engine\"."),
+        .choice("vgRedundancy", "KVM — VergeOS", "vSAN redundancy", ["N+1 — 2 copies", "N+2 — 3 copies"],
+                help: "N+1 keeps 2 copies (about 2× raw, 2 controller nodes); N+2 keeps 3 (about 3×, 3 controller nodes, 5 recommended). Deduplication isn't counted. Source: VergeOS docs, \"vSAN redundancy levels\"."),
+        .number("vgDisks", "KVM — VergeOS", "Storage disks per host", 4, min: 0, max: 32,
+                help: "VergeOS needs 1 physical core per storage disk (hardware threads don't count). Source: VergeOS docs, \"Sizing\"."),
+        .number("vgRawTB", "KVM — VergeOS", "Raw storage per host, for the memory reserve", 30, min: 0, max: 2000, step: 1, unit: "TB",
+                help: "VergeOS reserves 16 GB plus 1 GB per TB of raw storage on each node, before guest memory. Uses Raw capacity per host above when that's set. Source: VergeOS docs, \"Sizing\"."),
+        .number("vgMax", "KVM — VergeOS", "Hosts per cluster, at most", 200, min: 2, max: 200,
+                help: "VergeOS 4.12 supports 200 nodes per system across up to 100 clusters, with no per-cluster limit listed. Source: VergeOS docs, \"Hardware requirements\"."),
 
         // OpenShift Virtualization
         .number("ocpMem", "OpenShift Virtualization", "Memory overcommit (VM memory per host memory)", 100, min: 100, max: 400, step: 25, unit: "%",
@@ -240,6 +265,8 @@ public struct AlternateHypervisors: Solution {
         var maxVMsPerHost = 0, maxVCPUPerHost = 0, maxVMsPerCluster = 0
         /// Raw drive capacity per host; 0 leaves storage out of the host count.
         var rawPerHostMiB = 0.0
+        /// Physical cores needed once per cluster outside VMs (Ceph monitors and managers).
+        var clusterCores = 0.0
     }
 
     struct Plan {
@@ -265,6 +292,10 @@ public struct AlternateHypervisors: Solution {
             return limits.max { $0.1 < $1.1 }!.0
         }
     }
+
+    /// How the KVM platform is sized, with the short names used in results.
+    static let kvmFlavors = ["Generic KVM", "Proxmox VE", "Scale Computing HyperCore", "VergeOS"]
+    static let kvmShort = ["KVM", "Proxmox VE", "HyperCore", "VergeOS"]
 
     /// Prism Central single-VM sizes: X-Small from Nutanix ("Introducing X-Small Prism Central"), the others as documented by
     /// OVHcloud's Nutanix service (confirm in Nutanix KB-16847).
@@ -307,7 +338,7 @@ public struct AlternateHypervisors: Solution {
             let live = Double(h - clusters * spare)
             var p = Plan(hosts: h, clusters: clusters, control: clusters * pr.control)
             p.maxLoad = maxLoad
-            p.cpuLoad = d.cores / (live * cores)
+            p.cpuLoad = (d.cores + pr.clusterCores * Double(clusters)) / (live * cores)
             p.memLoad = ram / (live * dram * (1 + pr.tier))
             if pr.tier > 0, let active = d.activeGiB { p.activeLoad = (active + vmOverheadGiB) / (live * dram) }
             // Hard limits hold with the failover hosts down; storage counts every host.
@@ -338,8 +369,12 @@ public struct AlternateHypervisors: Solution {
         } else {
             let cpu = p.num(k + "MgmtCPU"), ram = p.num(k + "MgmtRAM")
             let custom = pl != .ahv || p.choice("ahvPC") == 5
-            if custom, cpu > 0 || ram > 0 {
-                pr.management = { _, _ in [Component(name: "Management VMs", nodes: 1, cpu: cpu, ram: ram, disk: 0)] }
+            let pdm = pl == .kvm && p.choice("kvmFlavor") == 1 && p.flag("pxPDM")
+            if pdm || (custom && (cpu > 0 || ram > 0)) {
+                pr.management = { _, _ in
+                    (pdm ? [Component(name: "Proxmox Datacenter Manager", nodes: 1, cpu: 2, ram: 4, disk: 40)] : [])
+                        + (cpu > 0 || ram > 0 ? [Component(name: "Management VMs", nodes: 1, cpu: cpu, ram: ram, disk: 0)] : [])
+                }
             } else if pl == .ahv, p.choice("ahvPC") < 5 {
                 let pick = p.choice("ahvPC")
                 pr.management = { hosts, clusters in
@@ -382,8 +417,25 @@ public struct AlternateHypervisors: Solution {
             pr.maxVCPUPerHost = Int(p.num("hvHostVCPU"))
             pr.maxVMsPerCluster = Int(p.num("hvClusterVMs"))
         case .kvm:
-            pr.hostCores += p.num("pxOSDs") * p.num("pxOSDCores")
-            pr.hostRAM += p.num("pxOSDs") * p.num("pxOSDRAM")
+            switch p.choice("kvmFlavor") {
+            case 2:   // Scale Computing HyperCore
+                pr.hostCores = p.num("scCores"); pr.hostRAM = p.num("scRAM")
+                pr.maxHosts = Int(p.num("scMax")); pr.minHosts = Int(p.num("scMin"))
+                let f = p.num("scStorage")
+                pr.storage = { _ in f }
+            case 3:   // VergeOS: 16 GB plus 1 GB per raw TB, a core per storage disk, 2 or 3 copies, no ballooning
+                let raw = p.num("pxRawTB") > 0 ? p.num("pxRawTB") : p.num("vgRawTB")
+                let n2 = p.choice("vgRedundancy") == 1
+                pr.hostCores = p.num("vgDisks"); pr.hostRAM = 16 + raw
+                pr.maxHosts = Int(p.num("vgMax")); pr.minHosts = n2 ? 3 : 2
+                pr.storage = { _ in n2 ? 3 : 2 }
+                pr.density = 1
+            default:  // Generic KVM and Proxmox VE, with Ceph
+                let osds = p.num("pxOSDs")
+                pr.hostCores += osds * p.num("pxOSDCores")
+                pr.hostRAM += osds * p.num("pxOSDRAM")
+                if osds > 0 { pr.clusterCores = p.num("pxCephSvcCores") }
+            }
         case .openshift:
             let drives = p.num("ocpDrives")
             if drives > 0 {
@@ -408,6 +460,10 @@ public struct AlternateHypervisors: Solution {
     // MARK: - Run
 
     public func run(vms: [VM], inventory inv: Inventory, params p: Params) -> SolutionResult {
+        // The KVM platform is named after the chosen flavor.
+        let flavor = min(p.choice("kvmFlavor"), AlternateHypervisors.kvmFlavors.count - 1)
+        func nm(_ pl: Platform) -> String { pl == .kvm ? AlternateHypervisors.kvmFlavors[flavor] + (flavor == 0 ? "" : " (KVM)") : pl.name }
+        func sh(_ pl: Platform) -> String { pl == .kvm ? AlternateHypervisors.kvmShort[flavor] : pl.short }
         // The VMs that need compute: running and suspended by default, or every VM, or running only.
         let include = p.choice("include")
         let running = vms.filter { vm in
@@ -582,7 +638,7 @@ public struct AlternateHypervisors: Solution {
             let pn = plans[pl]!
             let detail = !pn.feasible ? "per-host overhead leaves nothing for VMs"
                 : (pl == baseline ? clustersText(pn) + " · sized by \(pn.driver.lowercased())" : "\(vsBase(pn)) vs \(baseline.short)")
-            metrics.append(SolutionMetric(pl.short, pn.feasible ? "\(Fmt.int(pn.total)) hosts" : "Doesn't fit", detail,
+            metrics.append(SolutionMetric(sh(pl), pn.feasible ? "\(Fmt.int(pn.total)) hosts" : "Doesn't fit", detail,
                                           symbol: pl.isVMware ? "checkmark.seal" : "server.rack", status: pn.feasible ? nil : .blocker))
         }
 
@@ -592,7 +648,7 @@ public struct AlternateHypervisors: Solution {
             let pn = plans[pl]!, pr = profiles[pl]!
             let cores = host.cores - pr.hostCores, dram = host.ramGiB - pr.hostRAM
             let mem = Fmt.memory(mib: max(0, dram) * 1024) + (pr.tier > 0 ? " + \(Fmt.memory(mib: max(0, dram) * pr.tier * 1024)) NVMe" : "")
-            rows.append([pl.name, hosts(pn), pl == baseline ? "baseline" : vsBase(pn), pn.feasible ? Fmt.int(pn.clusters) : "—",
+            rows.append([nm(pl), hosts(pn), pl == baseline ? "baseline" : vsBase(pn), pn.feasible ? Fmt.int(pn.clusters) : "—",
                          pn.feasible ? Fmt.int(pn.clusters * spare) : "—", pn.mgmtHosts > 0 ? Fmt.int(pn.mgmtHosts) : "",
                          pn.control > 0 ? Fmt.int(pn.control) : "",
                          SFmt.num(max(0, cores)), mem, pr.density > 1 ? "\(Fmt.pct(pr.density * 100))" : "1:1",
@@ -615,7 +671,7 @@ public struct AlternateHypervisors: Solution {
         perClusterRows.append(["Total", Fmt.int(d.vms), Fmt.ratio(overallRatio)] + platforms.map { hosts(plans[$0]!) })
         let perClusterTable = SolutionTable(id: "clusters", title: "Hosts per source cluster",
                                             subtitle: "Each source cluster's VMs sized as their own cluster, with its own minimum size and spare hosts. Management in the workload cluster goes in the largest one.",
-                                            columns: ["Source cluster", "VMs", "vCPU per core"] + platforms.map(\.short),
+                                            columns: ["Source cluster", "VMs", "vCPU per core"] + platforms.map(sh),
                                             numeric: Set(1..<(3 + platforms.count)), rows: perClusterRows, emphasized: [perClusterRows.count - 1])
 
         // Where the extra hosts come from: swap one baseline assumption at a time for the platform's.
@@ -626,6 +682,7 @@ public struct AlternateHypervisors: Solution {
             var step = vs
             var counts = [base]
             step.management = target.management; step.mgmtDedicated = target.mgmtDedicated; step.mgmtMinHosts = target.mgmtMinHosts
+            step.clusterCores = target.clusterCores
             counts.append(plan(step))
             step.density = target.density; step.tier = target.tier
             counts.append(plan(step))
@@ -639,11 +696,11 @@ public struct AlternateHypervisors: Solution {
             step.storage = target.storage; step.rawPerHostMiB = target.rawPerHostMiB
             counts.append(plan(step))
             guard counts.allSatisfy(\.feasible) else {
-                gapRows.append([pl.name, Fmt.int(base.total), "—", "—", "—", "—", "—", "—", "Doesn't fit"])
+                gapRows.append([nm(pl), Fmt.int(base.total), "—", "—", "—", "—", "—", "—", "Doesn't fit"])
                 continue
             }
             let steps = zip(counts.dropFirst(), counts).map { $0.total == $1.total ? "0" : delta($0.total - $1.total) }
-            gapRows.append([pl.name, Fmt.int(base.total)] + steps + [Fmt.int(counts.last!.total)])
+            gapRows.append([nm(pl), Fmt.int(base.total)] + steps + [Fmt.int(counts.last!.total)])
         }
         let gapTable = SolutionTable(id: "gap", title: "Where the difference in hosts comes from",
                                      subtitle: "Starting from \(baseline.short), each column swaps in one of the platform's assumptions, in this order. Another order can move hosts between columns; the total doesn't change.",
@@ -658,11 +715,11 @@ public struct AlternateHypervisors: Solution {
             let pr = profiles[pl]!
             let place = pr.mgmtDedicated ? "Own cluster (\(pn.mgmtHosts) hosts)" : "Workload cluster"
             for c in pn.mgmt {
-                mgmtRows.append([pl.short, c.name + (c.note.isEmpty ? "" : " (\(c.note))"), c.nodes > 0 ? Fmt.int(c.nodes) : "",
+                mgmtRows.append([sh(pl), c.name + (c.note.isEmpty ? "" : " (\(c.note))"), c.nodes > 0 ? Fmt.int(c.nodes) : "",
                                  SFmt.num(c.cpu), SFmt.num(c.ram), SFmt.num(c.disk), place])
             }
             let t = demand(pn.mgmt)
-            mgmtRows.append([pl.short, "Total", "", SFmt.num(pn.mgmt.reduce(0) { $0 + $1.cpu }), SFmt.num(t.ramGiB), SFmt.num(pn.mgmt.reduce(0) { $0 + $1.disk }),
+            mgmtRows.append([sh(pl), "Total", "", SFmt.num(pn.mgmt.reduce(0) { $0 + $1.cpu }), SFmt.num(t.ramGiB), SFmt.num(pn.mgmt.reduce(0) { $0 + $1.disk }),
                              "\(SFmt.num((t.cores * 10).rounded() / 10)) cores at \(SFmt.num(mgmtRatio)):1"])
         }
         let mgmtTable = SolutionTable(id: "management", title: "Management components",
@@ -675,7 +732,9 @@ public struct AlternateHypervisors: Solution {
             .vsphere8: "ESXi and vSAN ESA", .vvf: "ESXi and vSAN ESA", .vcf: "ESXi and vSAN ESA",
             .hyperv: "Management OS, clustering and Storage Spaces Direct" + (p.num("hvCacheTB") > 0 ? " (incl. \(SFmt.num(4 * p.num("hvCacheTB"))) GiB for S2D cache)" : ""),
             .ahv: "Controller VM (storage) and AHV",
-            .kvm: "KVM host plus \(SFmt.num(p.num("pxOSDs"))) Ceph OSDs",
+            .kvm: [flavor == 2 ? "HyperCore with SCRIBE storage (estimate)"
+                   : flavor == 3 ? "VergeOS: 16 GiB plus 1 GiB per raw TB, a core per storage disk"
+                   : "KVM host plus \(SFmt.num(p.num("pxOSDs"))) Ceph OSDs" + (p.num("pxOSDs") > 0 ? "; \(SFmt.num(p.num("pxCephSvcCores"))) more cores per cluster for Ceph monitors and managers" : "")][0],
             .openshift: "Node services" + (p.num("ocpDrives") > 0 ? " plus OpenShift Data Foundation for \(SFmt.num(p.num("ocpDrives"))) drives" : "")
                 + "; per VM, virt-launcher adds \(Fmt.memory(mib: ocpOverhead * 1024)) in all",
         ]
@@ -684,7 +743,7 @@ public struct AlternateHypervisors: Solution {
                                           columns: ["Platform", "Cores", "Memory", "What it is"], numeric: [1, 2],
                                           rows: ([baseline] + chosen).map { pl in
                                               let pr = profiles[pl]!
-                                              return [pl.isVMware ? "vSphere (all editions)" : pl.name, SFmt.num(pr.hostCores), Fmt.memory(mib: pr.hostRAM * 1024), what[pl] ?? ""]
+                                              return [pl.isVMware ? "vSphere (all editions)" : nm(pl), SFmt.num(pr.hostCores), Fmt.memory(mib: pr.hostRAM * 1024), what[pl] ?? ""]
                                           })
 
         // Migration considerations
@@ -743,10 +802,10 @@ public struct AlternateHypervisors: Solution {
             let pr = profiles[pl]!
             let cores = host.cores - pr.hostCores, dram = (host.ramGiB - pr.hostRAM) * (1 + pr.tier)
             let big = running.filter { Double($0.cpus) > cores * (model?.htActive == true ? 2 : 1) || $0.memoryMiB / 1024 > dram }
-            cb.list("big-" + pl.id, "Sizing", "VMs too large for one \(pl.short) host", .warning, noun: "VMs",
+            cb.list("big-" + pl.id, "Sizing", "VMs too large for one \(sh(pl)) host", .warning, noun: "VMs",
                     affected: big.map { $0.ref("\($0.cpus) vCPU, \(Fmt.memory(mib: $0.memoryMiB))") },
                     ready: "Every VM fits a host after overhead",
-                    remediation: "After \(pl.short)'s per-host overhead, a host has \(SFmt.num(max(0, cores))) cores and \(Fmt.memory(mib: max(0, dram) * 1024)) for VMs. Use larger hosts for these VMs.")
+                    remediation: "After \(sh(pl))'s per-host overhead, a host has \(SFmt.num(max(0, cores))) cores and \(Fmt.memory(mib: max(0, dram) * 1024)) for VMs. Use larger hosts for these VMs.")
         }
 
         var notes = [
@@ -782,11 +841,11 @@ public struct AlternateHypervisors: Solution {
 
         let others = editions.filter { $0 != baseline }.compactMap { pl -> String? in
             guard let pn = plans[pl], pn.feasible else { return nil }
-            return "\(pl.short) \(Fmt.int(pn.total))"
+            return "\(sh(pl)) \(Fmt.int(pn.total))"
         }
         let alt = chosen.compactMap { pl -> String? in
             guard let pn = plans[pl], base.feasible else { return nil }
-            return pn.feasible ? "\(pl.short) \(Fmt.int(pn.total)) (\(delta(pn.total - base.total)))" : "\(pl.short) doesn't fit"
+            return pn.feasible ? "\(sh(pl)) \(Fmt.int(pn.total)) (\(delta(pn.total - base.total)))" : "\(sh(pl)) doesn't fit"
         }
         let headline = base.feasible
             ? "\(baseline.short) needs \(Fmt.int(base.total)) hosts" + (others.isEmpty ? "" : " (\(others.joined(separator: ", ")))")
