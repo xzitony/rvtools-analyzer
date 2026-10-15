@@ -40,12 +40,20 @@ public struct AlternateHypervisors: Solution {
                 help: "DRAM in each new host. 0 uses the host chosen above."),
         .choice("basis", "Capacity", "Size workloads from", ["Configured vCPU and memory", "Measured CPU and consumed memory"],
                 help: "The same basis is used for every platform. Measured uses each VM's CPU (MHz) over the host clock and its consumed memory, falling back to configured sizes when the export doesn't have them."),
+        .choice("ratioMode", "Capacity", "vCPU per core", ["Fixed ratio (below)", "Today's ratio, per source cluster"],
+                help: "Today's ratio is each source cluster's powered-on vCPUs over its hosts' cores, kept between 1:1 and 15:1, as the Nutanix Sizer imports RVTools by default. It keeps today's consolidation on every platform."),
         .number("cpuRatio", "Capacity", "vCPU per core (configured sizes)", 4, min: 0.5, max: 20, step: 0.5, unit: ": 1",
                 help: "The same on every platform: no vendor publishes a hard limit, so change it per run if you have evidence. VMware: no common ratio; start at 1:1 if you can't react to contention quickly (VCF blog, \"vCPU to pCPU ratio guidelines\", June 2025). Nutanix: 1:1 to 2:1 for business-critical or latency-sensitive VMs, up to 4:1 for the rest (Nutanix, \"Understanding CPU resource management in Nutanix AHV\"). Hyper-V: no ratio imposed (Microsoft, Hyper-V maximum scale limits); Windows Server 2008 R2 supported 8:1 per logical processor, 12:1 for VDI. KVM: older Red Hat guidance says no more than 10 vCPUs per physical core (RHEL 6 Virtualization Administration Guide). OpenShift Virtualization schedules vCPUs through a CPU allocation ratio, 10:1 in the docs (\"Assigning compute resources\"). No independent test compares the CPU schedulers; Principled Technologies' Broadcom-commissioned vSphere 8 vs OpenShift density study tested memory overcommit."),
+        .number("cpuSpeed", "Capacity", "Per-core performance of the new hosts vs today", 1, min: 0.25, max: 4, step: 0.05, unit: "×",
+                help: "Divides the workloads' CPU need, the same on every platform. 1 sizes on today's CPUs. The Nutanix Sizer does this with SPECint rate per core: a Xeon Gold 6338 is 6.66 per core and current Xeon 6 and EPYC 9005 parts about 12.5, so about 1.9×. Use it with a host model that has the new hosts' cores."),
+        .choice("clusterMode", "Capacity", "Clusters", ["One pool (greenfield)", "Keep today's clusters"],
+                help: "Keep today's clusters sizes each source cluster's VMs as their own cluster, with its own minimum size and spare hosts, as the Nutanix Sizer does when it retains the VM-to-cluster mapping. Standalone hosts become a cluster too. Management components go in the largest cluster, or their own cluster where that's chosen."),
         .number("spare", "Capacity", "Host failures to tolerate per cluster", 1, min: 0, max: 3),
         .choice("include", "Capacity", "VMs to size", ["Powered on and suspended", "All VMs, powered off too", "Powered on only"],
                 help: "Suspended VMs need their memory back when they resume, so they're sized with the running VMs. Including powered-off VMs reserves room to start every VM; with measured usage they're sized from their configuration. Storage always counts every selected VM."),
         .number("maxLoad", "Capacity", "Max CPU / memory load with those hosts down", 80, min: 50, max: 100, unit: "%"),
+        .choice("storageBasis", "Storage", "Size storage from", ["In use (excluding swap)", "Provisioned"],
+                help: "Every selected VM counts, powered off too. Provisioned is each VM's virtual disk capacity, as the Nutanix Sizer imports RVTools by default; in use is what the VMs occupy today, thin disks included."),
         .number("growth", "Storage", "Estimated growth", 10, min: 0, max: 200, unit: "%"),
         .number("reserve", "Storage", "Free-space reserve (rebuild and operations)", 30, min: 0, max: 80, unit: "%",
                 help: "Kept free on every platform's storage for rebuilds after a host failure."),
@@ -125,10 +133,10 @@ public struct AlternateHypervisors: Solution {
         // Nutanix AHV
         .number("ahvMem", "Nutanix AHV", "Memory overcommit (VM memory per host memory)", 100, min: 100, max: 300, step: 5, unit: "%",
                 help: "AHV memory overcommit (AOS 6.1 and later) is enabled per VM, uses ballooning and host swap, and Nutanix suggests starting with non-production VMs. 100% sizes VM memory 1:1. Source: Nutanix, \"AHV Internals: Memory Overcommit\"."),
-        .number("ahvCores", "Nutanix AHV", "Per-host overhead — cores (Controller VM)", 8, min: 0, max: 64,
-                help: "Every node runs a Controller VM (CVM) for storage. It defaults to 8 vCPU on most platforms and more on large ones; Foundation sizes it by platform. Sources: Nutanix Prism \"CVM Memory Configuration\" and the CVM Field Specifications for your AOS version."),
-        .number("ahvRAM", "Nutanix AHV", "Per-host overhead — memory (Controller VM and AHV)", 36, min: 0, max: 512, unit: "GiB",
-                help: "A 32 GB CVM (the common minimum, more with deduplication, RF3 or Nutanix Files) plus about 4 GiB for AHV itself. Sources: Nutanix Prism \"CVM Memory Configuration\"; Nutanix Oracle best practices (32 GB default, 64 GB for heavy I/O)."),
+        .number("ahvCores", "Nutanix AHV", "Per-host overhead — cores (Controller VM)", 5, min: 0, max: 64,
+                help: "Every node runs a Controller VM (CVM) for storage; Foundation sizes it by platform. Source: Nutanix Sizer 6.0.13 (AOS 7.6) on a 16-node, 4-cluster sample: 76 physical cores and 896 GiB of CVM overhead, about 4.75 cores and 56 GiB per node, averaged across node models. See also the CVM Field Specifications for your AOS version."),
+        .number("ahvRAM", "Nutanix AHV", "Per-host overhead — memory (Controller VM and AHV)", 56, min: 0, max: 512, unit: "GiB",
+                help: "CVM memory grows with features (deduplication, RF3, Nutanix Files) and node size; older guidance was a 32 GB minimum. Source: Nutanix Sizer 6.0.13 (AOS 7.6) on a 16-node, 4-cluster sample: 76 physical cores and 896 GiB of CVM overhead, about 4.75 cores and 56 GiB per node, averaged across node models; Nutanix Prism \"CVM Memory Configuration\"."),
         .number("ahvMax", "Nutanix AHV", "Hosts per cluster, at most", 32, min: 3, max: 64,
                 help: "32 nodes for AHV per Nutanix's Configuration Maximums as quoted on the Nutanix community (2023); check the portal for your AOS version."),
         .number("ahvMin", "Nutanix AHV", "Hosts per cluster, at least", 3, min: 1, max: 8, help: "RF2 clusters need 3 nodes."),
@@ -136,9 +144,14 @@ public struct AlternateHypervisors: Solution {
                 help: "Raw drive capacity in each host. With a value, hosts are added until the raw storage the platform needs (with its protection and the free-space reserve) fits; 0 leaves storage out of the host count. Ignored with external storage."),
         .number("ahvStorage", "Nutanix AHV", "Raw storage per usable (0 = external array)", 2, min: 0, max: 4, step: 0.05, unit: "×",
                 help: "RF2 keeps two copies: 2×. RF3 is 3×. Erasure coding (EC-X) lowers this for cold data only."),
-        .number("ahvMgmtCPU", "Nutanix AHV", "Management VMs — vCPU (Prism Central)", 6, min: 0, max: 500,
-                help: "Prism Central, needed for multi-cluster management, DR and most add-ons; it runs in the workload cluster. A single Small instance is 6 vCPU and 26 GB; scale-out is three of them. Source: Prism Central sizes as documented by OVHcloud's Nutanix service; confirm in Nutanix KB-16847."),
-        .number("ahvMgmtRAM", "Nutanix AHV", "Management VMs — memory (Prism Central)", 26, min: 0, max: 4000, step: 2, unit: "GiB"),
+        .choice("ahvPC", "Nutanix AHV", "Prism Central", [
+            "Automatic — X-Small up to 50 hosts and 500 VMs, otherwise Small",
+            "X-Small (4 vCPU, 18 GB)", "Small (6 vCPU, 26 GB)", "Large (10 vCPU, 44 GB)", "X-Large (14 vCPU, 60 GB)",
+            "Custom (below)", "None",
+        ], help: "Prism Central is needed for multi-cluster management, DR and most add-ons; it runs in the workload cluster. The Nutanix Sizer adds an X-Small one automatically. X-Small (4 vCPU, 18 GB) manages up to 5 clusters, 50 hosts and 500 VMs (Nutanix, \"Introducing X-Small Prism Central\"). Small, Large and X-Large sizes as documented by OVHcloud's Nutanix service; confirm in Nutanix KB-16847. Scale-out deploys three VMs."),
+        .number("ahvMgmtCPU", "Nutanix AHV", "Custom management VMs — vCPU", 6, min: 0, max: 500,
+                help: "Used when Prism Central is set to Custom: Prism Central and any other management VMs."),
+        .number("ahvMgmtRAM", "Nutanix AHV", "Custom management VMs — memory", 26, min: 0, max: 4000, step: 2, unit: "GiB"),
 
         // KVM (Proxmox VE and similar)
         .number("pxMem", "KVM (Proxmox VE, etc.)", "Memory overcommit (VM memory per host memory)", 100, min: 100, max: 300, step: 5, unit: "%",
@@ -234,6 +247,8 @@ public struct AlternateHypervisors: Solution {
         /// Hosts and clusters of a dedicated management cluster, included in `hosts` and `clusters`.
         var mgmtHosts = 0, mgmtClusters = 0
         var mgmt: [Component] = []
+        /// Hosts (with control-plane nodes) per workload group, in group order.
+        var groupHosts: [Int] = []
         var cpuLoad = 0.0, memLoad = 0.0, activeLoad = 0.0
         /// Shares of the hard limits and of the hosts' raw storage (1 = full).
         var vmLoad = 0.0, vcpuLoad = 0.0, storageLoad = 0.0
@@ -251,10 +266,31 @@ public struct AlternateHypervisors: Solution {
         }
     }
 
+    /// Prism Central single-VM sizes: X-Small from Nutanix ("Introducing X-Small Prism Central"), the others as documented by
+    /// OVHcloud's Nutanix service (confirm in Nutanix KB-16847).
+    static let prismCentral: [(name: String, cpu: Double, ram: Double, disk: Double)] = [
+        ("X-Small", 4, 18, 100), ("Small", 6, 26, 500), ("Large", 10, 44, 2500), ("X-Large", 14, 60, 2500),
+    ]
+
     /// OpenShift Virtualization's per-VM memory overhead: 0.2% of guest memory, 218 MiB for virt-launcher, 8 MiB per
     /// vCPU and 16 MiB for the graphics device (Red Hat, OpenShift Virtualization "Preparing your cluster", 4.13+).
     static func openShiftOverheadGiB(_ vm: VM) -> Double {
         (vm.memoryMiB * 0.002 + 218 + 8 * Double(vm.cpus) + 16) / 1024
+    }
+
+    /// Workload groups sized separately, added up; loads are the worst group's.
+    static func combine(_ parts: [Plan]) -> Plan {
+        var out = parts.count == 1 ? parts[0] : Plan()
+        out.groupHosts = parts.map { $0.feasible ? $0.total : 0 }
+        guard parts.count > 1 else { return out }
+        out.feasible = parts.allSatisfy(\.feasible)
+        out.maxLoad = parts.first?.maxLoad ?? 1
+        for q in parts {
+            out.hosts += q.hosts; out.clusters += q.clusters; out.control += q.control
+            out.cpuLoad = max(out.cpuLoad, q.cpuLoad); out.memLoad = max(out.memLoad, q.memLoad); out.activeLoad = max(out.activeLoad, q.activeLoad)
+            out.vmLoad = max(out.vmLoad, q.vmLoad); out.vcpuLoad = max(out.vcpuLoad, q.vcpuLoad); out.storageLoad = max(out.storageLoad, q.storageLoad)
+        }
+        return out
     }
 
     /// The fewest hosts that carry the demand at `maxLoad` with `spare` hosts down in every cluster, clusters split at
@@ -301,8 +337,17 @@ public struct AlternateHypervisors: Solution {
             if pl != .vsphere8, p.flag("vsTier") { pr.tier = p.num("vsTierRatio") / 100 }
         } else {
             let cpu = p.num(k + "MgmtCPU"), ram = p.num(k + "MgmtRAM")
-            let name = pl == .ahv ? "Prism Central" : "Management VMs"
-            if cpu > 0 || ram > 0 { pr.management = { _, _ in [Component(name: name, nodes: 1, cpu: cpu, ram: ram, disk: 0)] } }
+            let custom = pl != .ahv || p.choice("ahvPC") == 5
+            if custom, cpu > 0 || ram > 0 {
+                pr.management = { _, _ in [Component(name: "Management VMs", nodes: 1, cpu: cpu, ram: ram, disk: 0)] }
+            } else if pl == .ahv, p.choice("ahvPC") < 5 {
+                let pick = p.choice("ahvPC")
+                pr.management = { hosts, clusters in
+                    let size = pick > 0 ? pick : (hosts <= 50 && clusters <= 5 && vms <= 500 ? 1 : 2)
+                    let pc = AlternateHypervisors.prismCentral[size - 1]
+                    return [Component(name: "Prism Central", nodes: 1, cpu: pc.cpu, ram: pc.ram, disk: pc.disk, note: pc.name)]
+                }
+            }
         }
         switch pl {
         case .vsphere8:
@@ -387,37 +432,74 @@ public struct AlternateHypervisors: Solution {
 
         // Demand, on the same basis for every platform.
         let measured = p.choice("basis") == 1
-        let ratio = max(p.num("cpuRatio"), 0.1)
+        let fixedRatio = max(p.num("cpuRatio"), 0.1)
+        let todaysRatio = p.choice("ratioMode") == 1
+        let speed = max(p.num("cpuSpeed"), 0.1)
         let mgmtRatio = max(p.num("mgmtRatio"), 0.1)
-        var d = Demand()
-        var activeKnown = 0
-        var activeSum = 0.0
-        var measuredFallback = 0
-        for vm in running {
-            d.vms += 1
-            d.vcpus += Double(vm.cpus)
-            if measured, vm.isRunning, vm.cpuUsageMHz > 0, host.mhz > 0, vm.memConsumedMiB > 0 {
-                d.cores += vm.cpuUsageMHz / host.mhz
-                d.ramGiB += vm.memConsumedMiB / 1024
-            } else {
-                if measured && vm.isRunning { measuredFallback += 1 }
-                d.cores += Double(vm.cpus) / ratio
-                d.ramGiB += vm.memoryMiB / 1024
-            }
-            if vm.memActiveMiB > 0 { activeKnown += 1; activeSum += vm.memActiveMiB / 1024 }
+        // Today's ratio per source cluster: its powered-on vCPUs over its hosts' cores, kept within 1:1 to 15:1.
+        let ratioByCluster: [String: Double] = {
+            let cores = Dictionary(grouping: inv.hosts.filter { !$0.isVirtual && $0.cores > 0 }, by: \.clusterKey).mapValues { $0.reduce(0) { $0 + $1.cores } }
+            let vcpus = Dictionary(grouping: inv.vms.filter { $0.isVM && $0.isRunning }, by: \.clusterKey).mapValues { $0.reduce(0) { $0 + $1.cpus } }
+            return Dictionary(uniqueKeysWithValues: cores.filter { $0.value > 0 }.map { key, n in
+                (key, min(15, max(1, Double(vcpus[key] ?? 0) / Double(n))))
+            })
+        }()
+        func ratio(_ vm: VM) -> Double { todaysRatio ? (ratioByCluster[vm.clusterKey] ?? fixedRatio) : fixedRatio }
+        func clusterLabel(_ key: String) -> String {
+            guard let c = inv.clusters.first(where: { $0.id == key }) else { return "(no cluster)" }
+            return c.isStandalone ? "Standalone hosts (\(c.datacenter.isEmpty ? c.vcenter : c.datacenter))" : c.name
         }
-        // Active memory only counts when most VMs report it; VMs without it are taken at their sized memory.
-        if activeKnown * 2 >= running.count {
-            let missing = running.filter { $0.memActiveMiB <= 0 }.reduce(0) { $0 + $1.memoryMiB / 1024 }
-            d.activeGiB = activeSum + missing
-        }
-        let ocpOverhead = running.reduce(0) { $0 + AlternateHypervisors.openShiftOverheadGiB($1) }
 
-        // Storage: every selected VM's in-use space plus growth, with the free-space reserve kept.
+        // Storage: every selected VM, in use (excluding swap) or provisioned, plus growth, with the free-space reserve kept.
         let growth = 1 + p.num("growth") / 100
         let reserve = min(p.num("reserve") / 100, 0.95)
-        let usableMiB = vms.filter(\.isVM).reduce(0) { $0 + $1.inUseExcludingSwapMiB } * growth
-        d.usableMiB = usableMiB / (1 - reserve)
+        let provisioned = p.choice("storageBasis") == 1
+        func storageMiB(_ vm: VM) -> Double {
+            (provisioned ? (vm.diskCapacityMiB > 0 ? vm.diskCapacityMiB : vm.provisionedMiB) : vm.inUseExcludingSwapMiB) * growth / (1 - reserve)
+        }
+        let usableMiB = vms.filter(\.isVM).reduce(0) { $0 + storageMiB($1) } * (1 - reserve)
+
+        // Active memory only counts when most VMs report it; VMs without it are taken at their sized memory.
+        let useActive = running.filter { $0.memActiveMiB > 0 }.count * 2 >= running.count
+        var measuredFallback = 0
+
+        /// Workload groups: one pool, or one per source cluster that has VMs to size. Storage of VMs in other clusters
+        /// (powered off, say) goes to the largest group.
+        struct Group { let key: String, name: String; var d: Demand; var ocp: Double; var ratio: Double }
+        let keepClusters = p.choice("clusterMode") == 1
+        var groups: [Group] = []
+        let byKey = Dictionary(grouping: running, by: { keepClusters ? $0.clusterKey : "" })
+        for key in byKey.keys.sorted(by: { clusterLabel($0).localizedCaseInsensitiveCompare(clusterLabel($1)) == .orderedAscending }) {
+            var g = Group(key: key, name: keepClusters ? clusterLabel(key) : "All VMs", d: Demand(), ocp: 0, ratio: 0)
+            var active = 0.0
+            for vm in byKey[key]! {
+                g.d.vms += 1
+                g.d.vcpus += Double(vm.cpus)
+                if measured, vm.isRunning, vm.cpuUsageMHz > 0, host.mhz > 0, vm.memConsumedMiB > 0 {
+                    g.d.cores += vm.cpuUsageMHz / host.mhz / speed
+                    g.d.ramGiB += vm.memConsumedMiB / 1024
+                } else {
+                    if measured && vm.isRunning { measuredFallback += 1 }
+                    g.d.cores += Double(vm.cpus) / ratio(vm) / speed
+                    g.d.ramGiB += vm.memoryMiB / 1024
+                }
+                active += vm.memActiveMiB > 0 ? vm.memActiveMiB / 1024 : vm.memoryMiB / 1024
+                g.ocp += AlternateHypervisors.openShiftOverheadGiB(vm)
+            }
+            if useActive { g.d.activeGiB = active }
+            let cpuOnly = byKey[key]!.reduce(0.0) { $0 + Double($1.cpus) / ratio($1) }
+            g.ratio = cpuOnly > 0 ? g.d.vcpus / cpuOnly : fixedRatio
+            groups.append(g)
+        }
+        let groupIDs = Set(groups.map(\.key))
+        let largest = groups.indices.max { groups[$0].d.ramGiB < groups[$1].d.ramGiB } ?? 0
+        for vm in vms where vm.isVM {
+            let key = keepClusters ? vm.clusterKey : ""
+            groups[groupIDs.contains(key) ? groups.firstIndex { $0.key == key }! : largest].d.usableMiB += storageMiB(vm)
+        }
+        let d = groups.dropFirst().map(\.d).reduce(groups[0].d, +)
+        let ocpOverhead = groups.reduce(0) { $0 + $1.ocp }
+        let overallRatio = d.vcpus / max(groups.reduce(0) { $0 + $1.d.vcpus / $1.ratio }, 0.001)
 
         let spare = Int(p.num("spare"))
         let maxLoad = p.num("maxLoad") / 100
@@ -435,9 +517,12 @@ public struct AlternateHypervisors: Solution {
                           usableMiB: comps.reduce(0) { $0 + $1.disk } * 1024 / (1 - reserve))
         }
         func plan(_ pr: Profile) -> Plan {
-            let overhead = pr.perVMOverhead ? ocpOverhead : 0
+            /// Every group sized as its own cluster(s); `extra` (management in the workload cluster) goes in the largest.
             func workloads(_ extra: Demand) -> Plan {
-                AlternateHypervisors.size(d + extra, vmOverheadGiB: overhead, pr, host: host, spare: spare, maxLoad: maxLoad)
+                AlternateHypervisors.combine(groups.indices.map { i in
+                    AlternateHypervisors.size(i == largest ? groups[i].d + extra : groups[i].d, vmOverheadGiB: pr.perVMOverhead ? groups[i].ocp : 0,
+                                              pr, host: host, spare: spare, maxLoad: maxLoad)
+                })
             }
             let first = workloads(Demand())
             guard first.feasible else { return first }
@@ -469,8 +554,7 @@ public struct AlternateHypervisors: Solution {
         func rawMiB(_ pl: Platform) -> Double? {
             guard let pr = profiles[pl], let pn = plans[pl], pn.feasible, pn.clusters > 0,
                   let f = pr.storage((pn.hosts - pn.mgmtHosts) / max(pn.clusters - pn.mgmtClusters, 1)) else { return nil }
-            let mgmtMiB = pn.mgmt.reduce(0) { $0 + $1.disk } * 1024
-            return (usableMiB + mgmtMiB) * f / (1 - reserve)
+            return (d.usableMiB + demand(pn.mgmt).usableMiB) * f
         }
 
         func delta(_ n: Int) -> String { n == 0 ? "same" : (n > 0 ? "+\(n)" : "−\(-n)") }
@@ -488,7 +572,8 @@ public struct AlternateHypervisors: Solution {
         var metrics = [
             SolutionMetric("VMs sized", Fmt.int(running.count), "\(includedLabel), of \(Fmt.int(vms.count)) selected", symbol: "desktopcomputer"),
             SolutionMetric("Demand", "\(SFmt.num(d.cores.rounded(.up))) cores · \(Fmt.memory(mib: d.ramGiB * 1024))",
-                           measured ? "measured CPU and consumed memory" : "\(Fmt.int(running.reduce(0) { $0 + $1.cpus })) vCPU at \(SFmt.num(ratio)):1",
+                           (measured ? "measured CPU and consumed memory" : "\(Fmt.int(Int(d.vcpus))) vCPU at " + (todaysRatio ? "today's ratios (\(Fmt.ratio(overallRatio)) overall)" : "\(SFmt.num(fixedRatio)):1"))
+                               + (speed != 1 ? " · cores ÷ \(SFmt.num(speed)) for per-core speed" : ""),
                            symbol: "cpu"),
             SolutionMetric("Host model", "\(SFmt.num(host.cores)) cores · \(Fmt.memory(mib: host.ramGiB * 1024))",
                            (host.name.isEmpty ? "" : host.name + " · ") + "same on every platform · today \(Fmt.int(hostsToday.count)) hosts", symbol: "server.rack"),
@@ -518,6 +603,20 @@ public struct AlternateHypervisors: Solution {
                                        columns: ["Platform", "Hosts", "vs \(baseline.short)", "Clusters", "Spare hosts", "Management hosts", "Control-plane nodes",
                                                  "Cores per host for VMs", "Memory per host for VMs", "Memory overcommit", "Load", "Sized by", "Raw storage"],
                                        numeric: [1, 3, 4, 5, 6, 7, 10], rows: rows, emphasized: [platforms.firstIndex(of: baseline)!])
+
+        // Hosts per source cluster (keep today's clusters)
+        var perClusterRows: [[String]] = groups.indices.map { i in
+            [groups[i].name, Fmt.int(groups[i].d.vms), Fmt.ratio(groups[i].ratio)]
+                + platforms.map { pl in plans[pl].flatMap { $0.feasible && $0.groupHosts.indices.contains(i) ? Fmt.int($0.groupHosts[i]) : nil } ?? "—" }
+        }
+        if platforms.contains(where: { (plans[$0]?.mgmtHosts ?? 0) > 0 }) {
+            perClusterRows.append(["Management cluster", "", ""] + platforms.map { pl in (plans[pl]?.mgmtHosts ?? 0) > 0 ? Fmt.int(plans[pl]!.mgmtHosts) : "" })
+        }
+        perClusterRows.append(["Total", Fmt.int(d.vms), Fmt.ratio(overallRatio)] + platforms.map { hosts(plans[$0]!) })
+        let perClusterTable = SolutionTable(id: "clusters", title: "Hosts per source cluster",
+                                            subtitle: "Each source cluster's VMs sized as their own cluster, with its own minimum size and spare hosts. Management in the workload cluster goes in the largest one.",
+                                            columns: ["Source cluster", "VMs", "vCPU per core"] + platforms.map(\.short),
+                                            numeric: Set(1..<(3 + platforms.count)), rows: perClusterRows, emphasized: [perClusterRows.count - 1])
 
         // Where the extra hosts come from: swap one baseline assumption at a time for the platform's.
         var gapRows: [[String]] = []
@@ -612,6 +711,21 @@ public struct AlternateHypervisors: Solution {
         cb.list("usb", "Devices", "USB devices connected", .info, noun: "VMs",
                 affected: all.filter { $0.usbConnected > 0 }.map { $0.ref("\($0.usbConnected) USB device(s)") },
                 ready: "None", remediation: "USB passthrough works differently on each platform, and on some it blocks live migration; consider USB over IP.")
+        if chosen.contains(.ahv) {
+            let bp = "Nutanix best practice (BP-2029, \"CPU and memory oversubscription\"): 1:1 to 2:1 for business-critical or latency-sensitive VMs, up to 4:1 for the rest. The Nutanix Sizer warns above 4:1."
+            if todaysRatio {
+                cb.list("ahv-ratio", "Nutanix AHV", "vCPU per core above 4:1", .warning, noun: "source clusters",
+                        affected: groups.flatMap { g -> [AffectedObject] in
+                            let keys = keepClusters ? [g.key] : Array(Set(running.map(\.clusterKey)))
+                            return keys.compactMap { k in ratioByCluster[k].flatMap { $0 > 4 ? AffectedObject(kind: .cluster, id: k, name: clusterLabel(k), detail: Fmt.ratio($0)) : nil } }
+                        }.reduce(into: [AffectedObject]()) { if !$0.contains($1) { $0.append($1) } },
+                        ready: "Every source cluster is at 4:1 or below", remediation: bp)
+            } else if fixedRatio > 4 {
+                cb.add("ahv-ratio", "Nutanix AHV", "vCPU per core above 4:1", .warning, "Sized at \(SFmt.num(fixedRatio)):1", remediation: bp)
+            } else {
+                cb.add("ahv-ratio", "Nutanix AHV", "vCPU per core above 4:1", .ready, "Sized at \(SFmt.num(fixedRatio)):1")
+            }
+        }
         if chosen.contains(.hyperv) {
             // Hyper-V runs BIOS VMs as Generation 1 (64 vCPU, 1 TB, IDE boot); Generation 2 needs UEFI.
             let bios = all.filter { $0.firmware.lowercased() == "bios" }
@@ -641,9 +755,18 @@ public struct AlternateHypervisors: Solution {
             "VCF's management domain also runs NSX networking and security, fleet lifecycle and VCF Operations, which the alternates' figures don't include. Their own add-ons (Nutanix Flow, SCVMM, an OpenShift observability stack and so on) can be added as management VMs.",
             "A dedicated management cluster is sized on the same host model as the workloads; smaller hosts are often enough for it.",
             "Clusters are split at each platform's maximum size, and every cluster keeps its own spare hosts, so lower cluster limits cost extra hosts.",
-            "Storage is VM in-use space (excluding swap) plus \(Fmt.pct(p.num("growth"))) growth and the management components' disks, times each platform's raw-to-usable factor, with \(Fmt.pct(reserve * 100)) kept free. Data reduction is not counted on any platform. Storage adds hosts only where a raw capacity per host is set.",
+            "Storage is \(provisioned ? "VM provisioned capacity" : "VM in-use space (excluding swap)") plus \(Fmt.pct(p.num("growth"))) growth and the management components' disks, times each platform's raw-to-usable factor, with \(Fmt.pct(reserve * 100)) kept free. Data reduction is not counted on any platform. Storage adds hosts only where a raw capacity per host is set.",
             "Defaults come from vendor documentation where it exists, and are marked as estimates where it doesn't; each assumption's help names its source. Confirm them against the versions you would deploy.",
         ]
+        if keepClusters {
+            notes.append("Today's clusters are kept: \(groups.count) source cluster\(groups.count == 1 ? "" : "s") sized separately, each with at least the platform's minimum hosts and its own spare.")
+        }
+        if todaysRatio {
+            notes.append("vCPU per core follows each source cluster today (\(Fmt.ratio(overallRatio)) overall), between 1:1 and 15:1.")
+        }
+        if speed != 1 {
+            notes.append("Workloads' CPU need is divided by \(SFmt.num(speed)) for the new hosts' per-core performance; management appliances are not.")
+        }
         if chosen.contains(.hyperv) {
             notes.append("Hyper-V's limits are checked with the failover hosts down: \(Fmt.int(Int(p.num("hvHostVMs")))) running VMs and \(Fmt.int(Int(p.num("hvHostVCPU")))) virtual processors per host, and \(Fmt.int(Int(p.num("hvClusterVMs")))) running VMs per cluster (Microsoft Learn, Hyper-V maximum scale limits, Windows Server 2025).")
         }
@@ -673,6 +796,7 @@ public struct AlternateHypervisors: Solution {
         return SolutionResult(headline: headline, sections: [
             .metrics("Summary", metrics),
             .table(hostsTable),
+        ] + (keepClusters ? [.table(perClusterTable)] : []) + [
             .table(gapTable),
             .table(mgmtTable),
             .table(overheadTable),
