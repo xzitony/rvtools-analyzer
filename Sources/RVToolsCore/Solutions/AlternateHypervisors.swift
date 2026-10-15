@@ -210,7 +210,7 @@ public struct AlternateHypervisors: Solution {
         .number("ocpRAM", "OpenShift Virtualization", "Extra per-host overhead — memory", 0, min: 0, max: 512, unit: "GiB",
                 help: "On top of Red Hat's formula: kube reserved memory is 25% of the first 4 GiB, 20% of the next 4, 10% of the next 8, 6% up to 128 GiB and 2% above, plus 360 MiB for OpenShift Virtualization. Source: Red Hat, \"OpenShift Virtualization Cluster Sizing Guide\" v3.1.0 (June 2026); Red Hat KCS 5843241."),
         .number("ocpDrives", "OpenShift Virtualization", "OpenShift Data Foundation drives per host", 4, min: 0, max: 24,
-                help: "0 for external storage. ODF internal mode needs 30 CPU and 72 GiB across 3 nodes for the first 3 drives, plus 6 CPU and 15 GiB per further 3 drives; per node that is 10 logical CPUs and 24 GiB plus 2 logical CPUs and 5 GiB per drive after the first, counted here as half as many cores (hyperthreading). Source: Red Hat ODF 4.18, \"Planning your deployment — Resource requirements\"."),
+                help: "0 for external storage. ODF comes with OpenShift Platform Plus but not with OpenShift Virtualization Engine (OVE), which often uses external storage or adds ODF as a separate purchase. ODF internal mode needs 30 CPU and 72 GiB across 3 nodes for the first 3 drives, plus 6 CPU and 15 GiB per further 3 drives; per node that is 10 logical CPUs and 24 GiB plus 2 logical CPUs and 5 GiB per drive after the first, counted here as half as many cores (hyperthreading). Source: Red Hat ODF 4.18, \"Planning your deployment — Resource requirements\"."),
         .number("ocpControl", "OpenShift Virtualization", "Control-plane nodes per cluster", 3, min: 0, max: 5,
                 help: "Dedicated control-plane nodes (3, 4 or 5) don't run VMs. 0 for a hosted control plane, which runs on a separate management cluster and is Red Hat's recommendation with memory overcommit, or for a schedulable (compact) control plane, which isn't supported with memory overcommit. Source: Red Hat, \"OpenShift Virtualization Cluster Sizing Guide\" v3.1.0 (June 2026)."),
         .number("ocpMaxPods", "OpenShift Virtualization", "VMs per node, at most", 250, min: 10, max: 500, step: 10,
@@ -868,6 +868,7 @@ public struct AlternateHypervisors: Solution {
             let infra = p.num("ocpInfraCores") + p.num("ocpInfraRAM") > 0
                 ? ", and share \(SFmt.num(p.num("ocpInfraCores"))) cores and \(Fmt.memory(mib: p.num("ocpInfraRAM") * 1024)) of infrastructure workloads per cluster"
                 : "; infrastructure workloads aren't counted"
+            notes.append("OpenShift Virtualization Engine (OVE) sizes the same: it's a VM-only subscription to the same platform, so node reserves, per-VM overhead, control plane and infrastructure workloads don't change. It doesn't include OpenShift Data Foundation, which comes with OpenShift Platform Plus; for OVE on external storage, set ODF drives to 0 (Red Hat, OVE overview).")
             notes.append("OpenShift worker nodes reserve \(Fmt.num(reserve.cores, 1)) cores and \(Fmt.memory(mib: reserve.ramGiB * 1024)) each by Red Hat's formula and allow up to \(Fmt.int(Int(p.num("ocpMaxPods")))) VMs\(infra).")
         }
         if htCredit > 0 {
