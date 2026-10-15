@@ -43,7 +43,9 @@ public struct AlternateHypervisors: Solution {
         .choice("ratioMode", "Capacity", "vCPU per core", ["Fixed ratio (below)", "Today's ratio, per source cluster"],
                 help: "Today's ratio is each source cluster's powered-on vCPUs over its hosts' cores, kept between 1:1 and 15:1, as the Nutanix Sizer imports RVTools by default. It keeps today's consolidation on every platform."),
         .number("cpuRatio", "Capacity", "vCPU per core (configured sizes)", 4, min: 0.5, max: 20, step: 0.5, unit: ": 1",
-                help: "The same on every platform: no vendor publishes a hard limit, so change it per run if you have evidence. VMware: no common ratio; start at 1:1 if you can't react to contention quickly (VCF blog, \"vCPU to pCPU ratio guidelines\", June 2025). Nutanix: 1:1 to 2:1 for business-critical or latency-sensitive VMs, up to 4:1 for the rest (Nutanix, \"Understanding CPU resource management in Nutanix AHV\"). Hyper-V: no ratio imposed (Microsoft, Hyper-V maximum scale limits); Windows Server 2008 R2 supported 8:1 per logical processor, 12:1 for VDI. KVM: older Red Hat guidance says no more than 10 vCPUs per physical core (RHEL 6 Virtualization Administration Guide). OpenShift Virtualization schedules vCPUs through a CPU allocation ratio, 10:1 in the docs (\"Assigning compute resources\"). No independent test compares the CPU schedulers; Principled Technologies' Broadcom-commissioned vSphere 8 vs OpenShift density study tested memory overcommit."),
+                help: "The same on every platform: no vendor publishes a hard limit, so change it per run if you have evidence. VMware: no common ratio; start at 1:1 if you can't react to contention quickly (VCF blog, \"vCPU to pCPU ratio guidelines\", June 2025). Nutanix: 1:1 to 2:1 for business-critical or latency-sensitive VMs, up to 4:1 for the rest (Nutanix, \"Understanding CPU resource management in Nutanix AHV\"). Hyper-V: no ratio imposed (Microsoft, Hyper-V maximum scale limits); Windows Server 2008 R2 supported 8:1 per logical processor, 12:1 for VDI. KVM: older Red Hat guidance says no more than 10 vCPUs per physical core (RHEL 6 Virtualization Administration Guide). OpenShift Virtualization's CPU allocation ratio (default 10:1) is a scheduling request, not a planning ratio; Red Hat's sizing guide plans with a separate ratio, 4:1 in its example. No independent test compares the CPU schedulers; Principled Technologies' Broadcom-commissioned vSphere 8 vs OpenShift density study tested memory overcommit."),
+        .number("htCredit", "Capacity", "Hyperthreading credit per extra thread", 0, min: 0, max: 50, step: 5, unit: "%",
+                help: "Counts each extra hardware thread as this share of a core, the same on every platform: a 64-core, 128-thread host at 25% counts as 80 cores. 0 sizes on physical cores. Red Hat's OpenShift Virtualization sizing guide uses 25% and suggests 10–15% conservative, 20–30% moderate, 35–45% aggressive."),
         .number("cpuSpeed", "Capacity", "Per-core performance of the new hosts vs today", 1, min: 0.25, max: 4, step: 0.05, unit: "×",
                 help: "Divides the workloads' CPU need, the same on every platform. 1 sizes on today's CPUs. The Nutanix Sizer does this with SPECint rate per core: a Xeon Gold 6338 is 6.66 per core and current Xeon 6 and EPYC 9005 parts about 12.5, so about 1.9×. Use it with a host model that has the new hosts' cores."),
         .choice("clusterMode", "Capacity", "Clusters", ["One pool (greenfield)", "Keep today's clusters"],
@@ -202,15 +204,20 @@ public struct AlternateHypervisors: Solution {
 
         // OpenShift Virtualization
         .number("ocpMem", "OpenShift Virtualization", "Memory overcommit (VM memory per host memory)", 100, min: 100, max: 400, step: 25, unit: "%",
-                help: "VMs reserve their full memory by default. Higher workload density (memoryOvercommitPercentage, with wasp-agent and node swap) raises this; Red Hat recommends a fast dedicated swap device and testing the ratio. Source: Red Hat, \"Configuring higher VM workload density\" (OpenShift 4.19–4.21)."),
-        .number("ocpCores", "OpenShift Virtualization", "Per-host overhead — cores (node)", 1, min: 0, max: 64,
-                help: "Kubelet, CRI-O and system reserved, before ODF. An estimate."),
-        .number("ocpRAM", "OpenShift Virtualization", "Per-host overhead — memory (node)", 4, min: 0, max: 512, unit: "GiB",
-                help: "Kubelet, CRI-O, system reserved and the OpenShift Virtualization node agents (about 360 MiB per worker). An estimate."),
+                help: "memoryOvercommitPercentage: VMs reserve their full memory at 100%; 200% counts half of each VM's memory, a 2:1 ratio. It needs swap on every node and the wasp agent (OpenShift 4.17 and later); without swap Red Hat strongly discourages it. KSM and free page reporting aren't counted. Red Hat suggests planning from today's ratio, VM memory over host memory in use, shown in the results. Source: Red Hat, \"OpenShift Virtualization Cluster Sizing Guide\" v3.1.0 (June 2026)."),
+        .number("ocpCores", "OpenShift Virtualization", "Extra per-host overhead — cores", 0, min: 0, max: 64,
+                help: "On top of what Red Hat's formula reserves on every node: kubelet system and kube reserved (CPU 0.06 + 0.012 per effective core after the first, at least 0.5) plus OpenShift Virtualization's fixed 2 cores and 360 MiB. Source: Red Hat, \"OpenShift Virtualization Cluster Sizing Guide\" v3.1.0 (June 2026); Red Hat KCS 5843241."),
+        .number("ocpRAM", "OpenShift Virtualization", "Extra per-host overhead — memory", 0, min: 0, max: 512, unit: "GiB",
+                help: "On top of Red Hat's formula: kube reserved memory is 25% of the first 4 GiB, 20% of the next 4, 10% of the next 8, 6% up to 128 GiB and 2% above, plus 360 MiB for OpenShift Virtualization. Source: Red Hat, \"OpenShift Virtualization Cluster Sizing Guide\" v3.1.0 (June 2026); Red Hat KCS 5843241."),
         .number("ocpDrives", "OpenShift Virtualization", "OpenShift Data Foundation drives per host", 4, min: 0, max: 24,
                 help: "0 for external storage. ODF internal mode needs 30 CPU and 72 GiB across 3 nodes for the first 3 drives, plus 6 CPU and 15 GiB per further 3 drives; per node that is 10 logical CPUs and 24 GiB plus 2 logical CPUs and 5 GiB per drive after the first, counted here as half as many cores (hyperthreading). Source: Red Hat ODF 4.18, \"Planning your deployment — Resource requirements\"."),
         .number("ocpControl", "OpenShift Virtualization", "Control-plane nodes per cluster", 3, min: 0, max: 5,
-                help: "Dedicated control-plane nodes don't run VMs. 0 for a compact cluster where they do."),
+                help: "Dedicated control-plane nodes (3, 4 or 5) don't run VMs. 0 for a hosted control plane, which runs on a separate management cluster and is Red Hat's recommendation with memory overcommit, or for a schedulable (compact) control plane, which isn't supported with memory overcommit. Source: Red Hat, \"OpenShift Virtualization Cluster Sizing Guide\" v3.1.0 (June 2026)."),
+        .number("ocpMaxPods", "OpenShift Virtualization", "VMs per node, at most", 250, min: 10, max: 500, step: 10,
+                help: "Each VM is a pod, and kubelet's maxPods defaults to 250; it can go to 500, beyond which kubelet and API server stability suffer. Checked with the failover nodes down. Source: Red Hat, \"OpenShift Virtualization Cluster Sizing Guide\" v3.1.0 (June 2026)."),
+        .number("ocpInfraCores", "OpenShift Virtualization", "Infrastructure workloads per cluster — cores", 24, min: 0, max: 500,
+                help: "Ingress, image registry, monitoring, logging and other cluster services, sharing the worker nodes. Red Hat's guide uses 24 cores and 128 GiB as an illustrative example, not a validated figure; size them from each component's documentation."),
+        .number("ocpInfraRAM", "OpenShift Virtualization", "Infrastructure workloads per cluster — memory", 128, min: 0, max: 4000, step: 8, unit: "GiB"),
         .number("ocpMax", "OpenShift Virtualization", "Worker nodes per cluster, at most", 100, min: 3, max: 500,
                 help: "OpenShift Virtualization was tested to 500 nodes; Red Hat recommends 100 or fewer and more clusters beyond that. Source: Red Hat, OpenShift Virtualization \"Supported limits\"."),
         .number("ocpMin", "OpenShift Virtualization", "Worker nodes per cluster, at least", 3, min: 1, max: 8, help: "ODF needs 3 nodes."),
@@ -229,7 +236,21 @@ public struct AlternateHypervisors: Solution {
 
     typealias Component = VCF9Sizing.Component
 
-    struct HostSpec { var cores: Double, ramGiB: Double, mhz: Double, name: String }
+    struct HostSpec {
+        /// Effective cores: physical cores plus the hyperthreading credit.
+        var cores: Double, ramGiB: Double, mhz: Double, name: String
+        var physical = 0.0, threads = 0.0
+    }
+
+    /// Red Hat's per-node reservation for an OpenShift Virtualization worker: kubelet system and kube reserved (KCS 5843241)
+    /// plus OpenShift Virtualization's fixed 2 cores and 360 MiB ("OpenShift Virtualization Cluster Sizing Guide" v3.1.0).
+    static func openShiftNodeReserve(effectiveCores: Double, ramGiB: Double) -> (cores: Double, ramGiB: Double) {
+        let cpu = max(0.5, 0.06 + 0.012 * (effectiveCores - 1))
+        let tiers: [(size: Double, share: Double)] = [(4, 0.25), (4, 0.20), (8, 0.10), (112, 0.06), (.infinity, 0.02)]
+        var left = ramGiB, ram = 0.0
+        for t in tiers where left > 0 { let part = min(left, t.size); ram += part * t.share; left -= part }
+        return (cpu + 2, ram + 360.0 / 1024)
+    }
 
     struct Demand {
         var cores = 0.0, ramGiB = 0.0
@@ -265,8 +286,8 @@ public struct AlternateHypervisors: Solution {
         var maxVMsPerHost = 0, maxVCPUPerHost = 0, maxVMsPerCluster = 0
         /// Raw drive capacity per host; 0 leaves storage out of the host count.
         var rawPerHostMiB = 0.0
-        /// Physical cores needed once per cluster outside VMs (Ceph monitors and managers).
-        var clusterCores = 0.0
+        /// Cores and memory needed once per cluster outside the sized VMs (Ceph monitors and managers, OpenShift infra).
+        var clusterCores = 0.0, clusterRAM = 0.0
     }
 
     struct Plan {
@@ -339,7 +360,7 @@ public struct AlternateHypervisors: Solution {
             var p = Plan(hosts: h, clusters: clusters, control: clusters * pr.control)
             p.maxLoad = maxLoad
             p.cpuLoad = (d.cores + pr.clusterCores * Double(clusters)) / (live * cores)
-            p.memLoad = ram / (live * dram * (1 + pr.tier))
+            p.memLoad = (ram + pr.clusterRAM * Double(clusters)) / (live * dram * (1 + pr.tier))
             if pr.tier > 0, let active = d.activeGiB { p.activeLoad = (active + vmOverheadGiB) / (live * dram) }
             // Hard limits hold with the failover hosts down; storage counts every host.
             if pr.maxVMsPerHost > 0 { p.vmLoad = Double(d.vms) / (live * Double(pr.maxVMsPerHost)) }
@@ -350,7 +371,7 @@ public struct AlternateHypervisors: Solution {
         return Plan(feasible: false)
     }
 
-    func profile(_ pl: Platform, _ p: Params, vms: Int) -> Profile {
+    func profile(_ pl: Platform, _ p: Params, vms: Int, host: HostSpec) -> Profile {
         typealias A = VCFAppliances
         let k = pl.key
         var pr = Profile(platform: pl)
@@ -443,8 +464,12 @@ public struct AlternateHypervisors: Solution {
                 pr.hostCores += (10 + 2 * (drives - 1)) / 2
                 pr.hostRAM += 24 + 5 * (drives - 1)
             }
+            let reserve = AlternateHypervisors.openShiftNodeReserve(effectiveCores: host.cores, ramGiB: host.ramGiB)
+            pr.hostCores += reserve.cores; pr.hostRAM += reserve.ramGiB
             pr.perVMOverhead = true
             pr.control = Int(p.num("ocpControl"))
+            pr.maxVMsPerHost = Int(p.num("ocpMaxPods"))
+            pr.clusterCores = p.num("ocpInfraCores"); pr.clusterRAM = p.num("ocpInfraRAM")
         case .ahv: break
         }
         return pr
@@ -479,6 +504,11 @@ public struct AlternateHypervisors: Solution {
                             mhz: model?.speedMHz ?? 0, name: model.map { (picked != nil ? "like " : "typical, like ") + $0.name } ?? "")
         if p.num("hostCores") > 0 { host.cores = p.num("hostCores"); host.name = "custom" }
         if p.num("hostRAM") > 0 { host.ramGiB = p.num("hostRAM"); host.name = "custom" }
+        // Hyperthreading credit: each extra thread counts as a share of a core, on every platform.
+        let htCredit = p.num("htCredit") / 100
+        host.physical = host.cores
+        host.threads = model?.htActive == true || (model == nil && p.num("hostCores") > 0) ? host.cores * 2 : host.cores
+        host.cores = host.physical + (host.threads - host.physical) * htCredit
         let hostLabel = "\(SFmt.num(host.cores)) cores, \(Fmt.memory(mib: host.ramGiB * 1024))" + (host.name.isEmpty ? "" : " (\(host.name))")
 
         guard !running.isEmpty, host.cores > 0, host.ramGiB > 0 else {
@@ -563,7 +593,7 @@ public struct AlternateHypervisors: Solution {
         let baseline = Platform.editions[min(p.choice("baseline"), Platform.editions.count - 1)]
         let editions: [Platform] = [.vsphere8, .vvf, .vcf]
         let platforms = editions + chosen
-        let profiles = Dictionary(uniqueKeysWithValues: platforms.map { ($0, profile($0, p, vms: running.count)) })
+        let profiles = Dictionary(uniqueKeysWithValues: platforms.map { ($0, profile($0, p, vms: running.count, host: host)) })
 
         /// Management appliances count at the management vCPU ratio; their memory is all active.
         func demand(_ comps: [Component]) -> Demand {
@@ -631,8 +661,8 @@ public struct AlternateHypervisors: Solution {
                            (measured ? "measured CPU and consumed memory" : "\(Fmt.int(Int(d.vcpus))) vCPU at " + (todaysRatio ? "today's ratios (\(Fmt.ratio(overallRatio)) overall)" : "\(SFmt.num(fixedRatio)):1"))
                                + (speed != 1 ? " · cores ÷ \(SFmt.num(speed)) for per-core speed" : ""),
                            symbol: "cpu"),
-            SolutionMetric("Host model", "\(SFmt.num(host.cores)) cores · \(Fmt.memory(mib: host.ramGiB * 1024))",
-                           (host.name.isEmpty ? "" : host.name + " · ") + "same on every platform · today \(Fmt.int(hostsToday.count)) hosts", symbol: "server.rack"),
+            SolutionMetric("Host model", "\(SFmt.num(host.physical)) cores · \(Fmt.memory(mib: host.ramGiB * 1024))",
+                           (host.name.isEmpty ? "" : host.name + " · ") + (host.cores != host.physical ? "\(SFmt.num(host.cores)) effective with hyperthreading · " : "") + "same on every platform · today \(Fmt.int(hostsToday.count)) hosts", symbol: "server.rack"),
         ]
         for pl in [baseline] + editions.filter({ $0 != baseline }) + chosen {
             let pn = plans[pl]!
@@ -682,7 +712,7 @@ public struct AlternateHypervisors: Solution {
             var step = vs
             var counts = [base]
             step.management = target.management; step.mgmtDedicated = target.mgmtDedicated; step.mgmtMinHosts = target.mgmtMinHosts
-            step.clusterCores = target.clusterCores
+            step.clusterCores = target.clusterCores; step.clusterRAM = target.clusterRAM
             counts.append(plan(step))
             step.density = target.density; step.tier = target.tier
             counts.append(plan(step))
@@ -735,7 +765,8 @@ public struct AlternateHypervisors: Solution {
             .kvm: [flavor == 2 ? "HyperCore with SCRIBE storage (estimate)"
                    : flavor == 3 ? "VergeOS: 16 GiB plus 1 GiB per raw TB, a core per storage disk"
                    : "KVM host plus \(SFmt.num(p.num("pxOSDs"))) Ceph OSDs" + (p.num("pxOSDs") > 0 ? "; \(SFmt.num(p.num("pxCephSvcCores"))) more cores per cluster for Ceph monitors and managers" : "")][0],
-            .openshift: "Node services" + (p.num("ocpDrives") > 0 ? " plus OpenShift Data Foundation for \(SFmt.num(p.num("ocpDrives"))) drives" : "")
+            .openshift: "Kubelet reserved and OpenShift Virtualization (Red Hat's formula)" + (p.num("ocpDrives") > 0 ? " plus OpenShift Data Foundation for \(SFmt.num(p.num("ocpDrives"))) drives" : "")
+                + (p.num("ocpInfraCores") + p.num("ocpInfraRAM") > 0 ? "; infrastructure workloads add \(SFmt.num(p.num("ocpInfraCores"))) cores and \(Fmt.memory(mib: p.num("ocpInfraRAM") * 1024)) per cluster" : "")
                 + "; per VM, virt-launcher adds \(Fmt.memory(mib: ocpOverhead * 1024)) in all",
         ]
         let overheadTable = SolutionTable(id: "overhead", title: "Per-host overhead",
@@ -785,6 +816,14 @@ public struct AlternateHypervisors: Solution {
                 cb.add("ahv-ratio", "Nutanix AHV", "vCPU per core above 4:1", .ready, "Sized at \(SFmt.num(fixedRatio)):1")
             }
         }
+        if chosen.contains(.openshift) {
+            let overcommit = p.num("ocpMem") > 100
+            if p.num("ocpControl") == 0 && overcommit {
+                cb.add("ocp-control", "OpenShift", "Control plane with memory overcommit", .warning,
+                       "No dedicated control-plane nodes, with memory overcommit at \(Fmt.pct(p.num("ocpMem")))",
+                       remediation: "Memory overcommit needs swap, and a schedulable (compact) control plane isn't supported with it. Use a hosted control plane on a management cluster, as Red Hat recommends, or 3 to 5 dedicated control-plane nodes. Source: Red Hat, \"OpenShift Virtualization Cluster Sizing Guide\" v3.1.0.")
+            }
+        }
         if chosen.contains(.hyperv) {
             // Hyper-V runs BIOS VMs as Generation 1 (64 vCPU, 1 TB, IDE boot); Generation 2 needs UEFI.
             let bios = all.filter { $0.firmware.lowercased() == "bios" }
@@ -801,7 +840,7 @@ public struct AlternateHypervisors: Solution {
         for pl in [baseline] + chosen {
             let pr = profiles[pl]!
             let cores = host.cores - pr.hostCores, dram = (host.ramGiB - pr.hostRAM) * (1 + pr.tier)
-            let big = running.filter { Double($0.cpus) > cores * (model?.htActive == true ? 2 : 1) || $0.memoryMiB / 1024 > dram }
+            let big = running.filter { Double($0.cpus) > host.threads - pr.hostCores || $0.memoryMiB / 1024 > dram }
             cb.list("big-" + pl.id, "Sizing", "VMs too large for one \(sh(pl)) host", .warning, noun: "VMs",
                     affected: big.map { $0.ref("\($0.cpus) vCPU, \(Fmt.memory(mib: $0.memoryMiB))") },
                     ready: "Every VM fits a host after overhead",
@@ -817,6 +856,23 @@ public struct AlternateHypervisors: Solution {
             "Storage is \(provisioned ? "VM provisioned capacity" : "VM in-use space (excluding swap)") plus \(Fmt.pct(p.num("growth"))) growth and the management components' disks, times each platform's raw-to-usable factor, with \(Fmt.pct(reserve * 100)) kept free. Data reduction is not counted on any platform. Storage adds hosts only where a raw capacity per host is set.",
             "Defaults come from vendor documentation where it exists, and are marked as estimates where it doesn't; each assumption's help names its source. Confirm them against the versions you would deploy.",
         ]
+        if chosen.contains(.openshift) {
+            // Red Hat's way to pick a memory overcommit: VM memory over host memory in use today.
+            let vmMem = inv.vms.filter { $0.isVM && $0.isRunning && hostIDs.contains($0.hostKey) }.reduce(0) { $0 + $1.memoryMiB }
+            let used = hostsToday.reduce(0) { $0 + $1.memUsedMiB }
+            if used > 0, vmMem > 0 {
+                let r = vmMem / used
+                notes.append("Today's memory overcommit is \(Fmt.ratio(r)): powered-on VM memory over host memory in use on the hosts behind these VMs. Red Hat's sizing guide suggests planning OpenShift's memory overcommit from this ratio (about \(Fmt.pct((r * 100 / 25).rounded(.down) * 25)) as memoryOvercommitPercentage, with swap); this sizing uses \(Fmt.pct(p.num("ocpMem"))).")
+            }
+            let reserve = AlternateHypervisors.openShiftNodeReserve(effectiveCores: host.cores, ramGiB: host.ramGiB)
+            let infra = p.num("ocpInfraCores") + p.num("ocpInfraRAM") > 0
+                ? ", and share \(SFmt.num(p.num("ocpInfraCores"))) cores and \(Fmt.memory(mib: p.num("ocpInfraRAM") * 1024)) of infrastructure workloads per cluster"
+                : "; infrastructure workloads aren't counted"
+            notes.append("OpenShift worker nodes reserve \(Fmt.num(reserve.cores, 1)) cores and \(Fmt.memory(mib: reserve.ramGiB * 1024)) each by Red Hat's formula and allow up to \(Fmt.int(Int(p.num("ocpMaxPods")))) VMs\(infra).")
+        }
+        if htCredit > 0 {
+            notes.append("Hyperthreading: each extra thread counts as \(Fmt.pct(htCredit * 100)) of a core on every platform, so a host counts as \(SFmt.num(host.cores)) cores.")
+        }
         if keepClusters {
             notes.append("Today's clusters are kept: \(groups.count) source cluster\(groups.count == 1 ? "" : "s") sized separately, each with at least the platform's minimum hosts and its own spare.")
         }
