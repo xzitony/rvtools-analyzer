@@ -780,6 +780,21 @@ public struct VCF9Sizing: Solution {
         let tibPerCore = vvf ? A.vsanTiBPerCoreVVF : A.vsanTiBPerCoreVCF
         let licensedCores = planHosts.reduce(0) { $0 + $1.licensed }
         let entitledTiB = licensedCores * tibPerCore
+        // Physical cores against licensed ones: CPUs below the per-CPU minimum are licensed for cores they don't have.
+        let physicalCores = planHosts.reduce(0) { $0 + $1.cores }
+        let overLicensed = max(0, licensedCores - physicalCores)
+        let underMin = planHosts.filter { $0.licensed > $0.cores }
+        if !planHosts.isEmpty {
+            b.add("license.cores", "Licensing", "\(edition) subscription cores", .info,
+                  "\(SFmt.num(licensedCores)) licensed cores for \(planHosts.count) hosts (\(SFmt.num(coreMin))-core minimum per CPU)"
+                    + (overLicensed > 0 ? "; \(SFmt.num(physicalCores)) physical, so \(SFmt.num(overLicensed)) cores (\(Fmt.pct(overLicensed / licensedCores * 100))) are over-licensed on \(underMin.count) hosts with CPUs below the minimum" : ""),
+                  remediation: "Licensed cores cover every host in the plan, new ones included. Confirm current Broadcom licensing terms, including any per-order minimums."
+                    + (overLicensed > 0 ? " Hosts with CPUs below \(SFmt.num(coreMin)) cores pay for the minimum; denser CPUs in new or refreshed hosts recover those cores." : ""),
+                  affected: underMin.map { h in
+                      AffectedObject(kind: h.isNew ? .other : .host, id: h.id, name: h.name,
+                                     detail: "\(SFmt.num(h.cores)) physical, \(SFmt.num(h.licensed)) licensed (+\(SFmt.num(h.licensed - h.cores)))")
+                  })
+        }
         var seenDS = Set<String>()
         let vsanStores = inv.datastores.filter { d in
             d.type.lowercased() == "vsan" && clusters.contains { onCluster(d, $0) } && seenDS.insert(d.id).inserted
@@ -849,6 +864,9 @@ public struct VCF9Sizing: Solution {
             SolutionMetric("Management storage", Fmt.capacity(mib: storageMiB), "\(storageName) · \(SFmt.num(storageGB)) GB in workbook terms", symbol: "externaldrive"),
             vvf ? SolutionMetric("Workload clusters", Fmt.int(units.count), "under \(wds.count) vCenter(s)", symbol: "square.grid.2x2")
                 : SolutionMetric("Workload domains", Fmt.int(wds.count), "\(wds.reduce(0) { $0 + $1.clusters.count }) clusters · adds \(SFmt.num(wldAdds.reduce(0) { $0 + $1.cpu })) vCPU to management", symbol: "square.grid.2x2"),
+            SolutionMetric("Licensed cores", SFmt.num(licensedCores),
+                           overLicensed > 0 ? "\(SFmt.num(physicalCores)) physical · \(SFmt.num(overLicensed)) over-licensed (\(SFmt.num(coreMin))-core min)"
+                                            : "\(SFmt.num(coreMin))-core minimum per CPU", symbol: "key"),
             SolutionMetric("vSAN entitlement", "\(SFmt.num(entitledTiB)) TiB", vsanStores.isEmpty ? "\(SFmt.num(licensedCores)) licensed cores · no vSAN in scope"
                            : addOnTiB == 0 ? "covers \(SFmt.num((vsanRawTiB * 10).rounded() / 10)) TiB raw in scope" : "\(SFmt.num(addOnTiB)) TiB add-on needed",
                            symbol: "internaldrive", status: addOnTiB == 0 ? .ready : .warning),

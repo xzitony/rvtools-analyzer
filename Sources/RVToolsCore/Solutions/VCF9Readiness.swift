@@ -465,9 +465,16 @@ public struct VCF9Readiness: Solution {
         let coreMin = max(Int(p.num("coreMin")), 1)
         let licensedCores = hosts.reduce(0) { $0 + $1.sockets * max(coreMin, $1.coresPerSocket) }
         let sockets = hosts.reduce(0) { $0 + $1.sockets }
+        // Physical cores against licensed ones: CPUs below the per-CPU minimum are licensed for cores they don't have.
+        let physicalCores = hosts.reduce(0) { $0 + $1.sockets * $1.coresPerSocket }
+        let overLicensed = licensedCores - physicalCores
+        let underMin = hosts.filter { $0.sockets > 0 && $0.coresPerSocket < coreMin }
         b.add("lic.cores", "Licensing", "VCF subscription cores", .info,
-              "\(Fmt.int(licensedCores)) cores for \(sockets) CPUs on \(hosts.count) hosts (\(coreMin)-core minimum per CPU)",
-              remediation: "Confirm current Broadcom licensing terms, including any per-order minimums.")
+              "\(Fmt.int(licensedCores)) cores for \(sockets) CPUs on \(hosts.count) hosts (\(coreMin)-core minimum per CPU)"
+                + (overLicensed > 0 ? "; \(Fmt.int(physicalCores)) physical, so \(Fmt.int(overLicensed)) cores (\(Fmt.pct(Double(overLicensed) / Double(licensedCores) * 100))) are over-licensed on \(underMin.count) hosts with CPUs below the minimum" : ""),
+              remediation: "Confirm current Broadcom licensing terms, including any per-order minimums."
+                + (overLicensed > 0 ? " Hosts with CPUs below \(coreMin) cores pay for the minimum; consolidating onto fewer, denser CPUs at refresh recovers those cores." : ""),
+              affected: underMin.map { $0.ref("\($0.sockets) × \($0.coresPerSocket) cores, licensed \($0.sockets) × \(coreMin) (+\($0.sockets * (coreMin - $0.coresPerSocket)))") })
 
         b.markUnassessed(VCF9Readiness.requiredTabs, present: inv.tabsPresent)
         let checks = b.checks
@@ -483,7 +490,9 @@ public struct VCF9Readiness: Solution {
                 SolutionMetric("Warnings", Fmt.int(counts[.warning] ?? 0), "checks to plan for", symbol: CheckStatus.warning.symbol),
                 SolutionMetric("Ready", Fmt.int(counts[.ready] ?? 0), "checks passed", symbol: CheckStatus.ready.symbol),
                 SolutionMetric("Readiness", Fmt.pct(score), "of scored checks pass", symbol: "gauge.with.dots.needle.67percent"),
-                SolutionMetric("VCF cores", hostData ? Fmt.int(licensedCores) : "—", hostData ? "\(coreMin)-core minimum per CPU" : "vHost tab not in export", symbol: "key"),
+                SolutionMetric("VCF cores", hostData ? Fmt.int(licensedCores) : "—", !hostData ? "vHost tab not in export"
+                                : overLicensed > 0 ? "\(Fmt.int(physicalCores)) physical · \(Fmt.int(overLicensed)) over-licensed (\(coreMin)-core min)" : "\(coreMin)-core minimum per CPU",
+                               symbol: "key"),
             ]),
             .checks("Readiness checks", checks),
         ]
