@@ -51,12 +51,12 @@ public struct WorkloadConsolidation: Solution {
                     help: "Hosts beyond what a cluster needs at the load limit, with failures held in reserve, go to a spare pool: hosts in maintenance mode first, then hosts outside the cluster's main CPU family, then the oldest and smallest."),
             .toggle("rebalance", "Plan", "Use spare hosts before adding new ones", true,
                     help: "A cluster that's short takes released hosts from the same datacenter and CPU vendor first, its own CPU family first."),
-            .choice("minIntel", "Retirement", "Oldest Intel family to keep", ["Keep every Intel host"] + CPUFamily.intelOrder.dropFirst().map(CPUFamily.label),
-                    help: "Hosts of older families are retired: they leave their clusters and aren't reused. What's left must carry the workloads, with memory upgrades, spare hosts or new hosts as needed."),
-            .choice("minAMD", "Retirement", "Oldest AMD family to keep", ["Keep every AMD host"] + CPUFamily.amdOrder.dropFirst().map(CPUFamily.label)),
+            .choice("minIntel", "Retirement", "Oldest Intel generation to keep", ["Keep every Intel host"] + CPURetirement.intel.map(\.name),
+                    help: "Hosts of older generations are retired: they leave their clusters and aren't reused. What's left must carry the workloads, with memory upgrades, spare hosts or new hosts as needed. For ESX 9, Broadcom blocks Broadwell and older, allows Skylake-SP only with an override on listed servers, and deprecates Cascade Lake (it installs with a warning); check KB 318697 for the current list."),
+            .choice("minAMD", "Retirement", "Oldest AMD generation to keep", ["Keep every AMD host"] + CPURetirement.amd.map(\.name)),
             .hostList("retire", "Retirement", "Retire these hosts", help: "Individual hosts to decommission, whatever their CPU."),
-            .toggle("suggestRetire", "Retirement", "Suggest retiring a whole CPU family", true,
-                    help: "Tries retiring each vendor's oldest family in scope and reports whether the remaining hosts can take over, and at what cost in memory, new hosts and VM moves."),
+            .toggle("suggestRetire", "Retirement", "Suggest retiring the oldest CPU generation", true,
+                    help: "Tries retiring each vendor's oldest generation in scope and reports whether the remaining hosts can take over, and at what cost in memory, new hosts and VM moves."),
             .clusterGroups("merge", "Overrides", "Merge these clusters",
                            help: "Each group becomes one cluster, whatever the recommendations say."),
             .clusters("solo", "Overrides", "Keep standalone", multi: true, none: "None",
@@ -463,13 +463,12 @@ public struct WorkloadConsolidation: Solution {
         let soloIDs = Set(soloNames.compactMap(resolve).map(\.id))
         var notes: [String] = []
 
-        // 1. Retirement: below the oldest family to keep, or chosen by you. Retired hosts are gone for good.
+        // 1. Retirement: below the oldest generation to keep, or chosen by you. Retired hosts are gone for good.
         let minIntel = p.choice("minIntel"), minAMD = p.choice("minAMD")
         let retireNames = p.names("retire")
         let retireIDs = Set(retireNames.compactMap { HostSpecs.resolve($0, in: inv)?.id })
         func belowMinimum(_ g: CPUBaseline) -> Bool {
-            guard let i = CPUFamily.index(g.family) else { return false }
-            return g.vendor == "Intel" ? i < minIntel : (g.vendor == "AMD" ? i < minAMD : false)
+            CPURetirement.isRetired(g, choice: g.vendor == "Intel" ? minIntel : (g.vendor == "AMD" ? minAMD : 0))
         }
         func retire(_ i: Int, by who: String) {
             hosts[i].retired = true
@@ -995,13 +994,16 @@ public struct WorkloadConsolidation: Solution {
             let cores = hs.reduce(0.0) { $0 + $1.licensed(coreMin) }
             return "\(Fmt.int(Int(cores))) licensed cores" + (licCost > 0 ? " (\(SFmt.usd(cores * licCost)) a year)" : "")
         }
-        for (fam, hs) in Dictionary(grouping: retiredHosts.filter { $0.retiredBy == "minimum family" }, by: \.gen.family).sorted(by: { $0.key < $1.key }) {
-            let param = hs[0].gen.vendor == "AMD" ? "minAMD" : "minIntel"
-            changes.add("retire-\(fam)", "Retirement", "Retire \(hs.count) \(CPUFamily.short(fam)) host\(hs.count == 1 ? "" : "s")", .info,
-                        "Older than the oldest \(hs[0].gen.vendor) family to keep. Frees \(licensedText(hs)). " + movesText(hs),
+        let byTier = Dictionary(grouping: retiredHosts.filter { $0.retiredBy == "minimum family" }) { h in "\(h.gen.vendor)|\(CPURetirement.tier(h.gen) ?? 0)" }
+        for key in byTier.keys.sorted() {
+            let hs = byTier[key] ?? []
+            let vendor = hs[0].gen.vendor, tier = CPURetirement.tier(hs[0].gen) ?? 0
+            let name = CPURetirement.short(vendor, tier: tier)
+            changes.add("retire-\(key)", "Retirement", "Retire \(hs.count) \(name) host\(hs.count == 1 ? "" : "s")", .info,
+                        "Older than the oldest \(vendor) generation to keep. Frees \(licensedText(hs)). " + movesText(hs),
                         affected: hs.map { hostRef($0, "\($0.originName), \($0.gen.name)") },
-                        actions: [SolutionAction("Keep \(CPUFamily.short(fam)) hosts", symbol: "arrow.uturn.backward", help: "Lowers the oldest family to keep.",
-                                                 set: [param: .choice(CPUFamily.index(fam) ?? 0)])])
+                        actions: [SolutionAction("Keep \(name) hosts", symbol: "arrow.uturn.backward", help: "Lowers the oldest generation to keep.",
+                                                 set: [vendor == "AMD" ? "minAMD" : "minIntel": .choice(tier)])])
         }
         let retiredByYou = retiredHosts.filter { $0.retiredBy == "you" }
         if !retiredByYou.isEmpty {
@@ -1235,7 +1237,7 @@ public struct WorkloadConsolidation: Solution {
             let inPlan = h.retired ? "Retired" : (h.released ? "Spare pool" : (planName[h.cluster] ?? ""))
             if h.isNew { change.append("new") }
             if h.retired {
-                change.append(h.retiredBy == "you" ? "retired by you" : "retired, older than the family to keep")
+                change.append(h.retiredBy == "you" ? "retired by you" : "retired, older than the generation to keep")
             } else if h.released {
                 change.append(h.releasedBy == "you" ? "released by you" : "released, not needed")
             }
@@ -1324,22 +1326,22 @@ public struct WorkloadConsolidation: Solution {
         if recommend && p.flag("suggestRetire") {
             for (vendor, param) in [("Intel", "minIntel"), ("AMD", "minAMD")] {
                 let present = hosts.filter { !$0.retired && !$0.isNew && $0.gen.vendor == vendor }
-                let families = Set(present.compactMap { CPUFamily.index($0.gen.family) })
-                guard let oldest = families.min(), families.count > 1 else { continue }
-                let fam = (vendor == "Intel" ? CPUFamily.intelOrder : CPUFamily.amdOrder)[oldest]
-                let going = present.filter { CPUFamily.index($0.gen.family) == oldest }
+                let tiers = Set(present.compactMap { CPURetirement.tier($0.gen) })
+                guard let oldest = tiers.min(), tiers.count > 1 else { continue }
+                let fam = CPURetirement.short(vendor, tier: oldest)
+                let going = present.filter { CPURetirement.tier($0.gen) == oldest }
                 let o = evaluate(vms: vms, inventory: inv, params: p.setting(param, .choice(oldest + 1)), probe: true).outcome
                 let fine = o.newHosts == 0 && o.shortfalls == 0
-                let title = fine ? "Retire all \(going.count) \(CPUFamily.short(fam)) hosts" : "Retiring all \(going.count) \(CPUFamily.short(fam)) hosts needs \(o.newHosts) new host\(o.newHosts == 1 ? "" : "s")"
+                let title = fine ? "Retire all \(going.count) \(fam) hosts" : "Retiring all \(going.count) \(fam) hosts needs \(o.newHosts) new host\(o.newHosts == 1 ? "" : "s")"
                 var parts = [fine ? "The remaining hosts can carry their workloads." : "The remaining hosts can't carry everything.",
                              "Hosts \(planned.count) → \(o.hosts), licensed cores \(Fmt.int(Int(licPlan))) → \(Fmt.int(Int(o.licensed)))"
                                 + (licCost > 0 && o.licensed < licPlan ? " (\(SFmt.usd((licPlan - o.licensed) * licCost)) a year less)" : "") + "."]
                 if o.upgraded > upgraded.count { parts.append("Memory upgrades on \(o.upgraded) hosts (+\(Fmt.memory(mib: o.addedGiB * 1024))).") }
                 parts.append("Impact: \(o.impact.level.lowercased()) (\(o.impact.score) of 100), \(o.impact.text).")
                 retireIdeas.add("retire-idea-\(vendor)", "Retirement", title, fine ? .info : .warning, parts.joined(separator: " "),
-                                remediation: "\(CPUFamily.label(fam)) is the oldest \(vendor) family here. Retiring it also removes the need for EVC below the next family.",
+                                remediation: "\(fam) is the oldest \(vendor) generation here. Retiring it also lifts the EVC mode its clusters need.",
                                 affected: going.map { hostRef($0, "\($0.originName), \($0.gen.name)") },
-                                actions: [SolutionAction("Retire them", symbol: "trash", help: "Sets the oldest \(vendor) family to keep.", set: [param: .choice(oldest + 1)])])
+                                actions: [SolutionAction("Retire them", symbol: "trash", help: "Sets the oldest \(vendor) generation to keep.", set: [param: .choice(oldest + 1)])])
             }
         }
 
@@ -1355,7 +1357,7 @@ public struct WorkloadConsolidation: Solution {
         sections.append(.checks("Validation", v.checks.isEmpty ? [SolutionCheck(id: "ok", area: "Plan", title: "No issues found", status: .ready, summary: "The planned clusters pass every check.", remediation: "", affected: [])] : v.checks))
         if !retireIdeas.checks.isEmpty {
             sections.append(.checks("Retire the oldest hosts?", retireIdeas.checks,
-                                    subtitle: "What this plan would look like with each CPU vendor's oldest family retired."))
+                                    subtitle: "What this plan would look like with each CPU vendor's oldest generation retired."))
         }
         if !opportunities.checks.isEmpty {
             sections.append(.checks("Other merges to try", opportunities.checks, subtitle: "Pairs in the same datacenter that would need fewer hosts together, but weren't recommended."))

@@ -130,3 +130,48 @@ public enum CPUFamily {
         return counts.map { (key: $0.key, label: label($0.key), count: $0.value) }.sorted { ($1.count, $0.key) < ($0.count, $1.key) }
     }
 }
+
+/// Steps for retiring old hosts, finer than families: Skylake and Cascade Lake share a family but not a fate on ESX 9.
+public enum CPURetirement {
+    public struct Tier: Sendable {
+        public let name: String
+        public let short: String
+        /// The oldest `CPUBaseline.rank` this tier keeps.
+        public let minRank: Int
+    }
+
+    public static let intel = [
+        Tier(name: "Xeon SP 1st gen (Skylake)", short: "Skylake", minRank: 8),
+        Tier(name: "Xeon SP 2nd gen (Cascade Lake)", short: "Cascade Lake", minRank: 9),
+        Tier(name: "Xeon SP 3rd gen (Ice Lake)", short: "Ice Lake", minRank: 10),
+        Tier(name: "Xeon SP 4th–5th gen (Sapphire, Emerald Rapids)", short: "Sapphire/Emerald Rapids", minRank: 11),
+        Tier(name: "Xeon 6 (Granite Rapids)", short: "Granite Rapids", minRank: 12),
+    ]
+    public static let amd = [
+        Tier(name: "EPYC 7001 (Zen)", short: "EPYC 7001", minRank: 7),
+        Tier(name: "EPYC 7002 (Zen 2)", short: "EPYC 7002", minRank: 8),
+        Tier(name: "EPYC 7003 (Zen 3)", short: "EPYC 7003", minRank: 9),
+        Tier(name: "EPYC 9004 (Zen 4)", short: "EPYC 9004", minRank: 10),
+        Tier(name: "EPYC 9005 (Zen 5)", short: "EPYC 9005", minRank: 11),
+    ]
+
+    public static func tiers(_ vendor: String) -> [Tier] { vendor == "Intel" ? intel : (vendor == "AMD" ? amd : []) }
+
+    /// A generation's tier: 0 is older than the first tier, k is `tiers[k - 1]`; nil when unknown.
+    public static func tier(_ g: CPUBaseline) -> Int? {
+        guard g.rank >= 0, !g.vendor.isEmpty else { return nil }
+        return tiers(g.vendor).filter { $0.minRank <= g.rank }.count
+    }
+
+    /// With choice k (0 keeps everything), hosts of tiers below k are retired.
+    public static func isRetired(_ g: CPUBaseline, choice: Int) -> Bool {
+        guard choice > 0, let t = tier(g) else { return false }
+        return t < choice
+    }
+
+    public static func short(_ vendor: String, tier: Int) -> String {
+        if tier == 0 { return vendor == "Intel" ? "Xeon E5/E7" : "Opteron" }
+        let ts = tiers(vendor)
+        return tier <= ts.count ? ts[tier - 1].short : "?"
+    }
+}
