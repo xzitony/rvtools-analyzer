@@ -17,6 +17,7 @@ It can also read the Azure and AWS prices the app already has, and your own pric
 - [The pack](#the-pack)
 - [manifest.json](#manifestjson)
 - [Parameters](#parameters)
+- [Several VM selections](#several-vm-selections)
 - [The script](#the-script)
 - [Results](#results)
 - [Findings and other solutions](#findings-and-other-solutions)
@@ -81,7 +82,7 @@ my-solution.rvasolution/     any folder name works; .rvasolution is the conventi
 | Field | Required | Meaning |
 |---|---|---|
 | `apiVersion` | yes | Always `1` for now. See [Limits and compatibility](#limits-and-compatibility). |
-| `id` | yes | Unique id: lowercase letters, digits, `.`, `-` or `_`, up to 64 characters. It's the key for the solution's saved selection and assumptions in projects, so don't change it after sharing. The built-in ids (`backup`, `dr`, `vcf9`, `vcfsizing`, `azure`, `aws`, `althv`, `consolidation`) are reserved. |
+| `id` | yes | Unique id: lowercase letters, digits, `.`, `-` or `_`, up to 64 characters. It's the key for the solution's saved selection and assumptions in projects, so don't change it after sharing. The built-in ids (`backup`, `dr`, `vcf9`, `vcfsizing`, `azure`, `aws`, `avs`, `althv`, `consolidation`) are reserved. |
 | `title` | yes | Name in the sidebar and reports. |
 | `symbol` | | An [SF Symbols](https://developer.apple.com/sf-symbols/) name. Default: `puzzlepiece.extension`. |
 | `summary` | | One line under the title. |
@@ -94,7 +95,7 @@ my-solution.rvasolution/     any folder name works; .rvasolution is the conventi
 | `pricing.providers` | | Price providers the script may read: `azure`, `aws` and/or price list ids. See [Prices](#prices). |
 | `pricing.allowDownload` | | Default `true`. Set it to `false` to hide **Download Prices**, so the solution only uses prices already downloaded, for example through the built-in Azure and AWS solutions. |
 | `parameters` | | The Assumptions step. See [Parameters](#parameters). |
-| `solutions` | | Ids of other solutions whose results the script reads from `context.solutions`, built-in (`vcf9`, `vcfsizing`, `backup`, `dr`, `azure`, `aws`, `althv`) or custom. See [Findings and other solutions](#findings-and-other-solutions). |
+| `solutions` | | Ids of other solutions whose results the script reads from `context.solutions`, built-in (`vcf9`, `vcfsizing`, `backup`, `dr`, `azure`, `aws`, `avs`, `althv`, `consolidation`) or custom. See [Findings and other solutions](#findings-and-other-solutions). |
 
 ## Parameters
 
