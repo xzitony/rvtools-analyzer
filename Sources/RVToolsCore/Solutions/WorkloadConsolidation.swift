@@ -1390,6 +1390,12 @@ public struct WorkloadConsolidation: Solution {
 
         // Summary.
         let clustersToday = scope.count, clustersPlan = nonEmptyPlan.count
+        // Each cluster is judged on its own hosts: HA restarts VMs only inside their cluster, so room elsewhere doesn't help.
+        let gapLabel = spare == 0 ? "Capacity gaps today" : "Failover gaps today"
+        let hostsDown = spare == 1 ? "1 host" : "\(spare) hosts"
+        let maxText = SFmt.num(maxLoad * 100) + "%"
+        let gapWhy = spare == 0 ? "over \(maxText) on their own hosts" : "can't lose \(hostsDown) and stay under \(maxText)"
+        let gapNames = shortToday.prefix(3).joined(separator: ", ") + (shortToday.count > 3 ? "…" : "")
         var metrics: [SolutionMetric] = [
             SolutionMetric("Clusters", clustersToday == clustersPlan ? Fmt.int(clustersToday) : "\(clustersToday) → \(clustersPlan)",
                            plan.filter(\.isMerged).isEmpty ? "no merges" : "\(plan.filter(\.isMerged).count) merge\(plan.filter(\.isMerged).count == 1 ? "" : "s")",
@@ -1401,8 +1407,8 @@ public struct WorkloadConsolidation: Solution {
             SolutionMetric("Memory upgrades", upgraded.isEmpty ? "None" : "\(upgraded.count) host\(upgraded.count == 1 ? "" : "s")",
                            upgraded.isEmpty ? "no cluster needs more memory" : "+\(Fmt.memory(mib: addedGiB * 1024)) in all", symbol: "memorychip",
                            status: upgraded.isEmpty ? nil : .warning),
-            SolutionMetric("Short today", shortToday.isEmpty ? "None" : "\(shortToday.count) cluster\(shortToday.count == 1 ? "" : "s")",
-                           shortToday.isEmpty ? "every cluster fits \(downText)" : shortToday.prefix(3).joined(separator: ", ") + (shortToday.count > 3 ? "…" : ""),
+            SolutionMetric(gapLabel, shortToday.isEmpty ? "None" : "\(shortToday.count) of \(clustersToday) clusters",
+                           shortToday.isEmpty ? "every cluster fits \(downText)" : gapWhy + ": " + gapNames,
                            symbol: "exclamationmark.triangle", status: shortToday.isEmpty ? nil : .warning),
             SolutionMetric("Busiest planned cluster", W.pct(worst.load), worst.what.isEmpty ? downText : "\(worst.what), \(downText)", symbol: "gauge.with.dots.needle.67percent",
                            status: worst.load > maxLoad ? .blocker : nil),
@@ -1438,7 +1444,7 @@ public struct WorkloadConsolidation: Solution {
         } else {
             headline = shortToday.isEmpty
                 ? "All \(clustersToday) clusters fit \(downText)" + (surplusToday > 0 ? "; \(surplusToday) hosts more than needed" : "")
-                : "\(shortToday.count) of \(clustersToday) clusters are short \(downText): \(shortToday.prefix(4).joined(separator: ", "))"
+                : "\(shortToday.count) of \(clustersToday) clusters \(gapWhy) today: \(shortToday.prefix(4).joined(separator: ", "))"
         }
 
         var method = [
@@ -1502,8 +1508,9 @@ public struct WorkloadConsolidation: Solution {
             }
         }
 
+        let todaySubtitle = "Each cluster on its own hosts, since HA restarts VMs only within their cluster. Load is CPU and memory \(downText), against \(maxText)."
         var sections: [SolutionSection] = [.metrics("Summary", metrics)]
-        sections.append(.table(SolutionTable(id: "today", title: "Today", subtitle: "Load is CPU and memory \(downText), against \(SFmt.num(maxLoad * 100))%.",
+        sections.append(.table(SolutionTable(id: "today", title: "Today", subtitle: todaySubtitle,
                                              columns: ["Cluster", "Datacenter", "Role", "Hosts", "CPU", "Memory per host", "VMs", "vCPU:core", "CPU", "Memory", "Verdict"],
                                              numeric: [3, 6, 7, 8, 9], rows: todayRows, rowRefs: todayRefs)))
         sections.append(.checks(recommend ? "Plan changes" : "Your overrides", changes.checks,
