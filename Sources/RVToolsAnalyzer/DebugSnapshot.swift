@@ -78,13 +78,15 @@ enum DebugSnapshot {
                     v.values["merge"] = .names([PlanEntry.join([ids[0], ids[1]])])
                     v.values["ram"] = .names([PlanEntry.join([ids[0], "1024"])])
                     v.values["moves"] = .names([PlanEntry.join([ids[1], HostMove.all, HostMove.keep])])
+                    v.values["approach"] = .choice(1)
+                    v.values["retire"] = .names(Array((inv?.hosts ?? []).filter { $0.clusterKey == ids[0] }.prefix(1).map(\.id)))
                     model.solutionParams[s.id] = v
                     model.solutionTab[s.id] = 1
                     model.sidebar = .solution(s)
                  }),
                  ("63-consolidation-overrides-results", { model.solutionTab[s.id] = 2; model.sidebar = .solution(s) }),
                  ("64-consolidation-reset", {
-                    for k in ["merge", "ram", "moves"] { model.solutionParams[s.id]?.values[k] = nil }
+                    for k in ["merge", "ram", "moves", "approach", "retire"] { model.solutionParams[s.id]?.values[k] = nil }
                     model.sidebar = .overview
                  })]
             } ?? [])

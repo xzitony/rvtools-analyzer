@@ -768,9 +768,10 @@ private struct ParameterRow: View {
                     set: { var n = entries; n[i] = PlanEntry.join([row.0, row.1, $0]); setEntries(n) })) {
                     Text("Keep in place").tag(HostMove.keep)
                     Text("Release to the spare pool").tag(HostMove.release)
+                    Text("Retire").tag(HostMove.retire)
                     Divider()
                     ForEach(plannableClusters.filter { $0.id != row.0 }) { Text(clusterLabel($0)).tag($0.id) }
-                    if ![HostMove.keep, HostMove.release].contains(row.2) && !plannableClusters.contains(where: { $0.id == row.2 }) {
+                    if ![HostMove.keep, HostMove.release, HostMove.retire].contains(row.2) && !plannableClusters.contains(where: { $0.id == row.2 }) {
                         Text(clusterName(row.2)).tag(row.2)
                     }
                 }
@@ -783,9 +784,54 @@ private struct ParameterRow: View {
             .disabled(plannableClusters.isEmpty)
     }
 
+    /// Individual hosts, added from a menu of each cluster's hosts.
+    @ViewBuilder private func hostListPicker() -> some View {
+        let inv = model.report?.inventory
+        let chosen = entries
+        let chosenIDs = Set(chosen.compactMap { id in inv.flatMap { HostSpecs.resolve(id, in: $0)?.id } ?? id })
+        let hosts = (inv?.hosts ?? []).filter { !$0.isVirtual }
+        Text(parameter.label)
+        if !chosen.isEmpty {
+            ForEach(chosen, id: \.self) { id in
+                let h = inv.flatMap { HostSpecs.resolve(id, in: $0) }
+                HStack {
+                    Text(h.map { "\($0.name) · \($0.cluster.isEmpty ? "no cluster" : $0.cluster) · \(CPUBaseline.of($0).name)" }
+                         ?? "\(String(id.split(separator: "|").last ?? "")) — not in this export")
+                        .foregroundStyle(h == nil ? .secondary : .primary)
+                        .lineLimit(1).truncationMode(.middle)
+                    Spacer()
+                    Button { setEntries(entries.filter { $0 != id }) } label: { Image(systemName: "minus.circle") }
+                        .buttonStyle(.borderless).help("Remove")
+                }
+                .controlSize(.small)
+            }
+        }
+        HStack {
+            Menu("Add host") {
+                ForEach(plannableClusters) { c in
+                    let inCluster = hosts.filter { $0.clusterKey == c.id && !chosenIDs.contains($0.id) }.sorted { $0.name.lowercased() < $1.name.lowercased() }
+                    if !inCluster.isEmpty {
+                        Menu(clusterLabel(c)) {
+                            ForEach(inCluster) { h in
+                                Button("\(h.name) · \(CPUBaseline.of(h).name)") { setEntries(entries + [h.id]) }
+                            }
+                        }
+                    }
+                }
+            }
+            .fixedSize()
+            if !chosen.isEmpty {
+                Button("Clear") { setEntries([]) }
+            }
+        }
+        .controlSize(.small)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             switch parameter.kind {
+            case .hostList:
+                hostListPicker()
             case .clusterGroups:
                 clusterGroupPicker()
             case .clusterValues(let options, let labels):

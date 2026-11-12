@@ -108,6 +108,13 @@ public enum CPUFamily {
 
     public static func label(_ key: String) -> String { labels[key] ?? key }
 
+    /// Families of each vendor, oldest first.
+    public static let intelOrder = ["intel-legacy", "intel-sp12", "intel-sp3", "intel-sp45", "intel-x6"]
+    public static let amdOrder = ["amd-legacy", "amd-sp3", "amd-sp5"]
+
+    /// The family's place among its vendor's families, oldest 0; nil when unknown.
+    public static func index(_ key: String) -> Int? { intelOrder.firstIndex(of: key) ?? amdOrder.firstIndex(of: key) }
+
     /// A shorter name for tables, e.g. "Xeon SP 1–2".
     public static func short(_ key: String) -> String {
         [

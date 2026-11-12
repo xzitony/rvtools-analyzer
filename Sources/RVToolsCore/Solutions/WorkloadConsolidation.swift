@@ -28,6 +28,16 @@ public struct WorkloadConsolidation: Solution {
                 "Recommended changes, plus my overrides",
                 "Only my overrides (validate today's layout)",
             ], help: "Recommended changes merge clusters, add memory, align CPU families and release hosts, as the options below allow. Your overrides always apply."),
+            .choice("approach", "Plan", "Approach", [
+                "Balanced",
+                "Aggressive — fewest clusters",
+                "Conservative — keep like hosts together",
+            ], help: "Balanced merges clusters of one CPU family and environment when that saves a host. Aggressive merges every cluster of the same CPU vendor in a datacenter, across families (EVC applies), environments and desktop clusters, whenever it doesn't cost hosts; database, licensing and recovery clusters still stay apart. Conservative only merges clusters whose hosts match (CPU family, cores and memory), and never when VMs' storage would have to move."),
+            .choice("goal", "Plan", "Primary goal", [
+                "Balanced",
+                "Cut licensed cores",
+                "Hardware refresh — oldest hosts go first",
+            ], help: "Decides which hosts a cluster gives up. Cutting licensed cores releases the hosts with the most licensed cores first, and adds memory wherever that releases hosts (unless memory upgrades are set to Never). Hardware refresh releases the oldest CPU generations first. Balanced releases hosts outside a cluster's main CPU family first, then the oldest and smallest."),
             .toggle("autoMerge", "Plan", "Merge clusters when that saves hosts", true,
                     help: "Only clusters in the same datacenter and vCenter, with the same CPU vendor and family and the same environment (production, test or development). Clusters named for a role stay separate unless you merge them below: SQL, Oracle or DB (database licensing), NoMS, Linux or RHEL (OS licensing), CTX, Citrix, VDI or Horizon (desktops), Recovery, DR or SRM, and management."),
             .choice("autoRAM", "Plan", "Memory upgrades", [
@@ -41,6 +51,12 @@ public struct WorkloadConsolidation: Solution {
                     help: "Hosts beyond what a cluster needs at the load limit, with failures held in reserve, go to a spare pool: hosts in maintenance mode first, then hosts outside the cluster's main CPU family, then the oldest and smallest."),
             .toggle("rebalance", "Plan", "Use spare hosts before adding new ones", true,
                     help: "A cluster that's short takes released hosts from the same datacenter and CPU vendor first, its own CPU family first."),
+            .choice("minIntel", "Retirement", "Oldest Intel family to keep", ["Keep every Intel host"] + CPUFamily.intelOrder.dropFirst().map(CPUFamily.label),
+                    help: "Hosts of older families are retired: they leave their clusters and aren't reused. What's left must carry the workloads, with memory upgrades, spare hosts or new hosts as needed."),
+            .choice("minAMD", "Retirement", "Oldest AMD family to keep", ["Keep every AMD host"] + CPUFamily.amdOrder.dropFirst().map(CPUFamily.label)),
+            .hostList("retire", "Retirement", "Retire these hosts", help: "Individual hosts to decommission, whatever their CPU."),
+            .toggle("suggestRetire", "Retirement", "Suggest retiring a whole CPU family", true,
+                    help: "Tries retiring each vendor's oldest family in scope and reports whether the remaining hosts can take over, and at what cost in memory, new hosts and VM moves."),
             .clusterGroups("merge", "Overrides", "Merge these clusters",
                            help: "Each group becomes one cluster, whatever the recommendations say."),
             .clusters("solo", "Overrides", "Keep standalone", multi: true, none: "None",
@@ -48,7 +64,7 @@ public struct WorkloadConsolidation: Solution {
             .clusterValues("ram", "Overrides", "Memory per host", values: [0] + sizes, labels: ["No upgrade"] + sizes.map(WorkloadConsolidation.ramLabel),
                            help: "Hosts with less memory are upgraded to this size. No upgrade stops a recommended one. In a merged cluster, the largest size set for any of its clusters applies."),
             .hostMoves("moves", "Overrides", "Move hosts",
-                       help: "Move a cluster's hosts of one CPU family, or all of them, to another cluster, or release them to the spare pool. Keep in place stops recommendations from moving or releasing them."),
+                       help: "Move a cluster's hosts of one CPU family, or all of them, to another cluster, release them to the spare pool or retire them. Keep in place stops recommendations from moving or releasing them."),
             .toggle("includeMgmt", "Capacity", "Include management clusters", false,
                     help: "Off by default: VCF management is assumed to run on its own clusters already. Clusters named mgmt or management are left out unless this is on."),
             .choice("basis", "Capacity", "Size workloads from", [
@@ -70,6 +86,9 @@ public struct WorkloadConsolidation: Solution {
                     help: "Upgrades stop at this size. It depends on the server: a Cisco UCS B200 M5 takes 3 TiB with 128 GiB DIMMs, an X210c M7 8 TiB. Check the vendor's memory guide, and that every host has free slots or that its DIMMs can be swapped."),
             .number("coreMin", "Licensing", "Licensed cores minimum per CPU", 16, min: 1, max: 64,
                     help: "VMware licenses cores with a per-CPU minimum, so releasing hosts saves licensed cores. Verify current terms."),
+            .number("licCost", "Licensing", "Subscription price per core per year", 0, min: 0, max: 5000, step: 5, unit: "USD",
+                    help: "The customer's VCF or VVF price per core. 0 shows cores only."),
+            .number("licYears", "Licensing", "Term", 3, min: 1, max: 10, unit: "years"),
         ]
     }
 
@@ -163,6 +182,9 @@ public struct WorkloadConsolidation: Solution {
         var pinned = false
         var released = false
         var releasedBy = ""
+        /// Decommissioned: out of the plan and never reused.
+        var retired = false
+        var retiredBy = ""
         var movedBy = ""
         var fromPool = false
         /// Memory before an upgrade, nominal GiB; 0 when not upgraded.
@@ -254,11 +276,53 @@ public struct WorkloadConsolidation: Solution {
 
     static func pct(_ x: Double) -> String { x.isFinite ? "\(Int((x * 100).rounded()))%" : "—" }
 
+    /// What it takes to carry out a plan: hosts whose VMs must be evacuated, VMs to power-cycle for EVC, and VM storage
+    /// that must move to another datastore.
+    struct Impact {
+        var hosts = 0
+        var vmotions = 0
+        var powerCycles = 0
+        var storageMiB = 0.0
+        var storageUnknown = false
+        var runningVMs = 0
+
+        /// 0–100: a live vMotion counts a quarter of a VM power cycle (downtime); each TiB of storage to move adds a point.
+        var score: Int {
+            guard vmotions + powerCycles > 0 || storageMiB > 0 else { return 0 }
+            let vmPart = runningVMs > 0 ? 100 * (0.25 * Double(vmotions) + Double(powerCycles)) / Double(runningVMs) : 0
+            return max(1, min(100, Int((vmPart + storageMiB / 1_048_576).rounded())))
+        }
+        var level: String {
+            let s = score
+            return s == 0 ? "None" : (s < 10 ? "Low" : (s < 30 ? "Medium" : "High"))
+        }
+        var text: String {
+            var parts = ["\(Fmt.int(vmotions)) VM move\(vmotions == 1 ? "" : "s")", "\(Fmt.int(hosts)) host\(hosts == 1 ? "" : "s") touched"]
+            if powerCycles > 0 { parts.append("\(Fmt.int(powerCycles)) power cycle\(powerCycles == 1 ? "" : "s") for EVC") }
+            if storageMiB > 0 { parts.append(Fmt.capacity(mib: storageMiB) + " of storage to move") }
+            return parts.joined(separator: ", ")
+        }
+    }
+
+    /// The headline figures of a plan, for comparing what-ifs.
+    struct Outcome {
+        var hosts = 0, newHosts = 0, shortfalls = 0, retired = 0, upgraded = 0
+        var addedGiB = 0.0, licensed = 0.0
+        var impact = Impact()
+    }
+
     // MARK: - Run
 
     public func run(vms: [VM], inventory inv: Inventory, params p: Params) -> SolutionResult {
+        evaluate(vms: vms, inventory: inv, params: p, probe: false).result
+    }
+
+    /// Plans and reports. A probe is a what-if run for another plan's suggestions: it skips its own suggestions.
+    func evaluate(vms: [VM], inventory inv: Inventory, params p: Params, probe: Bool) -> (result: SolutionResult, outcome: Outcome) {
         typealias W = WorkloadConsolidation
         let recommend = p.choice("mode") == 0
+        let approach = recommend ? p.choice("approach") : 0
+        let goal = p.choice("goal")
         let spare = max(Int(p.num("spare")), 0)
         let maxLoad = max(p.num("maxLoad"), 1) / 100
         let measured = p.choice("basis") == 0
@@ -269,7 +333,9 @@ public struct WorkloadConsolidation: Solution {
         let maxHosts = max(Int(p.num("maxHosts")), 2)
         let maxRAM = W.ramSizes[min(max(p.choice("maxRAM"), 0), W.ramSizes.count - 1)]
         let coreMin = max(p.num("coreMin"), 1)
-        let autoRAM = recommend ? p.choice("autoRAM") : 2
+        // Cutting licensed cores trades memory for hosts wherever that releases one.
+        let autoRAM = recommend ? (goal == 1 && p.choice("autoRAM") == 0 ? 1 : p.choice("autoRAM")) : 2
+        let licCost = max(p.num("licCost"), 0), licYears = max(p.num("licYears"), 1)
         let autoRelease = recommend && p.flag("autoRelease")
         let downText = spare == 0 ? "with no hosts down" : "with \(spare) host\(spare == 1 ? "" : "s") down"
 
@@ -298,9 +364,9 @@ public struct WorkloadConsolidation: Solution {
         let outsideVMs = vms.filter { !scopeIDs.contains($0.clusterKey) && !mgmtIDs.contains($0.clusterKey) }
 
         guard !scope.isEmpty else {
-            return SolutionResult(headline: "No clusters with hosts in scope", sections: [
+            return (SolutionResult(headline: "No clusters with hosts in scope", sections: [
                 .notes("Nothing to plan", ["Select VMs that run in a cluster on the Select VMs step. Standalone hosts aren't planned."]),
-            ])
+            ]), Outcome())
         }
 
         // Demand of each cluster today, which stays with the cluster wherever its hosts go.
@@ -357,7 +423,12 @@ public struct WorkloadConsolidation: Solution {
             guard fits(hs, d, minimum) else { return (hs, []) }
             let major = W.majority(hs)
             func rank(_ h: WHost) -> (Int, Int, Int, Double, Double, String) {
-                (h.maintenance ? 0 : 1, h.gen.family == major ? 1 : 0, h.gen.rank, h.ramGiB, h.cores, h.name)
+                let m = h.maintenance ? 0 : 1, onMajor = h.gen.family == major ? 1 : 0
+                switch goal {
+                case 1: return (m, -Int(h.licensed(coreMin)), onMajor, h.ramGiB, h.cores, h.name)
+                case 2: return (m, h.gen.rank, onMajor, h.ramGiB, h.cores, h.name)
+                default: return (m, onMajor, h.gen.rank, h.ramGiB, h.cores, h.name)
+                }
             }
             let order = hs.filter { !$0.pinned && !$0.isNew }.sorted { rank($0) < rank($1) }
             var kept = hs
@@ -369,8 +440,8 @@ public struct WorkloadConsolidation: Solution {
             return (kept, released)
         }
         /// New hosts like the typical one needed until the demand fits; nil if no number does.
-        func additions(_ hs: [WHost], _ d: Demand, _ minimum: Int, floor: Double = 0) -> Int? {
-            guard let t = W.typical(hs) else { return nil }
+        func additions(_ hs: [WHost], _ d: Demand, _ minimum: Int, floor: Double = 0, like fallback: WHost? = nil) -> Int? {
+            guard let t = W.typical(hs) ?? fallback else { return nil }
             var pool = hs
             var model = t
             model.isNew = true
@@ -392,20 +463,41 @@ public struct WorkloadConsolidation: Solution {
         let soloIDs = Set(soloNames.compactMap(resolve).map(\.id))
         var notes: [String] = []
 
-        // 1. Your host moves, on today's clusters.
+        // 1. Retirement: below the oldest family to keep, or chosen by you. Retired hosts are gone for good.
+        let minIntel = p.choice("minIntel"), minAMD = p.choice("minAMD")
+        let retireNames = p.names("retire")
+        let retireIDs = Set(retireNames.compactMap { HostSpecs.resolve($0, in: inv)?.id })
+        func belowMinimum(_ g: CPUBaseline) -> Bool {
+            guard let i = CPUFamily.index(g.family) else { return false }
+            return g.vendor == "Intel" ? i < minIntel : (g.vendor == "AMD" ? i < minAMD : false)
+        }
+        func retire(_ i: Int, by who: String) {
+            hosts[i].retired = true
+            hosts[i].retiredBy = who
+            hosts[i].released = true
+            hosts[i].releasedBy = "retired"
+            hosts[i].pinned = true
+        }
+        for i in hosts.indices {
+            if retireIDs.contains(hosts[i].id) { retire(i, by: "you") } else if belowMinimum(hosts[i].gen) { retire(i, by: "minimum family") }
+        }
+
+        // 2. Your host moves, on today's clusters.
         var invalidMoves = 0
         for e in moveNames {
             let parts = PlanEntry.parts(e)
             guard parts.count == 3, let src = resolve(parts[0]), scopeIDs.contains(src.id) else { invalidMoves += 1; continue }
             let fam = parts[1], dst = parts[2]
             var target: Cluster?
-            if dst != HostMove.release && dst != HostMove.keep {
+            if dst != HostMove.release && dst != HostMove.keep && dst != HostMove.retire {
                 guard let t = resolve(dst), scopeIDs.contains(t.id), t.id != src.id else { invalidMoves += 1; continue }
                 target = t
             }
-            for i in hosts.indices where hosts[i].origin == src.id && (fam == HostMove.all || hosts[i].gen.family == fam) {
+            for i in hosts.indices where hosts[i].origin == src.id && !hosts[i].retired && (fam == HostMove.all || hosts[i].gen.family == fam) {
                 hosts[i].pinned = true
-                if dst == HostMove.release {
+                if dst == HostMove.retire {
+                    retire(i, by: "you")
+                } else if dst == HostMove.release {
                     hosts[i].released = true
                     hosts[i].releasedBy = "you"
                 } else if let target {
@@ -442,11 +534,30 @@ public struct WorkloadConsolidation: Solution {
             let together = needed(hostsOf(cs.map(\.id)), demandOf(cs), minHosts(vsan(cs.map(\.id))))
             return apart - together
         }
+        /// Whether VMs' storage can stay put when these clusters merge: false when they share no datastore or any runs vSAN,
+        /// nil when the export doesn't map datastores to hosts.
+        func storageStays(_ ids: [String]) -> Bool? {
+            if vsan(ids) { return false }
+            guard ids.allSatisfy({ id in inv.datastores.contains { $0.clusterKeys.contains(id) } }) else { return nil }
+            return inv.datastores.contains { d in !d.isLocal && ids.allSatisfy { d.clusterKeys.contains($0) } }
+        }
+        /// "48 cores · 768 GiB", the most common host in the cluster.
+        func hostShape(_ c: Cluster) -> String {
+            let counts = Dictionary(grouping: hostsOf([c.id])) { "\(Int($0.cores))|\(Int($0.nominalGiB))" }.mapValues(\.count)
+            return counts.max { ($0.value, $0.key) < ($1.value, $1.key) }?.key ?? ""
+        }
         if recommend && p.flag("autoMerge") {
             let eligible = scope.filter {
-                !grouped.contains($0.id) && !soloIDs.contains($0.id) && roleOf($0) == .general && vmsByCluster[$0.id] != nil && !hostsOf([$0.id]).isEmpty
+                !grouped.contains($0.id) && !soloIDs.contains($0.id) && vmsByCluster[$0.id] != nil && !hostsOf([$0.id]).isEmpty
+                    && (roleOf($0) == .general || (approach == 1 && roleOf($0) == .vdi))
             }
-            let buckets = Dictionary(grouping: eligible) { c in [siteKey(c), W.environment(c.name), clusterVendor(c), clusterFamily(c)].joined(separator: "#") }
+            let buckets = Dictionary(grouping: eligible) { c -> String in
+                switch approach {
+                case 1: return [siteKey(c), clusterVendor(c)].joined(separator: "#")
+                case 2: return [siteKey(c), W.environment(c.name), clusterVendor(c), clusterFamily(c), hostShape(c)].joined(separator: "#")
+                default: return [siteKey(c), W.environment(c.name), clusterVendor(c), clusterFamily(c)].joined(separator: "#")
+                }
+            }
             for key in buckets.keys.sorted() {
                 guard !key.contains("#" + CPUFamily.unknown) else { continue }
                 var members: [Cluster] = []
@@ -455,7 +566,8 @@ public struct WorkloadConsolidation: Solution {
                     let n = hostsOf([c.id]).count
                     if count + n <= maxHosts { members.append(c); count += n }
                 }
-                guard members.count > 1, mergeSaving(members) > 0 else { continue }
+                guard members.count > 1, mergeSaving(members) >= (approach == 1 ? 0 : 1) else { continue }
+                if approach == 2 && storageStays(members.map(\.id)) == false { continue }
                 groups.append((members, false))
                 grouped.formUnion(members.map(\.id))
             }
@@ -598,16 +710,26 @@ public struct WorkloadConsolidation: Solution {
         var shortfalls: [Int] = []
         var siteOfCluster: [String: String] = [:]
         for c in scope { siteOfCluster[c.id] = siteKey(c) }
+        /// The model for new hosts in a cluster that has none left: a typical host of the newest family kept in its datacenter.
+        func siteModel(_ ci: Int) -> WHost? {
+            let kept = hosts.filter { !$0.retired && !$0.isNew && siteOfCluster[$0.origin] == plan[ci].site }
+            guard let newest = kept.compactMap({ CPUFamily.index($0.gen.family) }).max() else { return nil }
+            return W.typical(kept.filter { CPUFamily.index($0.gen.family) == newest })
+        }
         for ci in plan.indices {
             let d = plan[ci].demand, minimum = minHosts(ci)
+            // A cluster whose hosts all left and that has nothing to run is gone.
+            if members(ci).isEmpty && d.isEmpty { continue }
             guard !fits(members(ci), d, minimum) else { continue }
             guard recommend else { shortfalls.append(ci); continue }
-            let major = W.majority(members(ci)), vendor = W.majorityVendor(members(ci))
+            let fallback = siteModel(ci)
+            let major = members(ci).isEmpty ? (fallback?.gen.family ?? "") : W.majority(members(ci))
+            let vendor = members(ci).isEmpty ? (fallback?.gen.vendor ?? "") : W.majorityVendor(members(ci))
             if p.flag("rebalance") {
                 while !fits(members(ci), d, minimum) {
                     let site = plan[ci].site
                     let pool = hosts.indices.filter { i in
-                        hosts[i].released && !hosts[i].isNew && hosts[i].gen.vendor == vendor && siteOfCluster[hosts[i].origin] == site
+                        hosts[i].released && !hosts[i].retired && !hosts[i].isNew && hosts[i].gen.vendor == vendor && siteOfCluster[hosts[i].origin] == site
                     }
                     func rank(_ i: Int) -> (Int, Double, Double, String) {
                         let h = hosts[i]
@@ -622,7 +744,7 @@ public struct WorkloadConsolidation: Solution {
                 }
             }
             guard !fits(members(ci), d, minimum) else { continue }
-            if let k = additions(members(ci), d, minimum, floor: plan[ci].ramFloor), k > 0, var model = W.typical(members(ci)) {
+            if let k = additions(members(ci), d, minimum, floor: plan[ci].ramFloor, like: fallback), k > 0, var model = W.typical(members(ci)) ?? fallback {
                 model = W.withMemory([model], floor: plan[ci].ramFloor)[0]
                 for n in 1...k {
                     var h = model
@@ -647,13 +769,84 @@ public struct WorkloadConsolidation: Solution {
         // MARK: Results
 
         let planned = hosts.filter { !$0.released }
-        let spareHosts = hosts.filter { $0.released }
+        let spareHosts = hosts.filter { $0.released && !$0.retired }
+        let retiredHosts = hosts.filter(\.retired)
         let upgraded = planned.filter { $0.upgradedFrom > 0 }
         let addedGiB = upgraded.reduce(0.0) { $0 + ($1.ramGiB * $1.nominalGiB / $1.reportedGiB - $1.upgradedFrom) }
         let newCount = planned.filter(\.isNew).count
         let licToday = todayHosts.reduce(0.0) { $0 + $1.licensed(coreMin) }
         let licPlan = planned.reduce(0.0) { $0 + $1.licensed(coreMin) }
         let nonEmptyPlan = plan.indices.filter { !members($0).isEmpty }
+
+        // Impact: hosts whose VMs must be evacuated (moved, merged in, released, retired, upgraded), VMs to power-cycle where
+        // the plan puts CPU generations together that need a lower EVC mode, and storage that must move.
+        let vmsByHost = Dictionary(grouping: inv.vms.filter(\.isVM), by: \.hostKey)
+        func runningOn(_ hs: [WHost]) -> Int { hs.reduce(0) { $0 + (vmsByHost[$1.id] ?? []).filter(\.isRunning).count } }
+        func primaryMember(_ c: PCluster) -> String {
+            c.members.max { (hostsOf([$0.id]).count, $1.name) < (hostsOf([$1.id]).count, $0.name) }?.id ?? c.members[0].id
+        }
+        func vsanShareMiB(_ origin: String) -> Double {
+            let used = inv.datastores.filter { $0.type.lowercased() == "vsan" && $0.clusterKeys.contains(origin) }
+                .reduce(0.0) { $0 + max(0, $1.capacityMiB - $1.freeMiB) }
+            let n = todayHosts.filter { $0.origin == origin }.count
+            return n > 0 ? used / Double(n) : 0
+        }
+        /// The EVC mode hosts of several generations need, and whether the mode they run already covers them.
+        func evcNeeded(_ hs: [WHost]) -> (base: CPUBaseline, covered: Bool)? {
+            let real = hs.filter { !$0.isNew }
+            let vendors = Set(real.map(\.gen.vendor)).subtracting([""])
+            let gens = Set(real.map(\.gen.evc)).subtracting([""])
+            guard vendors.count == 1, gens.count > 1, let base = real.filter({ !$0.gen.evc.isEmpty }).min(by: { $0.gen.rank < $1.gen.rank })?.gen else { return nil }
+            let current = Set(real.map { $0.evcCurrent.lowercased() })
+            let ranks = current.compactMap { CPUBaseline.fromEVC($0)?.rank }
+            let covered = !current.contains("") && !current.contains("disabled") && ranks.count == current.count && (ranks.max() ?? 99) <= base.rank
+            return (base, covered)
+        }
+        func touched(_ h: WHost) -> Bool {
+            guard !h.isNew, !h.origin.isEmpty else { return false }
+            if h.released || h.upgradedFrom > 0 || h.fromPool || planIDOf[h.origin] != h.cluster { return true }
+            guard let c = plan.first(where: { $0.id == h.cluster }), c.isMerged else { return false }
+            return h.origin != primaryMember(c)
+        }
+        var impact = Impact(runningVMs: vms.filter(\.isRunning).count)
+        let touchedHosts = hosts.filter(touched)
+        impact.hosts = touchedHosts.count
+        impact.vmotions = runningOn(touchedHosts)
+        for h in touchedHosts where h.released && vsan([h.origin]) { impact.storageMiB += vsanShareMiB(h.origin) }
+        /// VM storage that has to change datastore for a merge.
+        func mergeStorage(_ c: PCluster) -> (mib: Double, unknown: Bool) {
+            let main = primaryMember(c)
+            var mib = 0.0, unknown = false
+            for m in c.members where m.id != main {
+                switch storageStays([main, m.id]) {
+                case false?: mib += (allVMsByCluster[m.id] ?? []).reduce(0) { $0 + $1.inUseMiB }
+                case nil: unknown = true
+                default: break
+                }
+            }
+            return (mib, unknown)
+        }
+        for c in plan where c.isMerged {
+            let m = mergeStorage(c)
+            impact.storageMiB += m.mib
+            impact.storageUnknown = impact.storageUnknown || m.unknown
+        }
+        /// Running VMs on hosts above the EVC mode a changed cluster now needs.
+        func evcPowerCycles(_ ci: Int) -> Int {
+            let hs = members(ci)
+            let changed = plan[ci].isMerged || hs.contains { !$0.isNew && $0.origin != plan[ci].members[0].id }
+            guard changed, let e = evcNeeded(hs), !e.covered else { return 0 }
+            return runningOn(hs.filter { $0.gen.vendor == e.base.vendor && $0.gen.rank > e.base.rank })
+        }
+        for ci in nonEmptyPlan { impact.powerCycles += evcPowerCycles(ci) }
+
+        let outcome = Outcome(hosts: planned.count, newHosts: newCount, shortfalls: shortfalls.count, retired: retiredHosts.count,
+                              upgraded: upgraded.count, addedGiB: addedGiB, licensed: licPlan, impact: impact)
+        if probe { return (SolutionResult(headline: "", sections: []), outcome) }
+        func movesText(_ hs: [WHost]) -> String {
+            let n = runningOn(hs)
+            return n == 0 ? "No running VMs to move." : "Moves \(Fmt.int(n)) running VM\(n == 1 ? "" : "s") off \(n == 1 ? "its host" : "the hosts")."
+        }
 
         func cref(_ c: PCluster, _ detail: String = "") -> AffectedObject {
             AffectedObject(kind: c.isMerged ? .other : .cluster, id: c.isMerged ? c.id : c.members[0].id, name: c.name, detail: detail)
@@ -738,9 +931,14 @@ public struct WorkloadConsolidation: Solution {
         for (ci, c) in plan.enumerated() where c.isMerged {
             let before = c.members.reduce(0) { n, m in n + todayHosts.filter { $0.origin == m.id }.count }
             let saving = mergeSaving(c.members)
-            let summary = (c.forced ? "Merged by you. " : "Same datacenter, CPU family and environment. ")
-                + (saving > 0 ? "Needs \(saving) host\(saving == 1 ? "" : "s") fewer than apart (one set of failover hosts instead of \(c.members.count))." : "Saves no hosts at these settings.")
-                + " \(before) hosts today."
+            let main = primaryMember(c)
+            let joining = hosts.filter { h in !h.isNew && c.members.contains { $0.id == h.origin && $0.id != main } }
+            let st = mergeStorage(c)
+            let why = c.forced ? "Merged by you. " : (approach == 1 ? "Same datacenter and CPU vendor (aggressive). " : (approach == 2 ? "Matching hosts in the same datacenter (conservative). " : "Same datacenter, CPU family and environment. "))
+            let summary = why
+                + (saving > 0 ? "Needs \(saving) host\(saving == 1 ? "" : "s") fewer than apart (one set of failover hosts instead of \(c.members.count))." : "Saves no hosts at these settings, but leaves one cluster fewer.")
+                + " \(before) hosts today. The others join \(c.members.first { $0.id == main }?.name ?? ""): " + movesText(joining)
+                + (st.mib > 0 ? " \(Fmt.capacity(mib: st.mib)) of VM storage moves too." : (st.unknown ? " Whether storage moves isn't in the export." : ""))
             let actions = c.forced ? [unmerge(c)] : c.members.prefix(3).map(keepSeparate)
             changes.add("merge-\(ci)", "Merges", "Merge \(c.name)", .info, summary, affected: c.members.map { AffectedObject(kind: .cluster, id: $0.id, name: $0.name) },
                         actions: actions)
@@ -749,7 +947,7 @@ public struct WorkloadConsolidation: Solution {
             let hs = hosts.filter { m.ids.contains($0.id) }
             changes.add("align-\(m.from)-\(m.family)", "CPU alignment",
                         "Move \(hs.count) \(CPUFamily.short(m.family)) host\(hs.count == 1 ? "" : "s") from \(plan[m.from].name) to \(plan[m.to].name)",
-                        .info, "\(plan[m.from].name) runs mostly \(CPUFamily.label(W.majority(members(m.from)))) and still fits without them; \(plan[m.to].name) runs \(CPUFamily.label(m.family)).",
+                        .info, "\(plan[m.from].name) runs mostly \(CPUFamily.label(W.majority(members(m.from)))) and still fits without them; \(plan[m.to].name) runs \(CPUFamily.label(m.family)). " + movesText(hs),
                         affected: hs.map { hostRef($0, $0.gen.name) }, actions: [keepAction(hs, label: "Keep them in \(plan[m.from].name)")])
         }
         for (ci, c) in plan.enumerated() where c.ramFloor > 0 {
@@ -765,14 +963,14 @@ public struct WorkloadConsolidation: Solution {
                 actions += next.map { ramAction(c, $0) }
             }
             changes.add("ram-\(ci)", "Memory", "Upgrade \(up.count) host\(up.count == 1 ? "" : "s") in \(c.name) to \(W.ramLabel(c.ramFloor))",
-                        .warning, "+\(Fmt.memory(mib: gib * 1024)) in all; " + (c.ramSetByYou ? "set by you." : "\(c.ramReason), and the CPU has room."),
+                        .warning, "+\(Fmt.memory(mib: gib * 1024)) in all; " + (c.ramSetByYou ? "set by you. " : "\(c.ramReason), and the CPU has room. ") + movesText(up),
                         affected: up.map { hostRef($0, "\(W.ramLabel($0.upgradedFrom)) → \(W.ramLabel(c.ramFloor))") }, actions: actions)
         }
         let releasedAuto = spareHosts.filter { $0.releasedBy == "not needed" }
         for (origin, hs) in Dictionary(grouping: releasedAuto, by: \.origin).sorted(by: { $0.key < $1.key }) {
             let name = hs[0].originName
             changes.add("release-\(origin)", "Hosts", "Release \(hs.count) host\(hs.count == 1 ? "" : "s") from \(name)", .info,
-                        "Not needed at \(SFmt.num(maxLoad * 100))% load \(downText). They go to the spare pool.",
+                        "Not needed at \(SFmt.num(maxLoad * 100))% load \(downText). They go to the spare pool, saving \(Fmt.int(Int(hs.reduce(0.0) { $0 + $1.licensed(coreMin) }))) licensed cores. " + movesText(hs),
                         affected: hs.map { hostRef($0, "\($0.gen.name), \(W.ramLabel($0.nominalGiB))" + ($0.maintenance ? ", in maintenance mode" : "")) },
                         actions: [keepAction(hs, label: "Keep them in \(name)")])
         }
@@ -792,6 +990,32 @@ public struct WorkloadConsolidation: Solution {
             changes.add("pool-\(cid)", "Hosts", "Reuse \(hs.count) spare host\(hs.count == 1 ? "" : "s") in \(c.name)", .info,
                         "\(c.name) is short without them; they were released elsewhere in the same datacenter.",
                         affected: hs.map { hostRef($0, "from \($0.originName), \($0.gen.name)") }, actions: [keepAction(hs, label: "Keep them where they are")])
+        }
+        func licensedText(_ hs: [WHost]) -> String {
+            let cores = hs.reduce(0.0) { $0 + $1.licensed(coreMin) }
+            return "\(Fmt.int(Int(cores))) licensed cores" + (licCost > 0 ? " (\(SFmt.usd(cores * licCost)) a year)" : "")
+        }
+        for (fam, hs) in Dictionary(grouping: retiredHosts.filter { $0.retiredBy == "minimum family" }, by: \.gen.family).sorted(by: { $0.key < $1.key }) {
+            let param = hs[0].gen.vendor == "AMD" ? "minAMD" : "minIntel"
+            changes.add("retire-\(fam)", "Retirement", "Retire \(hs.count) \(CPUFamily.short(fam)) host\(hs.count == 1 ? "" : "s")", .info,
+                        "Older than the oldest \(hs[0].gen.vendor) family to keep. Frees \(licensedText(hs)). " + movesText(hs),
+                        affected: hs.map { hostRef($0, "\($0.originName), \($0.gen.name)") },
+                        actions: [SolutionAction("Keep \(CPUFamily.short(fam)) hosts", symbol: "arrow.uturn.backward", help: "Lowers the oldest family to keep.",
+                                                 set: [param: .choice(CPUFamily.index(fam) ?? 0)])])
+        }
+        let retiredByYou = retiredHosts.filter { $0.retiredBy == "you" }
+        if !retiredByYou.isEmpty {
+            changes.add("retire-you", "Retirement", "Retire \(retiredByYou.count) host\(retiredByYou.count == 1 ? "" : "s") (set by you)", .info,
+                        "Frees \(licensedText(retiredByYou)). " + movesText(retiredByYou),
+                        affected: retiredByYou.map { hostRef($0, $0.originName) },
+                        actions: retireNames.isEmpty ? [] : [SolutionAction("Don't retire them", symbol: "arrow.uturn.backward", help: "Clears Retire these hosts.", set: ["retire": .names([])])])
+        }
+        if recommend && !spareHosts.isEmpty {
+            changes.add("spare-pool", "Retirement", "\(spareHosts.count) host\(spareHosts.count == 1 ? "" : "s") left in the spare pool", .info,
+                        "No cluster needs them, so they aren't licensed in this plan. Retire them, keep a few as cold spares, or reuse them for a new cluster or the VCF management domain.",
+                        affected: spareHosts.map { hostRef($0, "\($0.originName), \($0.gen.name), \(W.ramLabel($0.nominalGiB))") },
+                        actions: [SolutionAction("Retire them", symbol: "trash", help: "Adds them to Retire these hosts.",
+                                                 set: ["retire": .names(retireNames + spareHosts.map(\.id))])])
         }
         for (ci, k) in newHosts.sorted(by: { $0.key < $1.key }) {
             let c = plan[ci]
@@ -850,11 +1074,9 @@ public struct WorkloadConsolidation: Solution {
                 v.add("vendor-\(ci)", "CPU", "\(c.name) mixes Intel and AMD", .blocker, "vMotion can't move a running VM between CPU vendors, and EVC can't bridge them.",
                       remediation: "Keep Intel and AMD hosts in separate clusters.", affected: [cref(c)])
             }
-            let gens = Set(real.map(\.gen.evc)).subtracting([""])
-            if vendors.count == 1, gens.count > 1, let base = real.filter({ !$0.gen.evc.isEmpty }).min(by: { $0.gen.rank < $1.gen.rank })?.gen {
+            if let e = evcNeeded(real) {
+                let base = e.base, covered = e.covered
                 let current = Set(real.map { $0.evcCurrent.lowercased() })
-                let currentRanks = current.compactMap { CPUBaseline.fromEVC($0)?.rank }
-                let covered = !current.contains("") && !current.contains("disabled") && currentRanks.count == current.count && (currentRanks.max() ?? 99) <= base.rank
                 evcRows[c.id] = covered ? base.evc : "set " + base.evc
                 let families = Set(real.map(\.gen.family))
                 let block = alignBlocks.first { $0.cluster == ci }
@@ -989,11 +1211,15 @@ public struct WorkloadConsolidation: Solution {
             if movedIn > 0 { what.append("+\(movedIn) moved in") }
             if movedOut > 0 { what.append("−\(movedOut) moved out") }
             if releasedN > 0 { what.append("−\(releasedN) released") }
+            let retiredN = retiredHosts.filter { h in c.members.contains { $0.id == h.origin } }.count
+            if retiredN > 0 { what.append("−\(retiredN) retired") }
             if let k = newHosts[ci] { what.append("+\(k) new") }
             let up = hs.filter { $0.upgradedFrom > 0 }.count
             if up > 0 { what.append("\(up) memory upgrade\(up == 1 ? "" : "s")") }
             if c.solo { what.append("kept standalone") }
-            planRows.append([c.name, c.role.label, "\(before) → \(hs.count)", W.familyMix(hs), W.memoryMix(hs),
+            let licBefore = todayHosts.filter { h in c.members.contains { $0.id == h.origin } }.reduce(0.0) { $0 + $1.licensed(coreMin) }
+            let licAfter = hs.reduce(0.0) { $0 + $1.licensed(coreMin) }
+            planRows.append([c.name, c.role.label, "\(before) → \(hs.count)", "\(Fmt.int(Int(licBefore))) → \(Fmt.int(Int(licAfter)))", W.familyMix(hs), W.memoryMix(hs),
                              W.pct(l.cpu), W.pct(l.mem), cores > 0 ? Fmt.ratio(Double(vcpu) / cores) : "—",
                              evcRows[c.id] ?? currentEVC(hs), what.isEmpty ? "No change" : what.joined(separator: ", ")])
             planRefs.append(cref(c))
@@ -1006,9 +1232,13 @@ public struct WorkloadConsolidation: Solution {
         let planName = Dictionary(plan.map { ($0.id, $0.name) }, uniquingKeysWith: { a, _ in a })
         for h in hosts.sorted(by: { ($0.originName, $0.name) < ($1.originName, $1.name) }) {
             var change: [String] = []
-            let inPlan = h.released ? "Spare pool" : (planName[h.cluster] ?? "")
+            let inPlan = h.retired ? "Retired" : (h.released ? "Spare pool" : (planName[h.cluster] ?? ""))
             if h.isNew { change.append("new") }
-            if h.released { change.append(h.releasedBy == "you" ? "released by you" : "released, not needed") }
+            if h.retired {
+                change.append(h.retiredBy == "you" ? "retired by you" : "retired, older than the family to keep")
+            } else if h.released {
+                change.append(h.releasedBy == "you" ? "released by you" : "released, not needed")
+            }
             if h.fromPool { change.append("reused spare") }
             if !h.movedBy.isEmpty && !h.fromPool { change.append(h.movedBy == "you" ? "moved by you" : "moved for CPU alignment") }
             if h.upgradedFrom > 0 { change.append("memory upgrade") }
@@ -1026,13 +1256,12 @@ public struct WorkloadConsolidation: Solution {
                            plan.filter(\.isMerged).isEmpty ? "no merges" : "\(plan.filter(\.isMerged).count) merge\(plan.filter(\.isMerged).count == 1 ? "" : "s")",
                            symbol: "square.stack.3d.up"),
             SolutionMetric("Hosts", "\(todayHosts.count) → \(planned.count)",
-                           [spareHosts.isEmpty ? nil : "\(spareHosts.count) to the spare pool", newCount > 0 ? "\(newCount) new" : nil].compactMap { $0 }.joined(separator: ", ").ifEmpty("no change"),
+                           [spareHosts.isEmpty ? nil : "\(spareHosts.count) to the spare pool", retiredHosts.isEmpty ? nil : "\(retiredHosts.count) retired",
+                            newCount > 0 ? "\(newCount) new" : nil].compactMap { $0 }.joined(separator: ", ").ifEmpty("no change"),
                            symbol: "server.rack", status: newCount > 0 ? .warning : nil),
             SolutionMetric("Memory upgrades", upgraded.isEmpty ? "None" : "\(upgraded.count) host\(upgraded.count == 1 ? "" : "s")",
                            upgraded.isEmpty ? "no cluster needs more memory" : "+\(Fmt.memory(mib: addedGiB * 1024)) in all", symbol: "memorychip",
                            status: upgraded.isEmpty ? nil : .warning),
-            SolutionMetric("Licensed cores", licToday == licPlan ? Fmt.int(Int(licToday)) : "\(Fmt.int(Int(licToday))) → \(Fmt.int(Int(licPlan)))",
-                           "at \(SFmt.num(coreMin)) cores minimum per CPU", symbol: "checkmark.seal"),
             SolutionMetric("Short today", shortToday.isEmpty ? "None" : "\(shortToday.count) cluster\(shortToday.count == 1 ? "" : "s")",
                            shortToday.isEmpty ? "every cluster fits \(downText)" : shortToday.prefix(3).joined(separator: ", ") + (shortToday.count > 3 ? "…" : ""),
                            symbol: "exclamationmark.triangle", status: shortToday.isEmpty ? nil : .warning),
@@ -1040,15 +1269,33 @@ public struct WorkloadConsolidation: Solution {
                            status: worst.load > maxLoad ? .blocker : nil),
         ]
 
+        // Licensing first when it's the goal.
+        let licSaved = licToday - licPlan
+        var licMetrics = [SolutionMetric("Licensed cores", licSaved == 0 ? Fmt.int(Int(licToday)) : "\(Fmt.int(Int(licToday))) → \(Fmt.int(Int(licPlan)))",
+                                         (licSaved > 0 ? "−\(Fmt.int(Int(licSaved))) (\(W.pct(licSaved / max(licToday, 1)))), " : (licSaved < 0 ? "+\(Fmt.int(Int(-licSaved))), " : ""))
+                                            + "at \(SFmt.num(coreMin)) cores minimum per CPU",
+                                         symbol: "checkmark.seal", status: licSaved < 0 ? .warning : nil)]
+        if licCost > 0 {
+            licMetrics.append(SolutionMetric("Licensing", licSaved >= 0 ? "\(SFmt.usd(licSaved * licCost)) a year saved" : "\(SFmt.usd(-licSaved * licCost)) a year more",
+                                             "\(SFmt.usd(licSaved * licCost * licYears)) over \(SFmt.num(licYears)) years at \(SFmt.usd(licCost)) per core; "
+                                                + "\(SFmt.usd(licPlan * licCost)) a year in all", symbol: "dollarsign.circle", status: licSaved < 0 ? .warning : nil))
+        }
+        let impactMetric = SolutionMetric("Impact", impact.score == 0 ? "None" : "\(impact.level) (\(impact.score) of 100)", impact.text + (impact.storageUnknown ? "; storage moves for merges not in the export" : ""),
+                                          symbol: "arrow.left.arrow.right", status: impact.level == "High" ? .warning : nil)
+        metrics = goal == 1 ? licMetrics + metrics + [impactMetric] : Array(metrics.prefix(3)) + licMetrics + [impactMetric] + Array(metrics.dropFirst(3))
+
         let headline: String
         if recommend {
             var parts: [String] = []
             if clustersPlan != clustersToday { parts.append("\(clustersToday) clusters → \(clustersPlan)") }
             if !spareHosts.isEmpty { parts.append("\(spareHosts.count) host\(spareHosts.count == 1 ? "" : "s") released") }
+            if !retiredHosts.isEmpty { parts.append("\(retiredHosts.count) retired") }
             if newCount > 0 { parts.append("\(newCount) new host\(newCount == 1 ? "" : "s") needed") }
             if !upgraded.isEmpty { parts.append("memory added to \(upgraded.count) host\(upgraded.count == 1 ? "" : "s") (+\(Fmt.memory(mib: addedGiB * 1024)))") }
+            if goal == 1 && licSaved != 0 { parts.insert("licensed cores \(Fmt.int(Int(licToday))) → \(Fmt.int(Int(licPlan)))", at: 0) }
             headline = "\(todayHosts.count) hosts in \(clustersToday) clusters: " + (parts.isEmpty ? "no changes needed" : parts.joined(separator: ", "))
                 + (shortfalls.isEmpty ? "" : "; \(shortfalls.count) cluster\(shortfalls.count == 1 ? "" : "s") still short")
+                + (impact.level == "None" ? "" : ". Impact: \(impact.level.lowercased())")
         } else {
             headline = shortToday.isEmpty
                 ? "All \(clustersToday) clusters fit \(downText)" + (surplusToday > 0 ? "; \(surplusToday) hosts more than needed" : "")
@@ -1062,6 +1309,7 @@ public struct WorkloadConsolidation: Solution {
             "A cluster fits when CPU and memory stay at or below \(SFmt.num(maxLoad * 100))% \(downText) (the largest hosts out), with at least \(minHostsParam) hosts (3 on vSAN).",
             "CPU families come from each host's highest EVC mode, or its CPU model. Skylake and Cascade Lake are one family (Xeon Scalable 1st–2nd gen), as are Sapphire and Emerald Rapids.",
             "Roles and environments are guessed from cluster names; use the overrides when a guess is wrong.",
+            "Impact counts running VMs on every host that is moved, merged into another cluster, released, retired or upgraded (each host is evacuated into maintenance mode), VMs to power-cycle where the plan puts newer CPUs under a lower EVC mode, and VM storage that must change datastore: a merge with vSAN or with no datastore shared, and a vSAN host's share when it leaves. The score out of 100 counts each live vMotion as a quarter of a power cycle, as a share of running VMs, plus a point per TiB of storage to move: Low is under 10, Medium under 30.",
             "Memory sizes are nominal (a host reporting 766.7 GiB has 768 GiB installed). Upgrades assume every host can reach the new size; check DIMM slots and the vendor's population rules.",
         ]
         if !basisFallback.isEmpty { method.append("No host usage for \(basisFallback.joined(separator: ", ")): sized from configured vCPU and memory.") }
@@ -1071,6 +1319,30 @@ public struct WorkloadConsolidation: Solution {
         if !outsideVMs.isEmpty { method.append("\(outsideVMs.count) selected VMs run outside a cluster in scope (standalone hosts) and aren't planned.") }
         method += notes
 
+        // Retiring each vendor's oldest family, tried as a what-if.
+        var retireIdeas = CheckBuilder()
+        if recommend && p.flag("suggestRetire") {
+            for (vendor, param) in [("Intel", "minIntel"), ("AMD", "minAMD")] {
+                let present = hosts.filter { !$0.retired && !$0.isNew && $0.gen.vendor == vendor }
+                let families = Set(present.compactMap { CPUFamily.index($0.gen.family) })
+                guard let oldest = families.min(), families.count > 1 else { continue }
+                let fam = (vendor == "Intel" ? CPUFamily.intelOrder : CPUFamily.amdOrder)[oldest]
+                let going = present.filter { CPUFamily.index($0.gen.family) == oldest }
+                let o = evaluate(vms: vms, inventory: inv, params: p.setting(param, .choice(oldest + 1)), probe: true).outcome
+                let fine = o.newHosts == 0 && o.shortfalls == 0
+                let title = fine ? "Retire all \(going.count) \(CPUFamily.short(fam)) hosts" : "Retiring all \(going.count) \(CPUFamily.short(fam)) hosts needs \(o.newHosts) new host\(o.newHosts == 1 ? "" : "s")"
+                var parts = [fine ? "The remaining hosts can carry their workloads." : "The remaining hosts can't carry everything.",
+                             "Hosts \(planned.count) → \(o.hosts), licensed cores \(Fmt.int(Int(licPlan))) → \(Fmt.int(Int(o.licensed)))"
+                                + (licCost > 0 && o.licensed < licPlan ? " (\(SFmt.usd((licPlan - o.licensed) * licCost)) a year less)" : "") + "."]
+                if o.upgraded > upgraded.count { parts.append("Memory upgrades on \(o.upgraded) hosts (+\(Fmt.memory(mib: o.addedGiB * 1024))).") }
+                parts.append("Impact: \(o.impact.level.lowercased()) (\(o.impact.score) of 100), \(o.impact.text).")
+                retireIdeas.add("retire-idea-\(vendor)", "Retirement", title, fine ? .info : .warning, parts.joined(separator: " "),
+                                remediation: "\(CPUFamily.label(fam)) is the oldest \(vendor) family here. Retiring it also removes the need for EVC below the next family.",
+                                affected: going.map { hostRef($0, "\($0.originName), \($0.gen.name)") },
+                                actions: [SolutionAction("Retire them", symbol: "trash", help: "Sets the oldest \(vendor) family to keep.", set: [param: .choice(oldest + 1)])])
+            }
+        }
+
         var sections: [SolutionSection] = [.metrics("Summary", metrics)]
         sections.append(.table(SolutionTable(id: "today", title: "Today", subtitle: "Load is CPU and memory \(downText), against \(SFmt.num(maxLoad * 100))%.",
                                              columns: ["Cluster", "Datacenter", "Role", "Hosts", "CPU", "Memory per host", "VMs", "vCPU:core", "CPU", "Memory", "Verdict"],
@@ -1078,9 +1350,13 @@ public struct WorkloadConsolidation: Solution {
         sections.append(.checks(recommend ? "Plan changes" : "Your overrides", changes.checks,
                                 subtitle: "Each change can be undone here; it's then kept as an override under Assumptions."))
         sections.append(.table(SolutionTable(id: "plan", title: "Planned clusters", subtitle: "Load \(downText), against \(SFmt.num(maxLoad * 100))%.",
-                                             columns: ["Cluster", "Role", "Hosts", "CPU", "Memory per host", "CPU", "Memory", "vCPU:core", "EVC", "Changes"],
-                                             numeric: [5, 6, 7], rows: planRows, rowRefs: planRefs, rowActions: planActions)))
+                                             columns: ["Cluster", "Role", "Hosts", "Licensed cores", "CPU", "Memory per host", "CPU", "Memory", "vCPU:core", "EVC", "Changes"],
+                                             numeric: [3, 6, 7, 8], rows: planRows, rowRefs: planRefs, rowActions: planActions)))
         sections.append(.checks("Validation", v.checks.isEmpty ? [SolutionCheck(id: "ok", area: "Plan", title: "No issues found", status: .ready, summary: "The planned clusters pass every check.", remediation: "", affected: [])] : v.checks))
+        if !retireIdeas.checks.isEmpty {
+            sections.append(.checks("Retire the oldest hosts?", retireIdeas.checks,
+                                    subtitle: "What this plan would look like with each CPU vendor's oldest family retired."))
+        }
         if !opportunities.checks.isEmpty {
             sections.append(.checks("Other merges to try", opportunities.checks, subtitle: "Pairs in the same datacenter that would need fewer hosts together, but weren't recommended."))
         }
@@ -1089,7 +1365,7 @@ public struct WorkloadConsolidation: Solution {
                                                  rows: hostRows, rowRefs: hostRefs)))
         }
         sections.append(.notes("Method", method))
-        return SolutionResult(headline: headline, sections: sections)
+        return (SolutionResult(headline: headline, sections: sections), outcome)
     }
 }
 

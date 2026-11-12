@@ -132,6 +132,7 @@ public extension ParamValues {
                 v.values[name] = .names(value.split(separator: ",").map { g in
                     PlanEntry.join(g.split(separator: "+").map { $0.trimmingCharacters(in: .whitespaces) })
                 })
+            case .hostList: v.values[name] = .names(value.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty })
             // "A=1536,B=0".
             case .clusterValues:
                 v.values[name] = .names(value.split(separator: ",").compactMap { e in
