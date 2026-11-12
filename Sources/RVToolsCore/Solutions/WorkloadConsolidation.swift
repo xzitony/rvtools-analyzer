@@ -63,6 +63,10 @@ public struct WorkloadConsolidation: Solution {
                            help: "Each group becomes one cluster, whatever the recommendations say."),
             .clusters("solo", "Overrides", "Keep standalone", multi: true, none: "None",
                       help: "Never merged, and CPU alignment neither moves its hosts out nor moves hosts in. For example, a database cluster licensed by its hosts. Memory upgrades and releasing hosts still apply."),
+            .clusters("newest", "Overrides", "Give these clusters the newest hosts", multi: true, none: "None",
+                      help: "Swaps a cluster's oldest hosts, one for one, for the newest of the same CPU vendor elsewhere in its datacenter, closest in cores first. For clusters that need the fastest CPUs, such as databases licensed per core. Clusters kept standalone don't give up hosts."),
+            .choice("ramTarget", "Overrides", "Bring every host to at least", ["No target"] + sizes.map(WorkloadConsolidation.ramLabel),
+                    help: "Memory bought for the hosts that stay: every remaining host below it is upgraded, then hosts the extra memory makes unnecessary are released. Memory per host set for a cluster below wins. Capped at the most memory a host takes."),
             .clusterValues("ram", "Overrides", "Memory per host", values: [0] + sizes, labels: ["No upgrade"] + sizes.map(WorkloadConsolidation.ramLabel),
                            help: "Hosts with less memory are upgraded to this size. No upgrade stops a recommended one. In a merged cluster, the largest size set for any of its clusters applies."),
             .hostMoves("moves", "Overrides", "Move hosts",
@@ -189,6 +193,8 @@ public struct WorkloadConsolidation: Solution {
         var retiredBy = ""
         var movedBy = ""
         var fromPool = false
+        /// Swapped into a cluster that gets the newest hosts: released last there.
+        var newestIn = false
         /// Memory before an upgrade, nominal GiB; 0 when not upgraded.
         var upgradedFrom = 0.0
         /// Installed memory as sold (768 GiB rather than the 766.7 the host reports).
@@ -425,7 +431,7 @@ public struct WorkloadConsolidation: Solution {
             guard fits(hs, d, minimum) else { return (hs, []) }
             let major = W.majority(hs)
             func rank(_ h: WHost) -> (Int, Int, Int, Double, Double, String) {
-                let m = h.maintenance ? 0 : 1, onMajor = h.gen.family == major ? 1 : 0
+                let m = h.maintenance ? 0 : (h.newestIn ? 2 : 1), onMajor = h.gen.family == major ? 1 : 0
                 switch goal {
                 case 1: return (m, -Int(h.licensed(coreMin)), onMajor, h.ramGiB, h.cores, h.name)
                 case 2: return (m, h.gen.rank, onMajor, h.ramGiB, h.cores, h.name)
@@ -667,6 +673,47 @@ public struct WorkloadConsolidation: Solution {
             }
         }
 
+        // 3b. Newest hosts to the clusters you chose: their oldest hosts swap, one for one, with the newest elsewhere in the datacenter.
+        struct Swap { let cluster: Int; let inID: String; let outID: String; let donor: Int }
+        var swaps: [Swap] = []
+        let newestIDs = p.names("newest").compactMap(resolve).map(\.id)
+        var priority: [Int] = []
+        for id in newestIDs {
+            if let ci = plan.firstIndex(where: { pc in pc.members.contains { $0.id == id } }), !priority.contains(ci) { priority.append(ci) }
+        }
+        let priorityIDs = Set(priority.map { plan[$0].id })
+        func older(_ a: WHost, _ b: WHost) -> Bool { (a.gen.rank, a.cores, a.name) < (b.gen.rank, b.cores, b.name) }
+        for ci in priority {
+            let vendor = W.majorityVendor(members(ci))
+            let ownIDs = members(ci).filter { !$0.pinned && !$0.isNew && $0.gen.vendor == vendor }.sorted(by: older).map(\.id)
+            for hid in ownIDs {
+                guard let hi = hosts.firstIndex(where: { $0.id == hid }) else { continue }
+                let mine = hosts[hi]
+                var best: Int?
+                for di in hosts.indices {
+                    let d = hosts[di]
+                    guard !d.released, !d.pinned, !d.isNew, d.gen.vendor == vendor, d.gen.rank > mine.gen.rank,
+                          !priorityIDs.contains(d.cluster), let dc = plan.firstIndex(where: { $0.id == d.cluster }),
+                          plan[dc].site == plan[ci].site, !plan[dc].solo else { continue }
+                    if let b = best {
+                        let cur = hosts[b]
+                        let better = d.gen.rank != cur.gen.rank ? d.gen.rank > cur.gen.rank
+                            : (abs(d.cores - mine.cores) != abs(cur.cores - mine.cores) ? abs(d.cores - mine.cores) < abs(cur.cores - mine.cores) : d.ramGiB > cur.ramGiB)
+                        if better { best = di }
+                    } else {
+                        best = di
+                    }
+                }
+                guard let di = best, let dc = plan.firstIndex(where: { $0.id == hosts[di].cluster }) else { break }
+                hosts[di].cluster = plan[ci].id
+                hosts[di].movedBy = "newest hosts"
+                hosts[di].newestIn = true
+                hosts[hi].cluster = plan[dc].id
+                hosts[hi].movedBy = "newest hosts"
+                swaps.append(Swap(cluster: ci, inID: hosts[di].id, outID: hid, donor: dc))
+            }
+        }
+
         // 4. Memory.
         var ramByCluster: [String: Double] = [:]
         for e in ramNames {
@@ -679,13 +726,21 @@ public struct WorkloadConsolidation: Solution {
             guard l.mem > maxLoad, l.cpu <= maxLoad, hs.count >= minimum, let low = hs.map(\.nominalGiB).min() else { return nil }
             return W.ramSizes.first { $0 > low && $0 <= maxRAM && fits(W.withMemory(hs, floor: $0), d, minimum) }
         }
+        let ramTargetChoice = p.choice("ramTarget")
+        let ramTarget = ramTargetChoice > 0 && ramTargetChoice <= W.ramSizes.count ? min(W.ramSizes[ramTargetChoice - 1], maxRAM) : 0
         for ci in plan.indices {
             let set = plan[ci].members.compactMap { ramByCluster[$0.id] }
             if let v = set.max() {
                 plan[ci].ramFloor = v
                 plan[ci].ramSetByYou = true
-            } else if autoRAM < 2 {
-                let hs = members(ci), d = plan[ci].demand, minimum = minHosts(ci)
+            } else {
+                if ramTarget > 0 {
+                    plan[ci].ramFloor = ramTarget
+                    plan[ci].ramReason = "the memory target"
+                }
+            }
+            if set.isEmpty && autoRAM < 2 {
+                let hs = W.withMemory(members(ci), floor: ramTarget), d = plan[ci].demand, minimum = minHosts(ci)
                 if let s = memoryFix(hs, d, minimum) {
                     plan[ci].ramFloor = s
                     plan[ci].ramReason = "short of memory"
@@ -977,6 +1032,29 @@ public struct WorkloadConsolidation: Solution {
                         .info, "\(plan[m.from].name) runs mostly \(CPUFamily.label(W.majority(members(m.from)))) and still fits without them; \(plan[m.to].name) runs \(CPUFamily.label(m.family)). " + movesText(hs),
                         affected: hs.map { hostRef($0, $0.gen.name) }, actions: [keepAction(hs, label: "Keep them in \(plan[m.from].name)")])
         }
+        let newestNames = p.names("newest")
+        for ci in priority {
+            let mine = swaps.filter { $0.cluster == ci }
+            let c = plan[ci]
+            let undo = SolutionAction("Don't swap hosts", symbol: "arrow.uturn.backward", help: "Removes \(c.name) from Give these clusters the newest hosts.",
+                                      set: ["newest": .names(newestNames.filter { n in resolve(n).map { r in !c.members.contains { $0.id == r.id } } ?? true })])
+            guard !mine.isEmpty else {
+                changes.add("newest-\(ci)", "Newest hosts", "\(c.name) already has the newest hosts", .info,
+                            "No host of its CPU vendor elsewhere in \(c.siteName) is newer than its oldest.", affected: [cref(c)], actions: [undo])
+                continue
+            }
+            let byID = Dictionary(hosts.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let ins = mine.compactMap { byID[$0.inID] }, outs = mine.compactMap { byID[$0.outID] }
+            let coreIn = ins.reduce(0.0) { $0 + $1.licensed(coreMin) }, coreOut = outs.reduce(0.0) { $0 + $1.licensed(coreMin) }
+            let gensIn = Array(Set(ins.map(\.gen.name))).sorted().joined(separator: ", ")
+            let gensOut = Array(Set(outs.map(\.gen.name))).sorted().joined(separator: ", ")
+            var text = "\(gensOut) out, \(gensIn) in, one for one with \(Array(Set(mine.map { plan[$0.donor].name })).sorted().joined(separator: ", "))."
+            if coreIn != coreOut { text += " Licensed cores in \(c.name) \(coreIn > coreOut ? "rise" : "fall") by \(Fmt.int(Int(abs(coreIn - coreOut)))), which matters where its workloads are licensed per core." }
+            text += " " + movesText(ins + outs)
+            changes.add("newest-\(ci)", "Newest hosts", "Swap \(mine.count) host\(mine.count == 1 ? "" : "s") into \(c.name) for newer ones", .info, text,
+                        affected: mine.compactMap { sw in byID[sw.inID].map { hostRef($0, "\($0.originName), \($0.gen.name) in; \(byID[sw.outID]?.gen.name ?? "") out") } },
+                        actions: [undo])
+        }
         for (ci, c) in plan.enumerated() where c.ramFloor > 0 {
             let up = planned.filter { $0.cluster == c.id && $0.upgradedFrom > 0 }
             guard !up.isEmpty else { continue }
@@ -984,13 +1062,15 @@ public struct WorkloadConsolidation: Solution {
             var actions: [SolutionAction] = []
             if c.ramSetByYou {
                 actions.append(ramAction(c, -1, label: "Remove my memory setting"))
+            } else if c.ramReason == "the memory target" {
+                actions.append(SolutionAction("No memory target", symbol: "arrow.uturn.backward", help: "Clears Bring every host to at least.", set: ["ramTarget": .choice(0)]))
             } else {
                 actions.append(ramAction(c, 0))
                 let next = W.ramSizes.filter { $0 > c.ramFloor && $0 <= maxRAM }.prefix(1)
                 actions += next.map { ramAction(c, $0) }
             }
             changes.add("ram-\(ci)", "Memory", "Upgrade \(up.count) host\(up.count == 1 ? "" : "s") in \(c.name) to \(W.ramLabel(c.ramFloor))",
-                        .warning, "+\(Fmt.memory(mib: gib * 1024)) in all; " + (c.ramSetByYou ? "set by you. " : "\(c.ramReason), and the CPU has room. ") + movesText(up),
+                        .warning, "+\(Fmt.memory(mib: gib * 1024)) in all; " + (c.ramSetByYou ? "set by you. " : (c.ramReason == "the memory target" ? "the memory target for every host. " : "\(c.ramReason), and the CPU has room. ")) + movesText(up),
                         affected: up.map { hostRef($0, "\(W.ramLabel($0.upgradedFrom)) → \(W.ramLabel(c.ramFloor))") }, actions: actions)
         }
         let releasedAuto = spareHosts.filter { $0.releasedBy == "not needed" }
@@ -1100,6 +1180,23 @@ public struct WorkloadConsolidation: Solution {
                               "Would need \(c.saving) host\(c.saving == 1 ? "" : "s") fewer. Not recommended: \(c.why).",
                               affected: [AffectedObject(kind: .cluster, id: c.a.id, name: c.a.name), AffectedObject(kind: .cluster, id: c.b.id, name: c.b.name)],
                               actions: [mergeAction([c.a, c.b], label: "Merge")])
+        }
+        // Database clusters on older CPUs than others in their datacenter: newer hosts are worth more where licensing is per core.
+        for (ci, c) in plan.enumerated() where c.role == .database && !priority.contains(ci) {
+            let hs = members(ci).filter { !$0.isNew }
+            let vendor = W.majorityVendor(hs)
+            guard let oldest = hs.filter({ $0.gen.vendor == vendor }).map(\.gen.rank).min() else { continue }
+            let newer = planned.filter { h in
+                !h.isNew && h.gen.vendor == vendor && h.gen.rank > oldest && h.cluster != c.id
+                    && plan.contains { $0.id == h.cluster && $0.site == c.site && !$0.solo }
+            }
+            guard let top = newer.max(by: { $0.gen.rank < $1.gen.rank }) else { continue }
+            let olderN = hs.filter { $0.gen.vendor == vendor && $0.gen.rank < top.gen.rank }.count
+            opportunities.add("newest-idea-\(ci)", "Newest hosts", "Give \(c.name) the newest hosts?", .info,
+                              "\(olderN) of its hosts are older than the \(top.gen.name) hosts elsewhere in \(c.siteName). Database licensing is usually per core, so the fastest cores go furthest there.",
+                              affected: [cref(c)],
+                              actions: [SolutionAction("Swap in newer hosts", symbol: "arrow.up.circle", help: "Adds \(c.name) to Give these clusters the newest hosts.",
+                                                       set: ["newest": .names(newestNames + [c.members[0].id])])])
         }
 
         // Validation of the planned clusters.
@@ -1282,7 +1379,7 @@ public struct WorkloadConsolidation: Solution {
                 change.append(h.releasedBy == "you" ? "released by you" : "released, not needed")
             }
             if h.fromPool { change.append("reused spare") }
-            if !h.movedBy.isEmpty && !h.fromPool { change.append(h.movedBy == "you" ? "moved by you" : "moved for CPU alignment") }
+            if !h.movedBy.isEmpty && !h.fromPool { change.append(h.movedBy == "you" ? "moved by you" : (h.movedBy == "newest hosts" ? "swapped for newer hosts" : "moved for CPU alignment")) }
             if h.upgradedFrom > 0 { change.append("memory upgrade") }
             if !h.released && !h.isNew && planIDOf[h.origin] != h.cluster && h.movedBy.isEmpty && !h.fromPool { change.append("moved") }
             guard !change.isEmpty else { continue }
@@ -1420,7 +1517,7 @@ public struct WorkloadConsolidation: Solution {
                                     subtitle: "What this plan would look like with each CPU vendor's oldest generation, or hosts below the licensing minimum, retired."))
         }
         if !opportunities.checks.isEmpty {
-            sections.append(.checks("Other merges to try", opportunities.checks, subtitle: "Pairs in the same datacenter that would need fewer hosts together, but weren't recommended."))
+            sections.append(.checks("Other ideas to try", opportunities.checks, subtitle: "Merges in the same datacenter that would need fewer hosts but weren't recommended, and clusters that could use newer hosts."))
         }
         if !hostRows.isEmpty {
             sections.append(.table(SolutionTable(id: "hosts", title: "Host changes", columns: ["Host", "Today in", "Planned", "Change", "CPU", "Memory"],
