@@ -54,6 +54,8 @@ public struct WorkloadConsolidation: Solution {
             .choice("minIntel", "Retirement", "Oldest Intel generation to keep", ["Keep every Intel host"] + CPURetirement.intel.map(\.name),
                     help: "Hosts of older generations are retired: they leave their clusters and aren't reused. What's left must carry the workloads, with memory upgrades, spare hosts or new hosts as needed. For ESX 9, Broadcom blocks Broadwell and older, allows Skylake-SP only with an override on listed servers, and deprecates Cascade Lake (it installs with a warning); check KB 318697 for the current list."),
             .choice("minAMD", "Retirement", "Oldest AMD generation to keep", ["Keep every AMD host"] + CPURetirement.amd.map(\.name)),
+            .number("minCores", "Retirement", "Retire hosts with fewer cores per CPU than", 0, min: 0, max: 64, step: 2, unit: "cores",
+                    help: "0 keeps every host. Small hosts cost a licensing minimum per CPU (often 16 cores) whatever their real core count, so 8-core hosts pay for twice what they run."),
             .hostList("retire", "Retirement", "Retire these hosts", help: "Individual hosts to decommission, whatever their CPU."),
             .toggle("suggestRetire", "Retirement", "Suggest retiring the oldest CPU generation", true,
                     help: "Tries retiring each vendor's oldest generation in scope and reports whether the remaining hosts can take over, and at what cost in memory, new hosts and VM moves."),
@@ -465,6 +467,7 @@ public struct WorkloadConsolidation: Solution {
 
         // 1. Retirement: below the oldest generation to keep, or chosen by you. Retired hosts are gone for good.
         let minIntel = p.choice("minIntel"), minAMD = p.choice("minAMD")
+        let minCores = max(0, Int(p.num("minCores")))
         let retireNames = p.names("retire")
         let retireIDs = Set(retireNames.compactMap { HostSpecs.resolve($0, in: inv)?.id })
         func belowMinimum(_ g: CPUBaseline) -> Bool {
@@ -478,7 +481,11 @@ public struct WorkloadConsolidation: Solution {
             hosts[i].pinned = true
         }
         for i in hosts.indices {
-            if retireIDs.contains(hosts[i].id) { retire(i, by: "you") } else if belowMinimum(hosts[i].gen) { retire(i, by: "minimum family") }
+            if retireIDs.contains(hosts[i].id) { retire(i, by: "you") } else if belowMinimum(hosts[i].gen) {
+                retire(i, by: "minimum family")
+            } else if minCores > 0 && hosts[i].coresPerSocket > 0 && hosts[i].coresPerSocket < minCores {
+                retire(i, by: "cores")
+            }
         }
 
         // 2. Your host moves, on today's clusters.
@@ -1005,6 +1012,17 @@ public struct WorkloadConsolidation: Solution {
                         actions: [SolutionAction("Keep \(name) hosts", symbol: "arrow.uturn.backward", help: "Lowers the oldest generation to keep.",
                                                  set: [vendor == "AMD" ? "minAMD" : "minIntel": .choice(tier)])])
         }
+        let retiredSmall = retiredHosts.filter { $0.retiredBy == "cores" }
+        if !retiredSmall.isEmpty {
+            let smallReal = retiredSmall.reduce(0.0) { $0 + $1.cores }, smallPaid = retiredSmall.reduce(0.0) { $0 + $1.licensed(coreMin) }
+            let counts = Dictionary(grouping: retiredSmall, by: \.coresPerSocket).sorted { $0.key < $1.key }.map { "\($0.value.count) with \($0.key) cores" }
+            changes.add("retire-cores", "Retirement", "Retire \(retiredSmall.count) host\(retiredSmall.count == 1 ? "" : "s") under \(minCores) cores per CPU", .info,
+                        "\(counts.joined(separator: ", ")) per CPU. Frees \(licensedText(retiredSmall))"
+                            + (smallReal < smallPaid ? " for \(Fmt.int(Int(smallReal))) real cores. " : ". ")
+                            + movesText(retiredSmall),
+                        affected: retiredSmall.map { hostRef($0, "\($0.originName), \($0.coresPerSocket) cores × \($0.sockets)") },
+                        actions: [SolutionAction("Keep them", symbol: "arrow.uturn.backward", help: "Sets the minimum cores per CPU to 0.", set: ["minCores": .number(0)])])
+        }
         let retiredByYou = retiredHosts.filter { $0.retiredBy == "you" }
         if !retiredByYou.isEmpty {
             changes.add("retire-you", "Retirement", "Retire \(retiredByYou.count) host\(retiredByYou.count == 1 ? "" : "s") (set by you)", .info,
@@ -1237,7 +1255,8 @@ public struct WorkloadConsolidation: Solution {
             let inPlan = h.retired ? "Retired" : (h.released ? "Spare pool" : (planName[h.cluster] ?? ""))
             if h.isNew { change.append("new") }
             if h.retired {
-                change.append(h.retiredBy == "you" ? "retired by you" : "retired, older than the generation to keep")
+                change.append(h.retiredBy == "you" ? "retired by you"
+                              : (h.retiredBy == "cores" ? "retired, \(h.coresPerSocket) cores per CPU" : "retired, older than the generation to keep"))
             } else if h.released {
                 change.append(h.releasedBy == "you" ? "released by you" : "released, not needed")
             }
@@ -1343,6 +1362,26 @@ public struct WorkloadConsolidation: Solution {
                                 affected: going.map { hostRef($0, "\($0.originName), \($0.gen.name)") },
                                 actions: [SolutionAction("Retire them", symbol: "trash", help: "Sets the oldest \(vendor) generation to keep.", set: [param: .choice(oldest + 1)])])
             }
+            // Hosts below the licensing minimum per CPU pay for cores they don't have.
+            let small = hosts.filter { !$0.retired && !$0.isNew && $0.coresPerSocket > 0 && Double($0.coresPerSocket) < coreMin }
+            if minCores == 0 && !small.isEmpty && small.count < hosts.filter({ !$0.retired && !$0.isNew }).count {
+                let target = Int(coreMin)
+                let o = evaluate(vms: vms, inventory: inv, params: p.setting("minCores", .number(Double(target))), probe: true).outcome
+                let fine = o.newHosts == 0 && o.shortfalls == 0
+                let paid = small.reduce(0.0) { $0 + $1.licensed(coreMin) }, real = small.reduce(0.0) { $0 + $1.cores }
+                let title = fine ? "Retire the \(small.count) host\(small.count == 1 ? "" : "s") under \(target) cores per CPU"
+                    : "Retiring the \(small.count) host\(small.count == 1 ? "" : "s") under \(target) cores per CPU needs \(o.newHosts) new host\(o.newHosts == 1 ? "" : "s")"
+                var parts = ["They license \(Fmt.int(Int(paid))) cores for \(Fmt.int(Int(real))) real ones.",
+                             fine ? "The remaining hosts can carry their workloads." : "The remaining hosts can't carry everything.",
+                             "Hosts \(planned.count) → \(o.hosts), licensed cores \(Fmt.int(Int(licPlan))) → \(Fmt.int(Int(o.licensed)))"
+                                + (licCost > 0 && o.licensed < licPlan ? " (\(SFmt.usd((licPlan - o.licensed) * licCost)) a year less)" : "") + "."]
+                if o.upgraded > upgraded.count { parts.append("Memory upgrades on \(o.upgraded) hosts (+\(Fmt.memory(mib: o.addedGiB * 1024))).") }
+                parts.append("Impact: \(o.impact.level.lowercased()) (\(o.impact.score) of 100), \(o.impact.text).")
+                retireIdeas.add("retire-idea-cores", "Retirement", title, fine ? .info : .warning, parts.joined(separator: " "),
+                                remediation: "Below the \(target)-core licensing minimum, a host is licensed for cores it doesn't have.",
+                                affected: small.map { hostRef($0, "\($0.originName), \($0.coresPerSocket) cores × \($0.sockets)") },
+                                actions: [SolutionAction("Retire them", symbol: "trash", help: "Sets the minimum cores per CPU to \(target).", set: ["minCores": .number(Double(target))])])
+            }
         }
 
         var sections: [SolutionSection] = [.metrics("Summary", metrics)]
@@ -1357,7 +1396,7 @@ public struct WorkloadConsolidation: Solution {
         sections.append(.checks("Validation", v.checks.isEmpty ? [SolutionCheck(id: "ok", area: "Plan", title: "No issues found", status: .ready, summary: "The planned clusters pass every check.", remediation: "", affected: [])] : v.checks))
         if !retireIdeas.checks.isEmpty {
             sections.append(.checks("Retire the oldest hosts?", retireIdeas.checks,
-                                    subtitle: "What this plan would look like with each CPU vendor's oldest generation retired."))
+                                    subtitle: "What this plan would look like with each CPU vendor's oldest generation, or hosts below the licensing minimum, retired."))
         }
         if !opportunities.checks.isEmpty {
             sections.append(.checks("Other merges to try", opportunities.checks, subtitle: "Pairs in the same datacenter that would need fewer hosts together, but weren't recommended."))
