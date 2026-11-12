@@ -455,9 +455,9 @@ public struct WorkloadConsolidation: Solution {
             return nil
         }
         /// Hosts the demand needs: after releasing what it doesn't, or with new hosts added.
-        func needed(_ hs: [WHost], _ d: Demand, _ minimum: Int) -> Int {
+        func needed(_ hs: [WHost], _ d: Demand, _ minimum: Int, like fallback: WHost? = nil) -> Int {
             if fits(hs, d, minimum) { return trim(hs, d, minimum).kept.count }
-            return hs.count + (additions(hs, d, minimum) ?? 999)
+            return hs.count + (additions(hs, d, minimum, like: fallback) ?? 999)
         }
 
         // Overrides already set, for building one-click changes.
@@ -532,11 +532,28 @@ public struct WorkloadConsolidation: Solution {
             if members.count > 1 { groups.append((members, true)); grouped.formUnion(members.map(\.id)) }
         }
         func roleOf(_ c: Cluster) -> Role { W.role(c.name) }
-        func clusterFamily(_ c: Cluster) -> String { W.majority(hostsOf([c.id])) }
-        func clusterVendor(_ c: Cluster) -> String { W.majorityVendor(hostsOf([c.id])) }
+        /// A cluster retirement left without hosts: its workloads still need a home.
+        func emptied(_ c: Cluster) -> Bool { hostsOf([c.id]).isEmpty && baseHosts.contains { $0.origin == c.id && $0.retired } }
+        /// A cluster's hosts, or the ones it had before retirement when none are left.
+        func hostsOrOriginal(_ c: Cluster) -> [WHost] {
+            let hs = hostsOf([c.id])
+            return hs.isEmpty ? baseHosts.filter { $0.origin == c.id } : hs
+        }
+        func clusterFamily(_ c: Cluster) -> String { W.majority(hostsOrOriginal(c)) }
+        func clusterVendor(_ c: Cluster) -> String { W.majorityVendor(hostsOrOriginal(c)) }
+        /// What new hosts would look like in a cluster's datacenter: the typical host of the newest family kept there.
+        func siteTypical(_ c: Cluster) -> WHost? {
+            let site = siteKey(c)
+            let kept = baseHosts.filter { h in !h.retired && !h.isNew && scope.contains { $0.id == h.origin && siteKey($0) == site } }
+            guard let newest = kept.compactMap({ CPUFamily.index($0.gen.family) }).max() else { return nil }
+            return W.typical(kept.filter { CPUFamily.index($0.gen.family) == newest })
+        }
         func demandOf(_ cs: [Cluster]) -> Demand { cs.reduce(Demand()) { $0 + (demandByCluster[$1.id] ?? Demand()) } }
         func mergeSaving(_ cs: [Cluster]) -> Int {
-            let apart = cs.reduce(0) { $0 + needed(hostsOf([$1.id]), demandOf([$1]), minHosts(vsan([$1.id]))) }
+            let apart = cs.reduce(0) { n, c in
+                let hs = hostsOf([c.id])
+                return n + needed(hs, demandOf([c]), minHosts(vsan([c.id])), like: hs.isEmpty ? siteTypical(c) : nil)
+            }
             let together = needed(hostsOf(cs.map(\.id)), demandOf(cs), minHosts(vsan(cs.map(\.id))))
             return apart - together
         }
@@ -554,7 +571,7 @@ public struct WorkloadConsolidation: Solution {
         }
         if recommend && p.flag("autoMerge") {
             let eligible = scope.filter {
-                !grouped.contains($0.id) && !soloIDs.contains($0.id) && vmsByCluster[$0.id] != nil && !hostsOf([$0.id]).isEmpty
+                !grouped.contains($0.id) && !soloIDs.contains($0.id) && vmsByCluster[$0.id] != nil && (!hostsOf([$0.id]).isEmpty || emptied($0))
                     && (roleOf($0) == .general || (approach == 1 && roleOf($0) == .vdi))
             }
             let buckets = Dictionary(grouping: eligible) { c -> String in
@@ -941,8 +958,12 @@ public struct WorkloadConsolidation: Solution {
             let joining = hosts.filter { h in !h.isNew && c.members.contains { $0.id == h.origin && $0.id != main } }
             let st = mergeStorage(c)
             let why = c.forced ? "Merged by you. " : (approach == 1 ? "Same datacenter and CPU vendor (aggressive). " : (approach == 2 ? "Matching hosts in the same datacenter (conservative). " : "Same datacenter, CPU family and environment. "))
+            let gone = c.members.filter { m in todayHosts.contains { $0.origin == m.id } && !hosts.contains { !$0.retired && $0.origin == m.id } }
+            let goneNames: String = gone.map(\.name).joined(separator: " and ")
+            let goneText: String = gone.isEmpty ? "" : " \(goneNames) \(gone.count == 1 ? "has" : "have") no hosts left after retirement."
             let summary = why
                 + (saving > 0 ? "Needs \(saving) host\(saving == 1 ? "" : "s") fewer than apart (one set of failover hosts instead of \(c.members.count))." : "Saves no hosts at these settings, but leaves one cluster fewer.")
+                + goneText
                 + " \(before) hosts today. The others join \(c.members.first { $0.id == main }?.name ?? ""): " + movesText(joining)
                 + (st.mib > 0 ? " \(Fmt.capacity(mib: st.mib)) of VM storage moves too." : (st.unknown ? " Whether storage moves isn't in the export." : ""))
             let actions = c.forced ? [unmerge(c)] : c.members.prefix(3).map(keepSeparate)
