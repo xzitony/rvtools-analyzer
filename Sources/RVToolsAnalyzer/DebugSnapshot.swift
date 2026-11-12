@@ -69,6 +69,24 @@ enum DebugSnapshot {
                     model.sidebar = .solution(s)
                  }),
                  ("61-vcfsizing-reset", { model.solutionParams[s.id]?.values["edition"] = nil; model.sidebar = .overview })]
+            } ?? []) + (SolutionCatalog.solution(id: "consolidation").map { s -> [(String, () -> Void)] in
+                // Workload Consolidation with an override of each kind, on the export's first clusters.
+                let ids = (inv?.clusters ?? []).filter { !$0.isStandalone && $0.hostCount > 0 }.map(\.id)
+                return [("62-consolidation-overrides-assumptions", {
+                    guard ids.count > 1 else { return }
+                    var v = model.solutionParams[s.id, default: ParamValues()]
+                    v.values["merge"] = .names([PlanEntry.join([ids[0], ids[1]])])
+                    v.values["ram"] = .names([PlanEntry.join([ids[0], "1024"])])
+                    v.values["moves"] = .names([PlanEntry.join([ids[1], HostMove.all, HostMove.keep])])
+                    model.solutionParams[s.id] = v
+                    model.solutionTab[s.id] = 1
+                    model.sidebar = .solution(s)
+                 }),
+                 ("63-consolidation-overrides-results", { model.solutionTab[s.id] = 2; model.sidebar = .solution(s) }),
+                 ("64-consolidation-reset", {
+                    for k in ["merge", "ram", "moves"] { model.solutionParams[s.id]?.values[k] = nil }
+                    model.sidebar = .overview
+                 })]
             } ?? [])
             if let trend = model.trend {
                 let resized = trend.changes.first { $0.kind == .resized }?.key
